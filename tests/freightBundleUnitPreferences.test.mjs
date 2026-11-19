@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   applyFreightBundleUnitPreferences,
+  FREIGHT_BUNDLE_UNIT_LEDGER_SKIPS_STORAGE_KEY,
   findFreightBundleUnitPreference,
+  hasFreightBundleUnitLedgerReceipt,
   isFreightBundleUnitEmpty,
-  listFreightBundleUnitLedgerSkipMarkers,
+  listFreightBundleUnitLedgerReceipts,
   listFreightBundleUnitPreferences,
-  reconcileFreightBundleUnitLedgerSkipMarkers,
+  reconcileFreightBundleUnitLedgerReceipts,
   saveFreightBundleUnitPreference,
 } from "../src/lib/freightBundleUnitPreferences.ts";
 
@@ -96,34 +98,49 @@ test("opening the freight page migrates saved browser bundle units to Product Ma
   );
 
   assert.match(pageSource, /for \(const preference of listFreightBundleUnitPreferences\(\)\)/);
-  assert.match(pageSource, /listFreightBundleUnitLedgerSkipMarkers\(\)/);
-  assert.match(pageSource, /skippedPreferenceVersions\.has/);
+  assert.match(pageSource, /listFreightBundleUnitLedgerReceipts\(\)/);
+  assert.match(pageSource, /hasFreightBundleUnitLedgerReceipt\(/);
   assert.match(pageSource, /fetch\("\/api\/freight-bundle-units"/);
-  assert.match(pageSource, /reconcileFreightBundleUnitLedgerSkipMarkers\(/);
+  assert.match(pageSource, /reconcileFreightBundleUnitLedgerReceipts\(/);
   assert.match(
     pageSource,
     /saveFreightBundleUnitPreference\([\s\S]*stored\.updatedAt,[\s\S]*\);/,
   );
 });
 
-test("missing Product Master B-codes are skipped again only after their local value changes", () => {
+test("stored and missing Product Master B-codes are retried only after their local value changes", () => {
   const storage = memoryStorage();
-  const first = saveFreightBundleUnitPreference(
+  const stored = saveFreightBundleUnitPreference(
+    "BCE6-1",
+    10,
+    storage,
+    "2026-11-19T03:00:00.000Z",
+  );
+  const missing = saveFreightBundleUnitPreference(
     "BAA3-1",
     20,
     storage,
     "2026-11-19T04:00:00.000Z",
   );
-  reconcileFreightBundleUnitLedgerSkipMarkers(
-    [first],
-    [],
+  reconcileFreightBundleUnitLedgerReceipts(
+    [stored, missing],
+    [{ barcode: "BCE6-1", updatedAt: stored.updatedAt }],
     ["BAA3-1"],
     storage,
   );
-  assert.deepEqual(listFreightBundleUnitLedgerSkipMarkers(storage), [
-    { barcode: "BAA3-1", updatedAt: "2026-11-19T04:00:00.000Z" },
+  assert.deepEqual(listFreightBundleUnitLedgerReceipts(storage), [
+    {
+      barcode: "BAA3-1",
+      updatedAt: "2026-11-19T04:00:00.000Z",
+      result: "BARCODE_NOT_FOUND",
+    },
+    {
+      barcode: "BCE6-1",
+      updatedAt: "2026-11-19T03:00:00.000Z",
+      result: "STORED",
+    },
   ]);
-  assert.deepEqual(listFreightBundleUnitPreferences(storage), [first]);
+  assert.deepEqual(listFreightBundleUnitPreferences(storage), [missing, stored]);
 
   const changed = saveFreightBundleUnitPreference(
     "BAA3-1",
@@ -131,6 +148,46 @@ test("missing Product Master B-codes are skipped again only after their local va
     storage,
     "2026-11-19T05:00:00.000Z",
   );
-  const marker = listFreightBundleUnitLedgerSkipMarkers(storage)[0];
-  assert.notEqual(changed.updatedAt, marker.updatedAt);
+  const receipt = listFreightBundleUnitLedgerReceipts(storage).find(
+    (value) => value.barcode === "BAA3-1",
+  );
+  assert.equal(
+    hasFreightBundleUnitLedgerReceipt(
+      listFreightBundleUnitLedgerReceipts(storage),
+      "BAA3-1",
+      missing.updatedAt,
+    ),
+    true,
+  );
+  assert.equal(
+    hasFreightBundleUnitLedgerReceipt(
+      listFreightBundleUnitLedgerReceipts(storage),
+      "BCE6-1",
+      "2026-11-19T02:00:00.000Z",
+    ),
+    true,
+  );
+  assert.equal(
+    hasFreightBundleUnitLedgerReceipt(
+      listFreightBundleUnitLedgerReceipts(storage),
+      "BAA3-1",
+      changed.updatedAt,
+    ),
+    false,
+  );
+  assert.notEqual(changed.updatedAt, receipt.updatedAt);
+});
+
+test("legacy missing-code skip markers migrate to ledger receipts", () => {
+  const storage = memoryStorage();
+  storage.setItem(FREIGHT_BUNDLE_UNIT_LEDGER_SKIPS_STORAGE_KEY, JSON.stringify([
+    { barcode: " baa3-1 ", updatedAt: "2026-11-19T04:00:00.000Z" },
+  ]));
+  assert.deepEqual(listFreightBundleUnitLedgerReceipts(storage), [
+    {
+      barcode: "BAA3-1",
+      updatedAt: "2026-11-19T04:00:00.000Z",
+      result: "BARCODE_NOT_FOUND",
+    },
+  ]);
 });

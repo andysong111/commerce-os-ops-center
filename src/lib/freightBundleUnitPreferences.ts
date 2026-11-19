@@ -4,6 +4,8 @@ export const FREIGHT_BUNDLE_UNIT_PREFERENCES_STORAGE_KEY =
   "commerce-os.freightBundleUnitPreferences.v1";
 export const FREIGHT_BUNDLE_UNIT_LEDGER_SKIPS_STORAGE_KEY =
   "commerce-os.freightBundleUnitLedgerSkips.v1";
+export const FREIGHT_BUNDLE_UNIT_LEDGER_RECEIPTS_STORAGE_KEY =
+  "commerce-os.freightBundleUnitLedgerReceipts.v1";
 
 export interface FreightBundleUnitPreference {
   barcode: string;
@@ -14,6 +16,12 @@ export interface FreightBundleUnitPreference {
 export interface FreightBundleUnitLedgerSkipMarker {
   barcode: string;
   updatedAt: string;
+}
+
+export interface FreightBundleUnitLedgerReceipt {
+  barcode: string;
+  updatedAt: string;
+  result: "STORED" | "BARCODE_NOT_FOUND";
 }
 
 export interface FreightBundleUnitPreferenceStorage {
@@ -75,23 +83,59 @@ export function listFreightBundleUnitPreferences(
   }
 }
 
-export function listFreightBundleUnitLedgerSkipMarkers(
+function parseFreightBundleUnitLedgerReceipts(
+  value: string | null,
+): FreightBundleUnitLedgerReceipt[] {
+  const parsed: unknown = JSON.parse(value ?? "[]");
+  if (!Array.isArray(parsed)) return [];
+  const receipts: FreightBundleUnitLedgerReceipt[] = [];
+  for (const value of parsed) {
+    if (!value || typeof value !== "object") continue;
+    const candidate = value as Partial<FreightBundleUnitLedgerReceipt>;
+    const barcode = normalizeFreightBundleBarcode(candidate.barcode);
+    const updatedAt = candidate.updatedAt ?? "";
+    if (
+      !barcode ||
+      !Number.isFinite(Date.parse(updatedAt)) ||
+      (candidate.result !== "STORED" && candidate.result !== "BARCODE_NOT_FOUND")
+    ) continue;
+    receipts.push({ barcode, updatedAt, result: candidate.result });
+  }
+  return receipts;
+}
+
+export function listFreightBundleUnitLedgerReceipts(
   storage: FreightBundleUnitPreferenceStorage | undefined = browserStorage(),
-): FreightBundleUnitLedgerSkipMarker[] {
+): FreightBundleUnitLedgerReceipt[] {
   if (!storage) return [];
   try {
-    const parsed: unknown = JSON.parse(
+    const latestByBarcode = new Map<string, FreightBundleUnitLedgerReceipt>();
+    for (const receipt of parseFreightBundleUnitLedgerReceipts(
+      storage.getItem(FREIGHT_BUNDLE_UNIT_LEDGER_RECEIPTS_STORAGE_KEY),
+    )) {
+      const current = latestByBarcode.get(receipt.barcode);
+      if (!current || current.updatedAt <= receipt.updatedAt) {
+        latestByBarcode.set(receipt.barcode, receipt);
+      }
+    }
+
+    const legacyParsed: unknown = JSON.parse(
       storage.getItem(FREIGHT_BUNDLE_UNIT_LEDGER_SKIPS_STORAGE_KEY) ?? "[]",
     );
-    if (!Array.isArray(parsed)) return [];
-    const latestByBarcode = new Map<string, FreightBundleUnitLedgerSkipMarker>();
-    for (const value of parsed) {
+    for (const value of Array.isArray(legacyParsed) ? legacyParsed : []) {
       if (!value || typeof value !== "object") continue;
       const candidate = value as Partial<FreightBundleUnitLedgerSkipMarker>;
       const barcode = normalizeFreightBundleBarcode(candidate.barcode);
       const updatedAt = candidate.updatedAt ?? "";
       if (!barcode || !Number.isFinite(Date.parse(updatedAt))) continue;
-      latestByBarcode.set(barcode, { barcode, updatedAt });
+      const current = latestByBarcode.get(barcode);
+      if (!current || current.updatedAt < updatedAt) {
+        latestByBarcode.set(barcode, {
+          barcode,
+          updatedAt,
+          result: "BARCODE_NOT_FOUND",
+        });
+      }
     }
     return [...latestByBarcode.values()].sort((left, right) =>
       left.barcode.localeCompare(right.barcode),
@@ -101,37 +145,68 @@ export function listFreightBundleUnitLedgerSkipMarkers(
   }
 }
 
-export function reconcileFreightBundleUnitLedgerSkipMarkers(
+export function hasFreightBundleUnitLedgerReceipt(
+  receipts: FreightBundleUnitLedgerReceipt[],
+  barcode: unknown,
+  updatedAt: unknown,
+): boolean {
+  const normalizedBarcode = normalizeFreightBundleBarcode(barcode);
+  const candidateTime =
+    typeof updatedAt === "string" ? Date.parse(updatedAt) : Number.NaN;
+  if (!normalizedBarcode || !Number.isFinite(candidateTime)) return false;
+  const receipt = receipts.find((value) => value.barcode === normalizedBarcode);
+  return Boolean(
+    receipt && Date.parse(receipt.updatedAt) >= candidateTime,
+  );
+}
+
+export function reconcileFreightBundleUnitLedgerReceipts(
   attempted: FreightBundleUnitPreference[],
-  storedBarcodes: unknown[],
+  storedUpdates: Array<{ barcode: unknown; updatedAt?: unknown }>,
   skippedBarcodes: unknown[],
   storage: FreightBundleUnitPreferenceStorage | undefined = browserStorage(),
-): FreightBundleUnitLedgerSkipMarker[] {
+): FreightBundleUnitLedgerReceipt[] {
   if (!storage) return [];
-  const stored = new Set(storedBarcodes.map(normalizeFreightBundleBarcode).filter(Boolean));
   const skipped = new Set(skippedBarcodes.map(normalizeFreightBundleBarcode).filter(Boolean));
   const attemptedByBarcode = new Map(
-    attempted.map((preference) => [preference.barcode, preference] as const),
+    attempted.map((preference) => [
+      normalizeFreightBundleBarcode(preference.barcode),
+      preference,
+    ] as const),
   );
   const next = new Map(
-    listFreightBundleUnitLedgerSkipMarkers(storage)
-      .filter((marker) => !stored.has(marker.barcode))
-      .map((marker) => [marker.barcode, marker] as const),
+    listFreightBundleUnitLedgerReceipts(storage)
+      .map((receipt) => [receipt.barcode, receipt] as const),
   );
+  for (const stored of storedUpdates) {
+    const barcode = normalizeFreightBundleBarcode(stored.barcode);
+    const preference = attemptedByBarcode.get(barcode);
+    if (!preference) continue;
+    const storedUpdatedAt =
+      typeof stored.updatedAt === "string" &&
+      Number.isFinite(Date.parse(stored.updatedAt))
+        ? stored.updatedAt
+        : preference.updatedAt;
+    next.set(barcode, { barcode, updatedAt: storedUpdatedAt, result: "STORED" });
+  }
   for (const barcode of skipped) {
     const preference = attemptedByBarcode.get(barcode);
     if (preference) {
-      next.set(barcode, { barcode, updatedAt: preference.updatedAt });
+      next.set(barcode, {
+        barcode,
+        updatedAt: preference.updatedAt,
+        result: "BARCODE_NOT_FOUND",
+      });
     }
   }
-  const markers = [...next.values()].sort((left, right) =>
+  const receipts = [...next.values()].sort((left, right) =>
     left.barcode.localeCompare(right.barcode),
   );
   storage.setItem(
-    FREIGHT_BUNDLE_UNIT_LEDGER_SKIPS_STORAGE_KEY,
-    JSON.stringify(markers),
+    FREIGHT_BUNDLE_UNIT_LEDGER_RECEIPTS_STORAGE_KEY,
+    JSON.stringify(receipts),
   );
-  return markers;
+  return receipts;
 }
 
 export function findFreightBundleUnitPreference(
