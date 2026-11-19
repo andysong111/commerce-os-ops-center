@@ -33,7 +33,8 @@ test("HF95 flattens the proven HF90 worker and HF94 idle layer instead of adding
   assert.match(page, /v0\.6\.61 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 61\]/);
   assert.match(workflow, /shopling-idle-live-channel-check\.mjs/);
-  assert.match(workflow, /COMMERCE_OS_EXTENSION_VERSION: 0\.6\.58/);
+  assert.match(workflow, /COMMERCE_OS_EXTENSION_URL: .*download-hf101/);
+  assert.match(workflow, /COMMERCE_OS_EXTENSION_VERSION: 0\.6\.61/);
   assert.match(browserCheck, /statusProbeOk === true/);
   assert.match(browserCheck, /idleConfirmed === true/);
   assert.match(browserCheck, /externalWrites: \[\]/);
