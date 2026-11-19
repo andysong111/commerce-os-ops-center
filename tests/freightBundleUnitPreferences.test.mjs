@@ -86,3 +86,17 @@ test("bulk bundle unit action only fills rows whose bundle unit is empty", async
   assert.doesNotMatch(pageSource, />전체 품목에 적용</);
   assert.doesNotMatch(pageSource, />바코드 입력된 품목에만 적용</);
 });
+
+test("opening the freight page migrates saved browser bundle units to Product Master", async () => {
+  const pageSource = await readFile(
+    new URL("../src/app/freight-barcode-request/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(pageSource, /for \(const preference of listFreightBundleUnitPreferences\(\)\)/);
+  assert.match(pageSource, /fetch\("\/api\/freight-bundle-units"/);
+  assert.match(
+    pageSource,
+    /saveFreightBundleUnitPreference\([\s\S]*stored\.updatedAt,[\s\S]*\);/,
+  );
+});

@@ -20,6 +20,7 @@ import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
   isFreightBundleUnitEmpty,
+  listFreightBundleUnitPreferences,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
@@ -368,6 +369,10 @@ export default function FreightBarcodeRequestPage() {
       string,
       { barcode: string; bundleUnit: number; updatedAt: string }
     >();
+    for (const preference of listFreightBundleUnitPreferences()) {
+      if (!/^B[A-Z]{2}\d+-\d+$/.test(preference.barcode)) continue;
+      latestByBarcode.set(preference.barcode, preference);
+    }
     for (const item of application.items) {
       const barcode = (item.barcode ?? "").trim().toUpperCase();
       const bundleUnit = Number(item.bundleUnit);
@@ -411,6 +416,14 @@ export default function FreightBarcodeRequestPage() {
         const storedByBarcode = new Map(
           body.updates.map((row) => [row.barcode.trim().toUpperCase(), row] as const),
         );
+        for (const stored of body.updates) {
+          saveFreightBundleUnitPreference(
+            stored.barcode,
+            stored.bundleUnit,
+            undefined,
+            stored.updatedAt,
+          );
+        }
         setApplication((current) => ({
           ...current,
           items: current.items.map((item) => {
