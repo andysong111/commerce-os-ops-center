@@ -29,9 +29,9 @@ test("HF95 flattens the proven HF90 worker and HF94 idle layer instead of adding
   assert.match(route, /FLATTEN_HF90_AND_HF94_IN_ONE_SERVICE_WORKER_FILE/);
   assert.match(route, /shopling_stock_hf95_nested_wrapper_not_flattened/);
   assert.match(route, /shopling_stock_hf95_root_import_count_mismatch/);
-  assert.match(page, /download-hf99/);
-  assert.match(page, /v0\.6\.59 다운로드/);
-  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 58\]/);
+  assert.match(page, /download-hf100/);
+  assert.match(page, /v0\.6\.60 다운로드/);
+  assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 60\]/);
   assert.match(workflow, /shopling-idle-live-channel-check\.mjs/);
   assert.match(workflow, /COMMERCE_OS_EXTENSION_VERSION: 0\.6\.58/);
   assert.match(browserCheck, /statusProbeOk === true/);
