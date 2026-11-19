@@ -84,6 +84,43 @@ test("natural-language and model-number search recommend the right tools", () =>
   );
 });
 
+test("workspace search ignores spacing and punctuation without requiring an exact menu title", () => {
+  const modules = [
+    {
+      id: "product-master",
+      title: "상품 마스터",
+      navigationLabel: "상품 마스터",
+      description: "상품코드와 모델명을 한곳에서 관리합니다.",
+      category: "상품 출시",
+      inputType: "B-코드",
+      outputType: "상품 기준정보",
+      status: "available",
+      route: "/test",
+      historySupport: false,
+      externalProject: false,
+      note: null,
+    },
+    {
+      id: "keyword-engine",
+      title: "콘텐츠 키워드 엔진",
+      navigationLabel: "키워드 엔진",
+      description: "검색어를 정리합니다.",
+      category: "콘텐츠·키워드",
+      inputType: "자연어",
+      outputType: "키워드",
+      status: "available",
+      route: "/test",
+      historySupport: false,
+      externalProject: false,
+      note: null,
+    },
+  ];
+
+  assert.equal(rankWorkspaceModules(modules, "상품마스터")[0]?.id, "product-master");
+  assert.equal(rankWorkspaceModules(modules, "상품-마스터")[0]?.id, "product-master");
+  assert.equal(rankWorkspaceModules(modules, "콘텐츠키워드")[0]?.id, "keyword-engine");
+});
+
 test("dashboard includes search, favorites, recent use, task signals, and safe retry", () => {
   assert.match(dashboardSource, /기능·상품·작업 통합 검색/);
   assert.match(dashboardSource, /자주 사용하는 기능/);
