@@ -19,10 +19,11 @@ import {
 import {
   applyFreightBundleUnitPreferences,
   findFreightBundleUnitPreference,
+  hasFreightBundleUnitLedgerReceipt,
   isFreightBundleUnitEmpty,
-  listFreightBundleUnitLedgerSkipMarkers,
+  listFreightBundleUnitLedgerReceipts,
   listFreightBundleUnitPreferences,
-  reconcileFreightBundleUnitLedgerSkipMarkers,
+  reconcileFreightBundleUnitLedgerReceipts,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
 import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
@@ -373,16 +374,14 @@ export default function FreightBarcodeRequestPage() {
       string,
       { barcode: string; bundleUnit: number; updatedAt: string }
     >();
-    const skippedPreferenceVersions = new Set(
-      listFreightBundleUnitLedgerSkipMarkers().map(
-        (marker) => `${marker.barcode}\u0000${marker.updatedAt}`,
-      ),
-    );
+    const ledgerReceipts = listFreightBundleUnitLedgerReceipts();
     for (const preference of listFreightBundleUnitPreferences()) {
       if (!/^B[A-Z]{2}\d+-\d+$/.test(preference.barcode)) continue;
       if (
-        skippedPreferenceVersions.has(
-          `${preference.barcode}\u0000${preference.updatedAt}`,
+        hasFreightBundleUnitLedgerReceipt(
+          ledgerReceipts,
+          preference.barcode,
+          preference.updatedAt,
         )
       ) continue;
       latestByBarcode.set(preference.barcode, preference);
@@ -395,7 +394,8 @@ export default function FreightBarcodeRequestPage() {
         !/^B[A-Z]{2}\d+-\d+$/.test(barcode) ||
         !Number.isSafeInteger(bundleUnit) ||
         bundleUnit < 1 ||
-        !Number.isFinite(Date.parse(updatedAt))
+        !Number.isFinite(Date.parse(updatedAt)) ||
+        hasFreightBundleUnitLedgerReceipt(ledgerReceipts, barcode, updatedAt)
       ) continue;
       const current = latestByBarcode.get(barcode);
       if (!current || Date.parse(current.updatedAt) <= Date.parse(updatedAt)) {
@@ -430,9 +430,9 @@ export default function FreightBarcodeRequestPage() {
         const storedByBarcode = new Map(
           body.updates.map((row) => [row.barcode.trim().toUpperCase(), row] as const),
         );
-        reconcileFreightBundleUnitLedgerSkipMarkers(
+        reconcileFreightBundleUnitLedgerReceipts(
           updates,
-          body.updates.map((row) => row.barcode),
+          body.updates,
           body.skipped?.map((row) => row.barcode) ?? [],
         );
         for (const stored of body.updates) {
