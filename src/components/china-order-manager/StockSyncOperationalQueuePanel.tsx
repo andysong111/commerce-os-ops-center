@@ -289,7 +289,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 동일 작업 팝업 소유권 복구를 지원하지 않아 사용할 수 없습니다. v0.6.60으로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 실행 중 최초 팝업 소유권 보존을 지원하지 않아 사용할 수 없습니다. v0.6.61로 업데이트해 주세요.`);
         }
         return;
       }

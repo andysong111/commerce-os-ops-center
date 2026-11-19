@@ -10,7 +10,7 @@ import {
 const option = { jobId: "option-1", productKind: "OPTION" };
 const single = { jobId: "single-1", productKind: "SINGLE" };
 
-test("only HF100 v0.6.60 and later may enter the current Shopling stock flow", () => {
+test("only HF101 v0.6.61 and later may enter the current Shopling stock flow", () => {
   assert.equal(supportsAllDateStockSync("0.5.8"), false);
   assert.equal(supportsAllDateStockSync("0.5.9"), false);
   assert.equal(supportsAllDateStockSync("0.6.0"), false);
@@ -73,7 +73,8 @@ test("only HF100 v0.6.60 and later may enter the current Shopling stock flow", (
   assert.equal(supportsAllDateStockSync("0.6.57"), false);
   assert.equal(supportsAllDateStockSync("0.6.58"), false);
   assert.equal(supportsAllDateStockSync("0.6.59"), false);
-  assert.equal(supportsAllDateStockSync("0.6.60"), true);
+  assert.equal(supportsAllDateStockSync("0.6.60"), false);
+  assert.equal(supportsAllDateStockSync("0.6.61"), true);
   assert.equal(supportsAllDateStockSync(""), false);
 });
 
@@ -152,6 +153,6 @@ test("both stock-control launch surfaces use the shared version-aware planner", 
     assert.match(source, /extensionVersionRef\.current/);
     assert.match(source, /const version = String\(data\.extensionVersion \|\| ""\)/);
   }
-  assert.match(page, /href="\/api\/shopling-stock-state-sync\/download-hf100"/);
-  assert.match(page, /v0\.6\.60 다운로드/);
+  assert.match(page, /href="\/api\/shopling-stock-state-sync\/download-hf101"/);
+  assert.match(page, /v0\.6\.61 다운로드/);
 });
