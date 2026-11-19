@@ -57,6 +57,7 @@ export interface FreightApplicationItem {
   matchedImageUrl?: string;
   memo?: string;
   bundleUnit?: number;
+  bundleUnitUpdatedAt?: string;
   labelPrintCount?: number;
 }
 

@@ -70,6 +70,8 @@ export type LegacySeoInventorySku = {
   optionImageUrl: string;
   supplierUrl: string;
   active: boolean;
+  bundleUnit: number | null;
+  bundleUnitUpdatedAt: string;
   optionBarcodeNo: string;
   optionBarcodeIdentityKey: string;
   latestCostKrw: number;
@@ -185,6 +187,44 @@ export async function loadLegacySeoInventoryCatalog(modelNumbers: unknown[] = []
     );
   }
   return payload.products;
+}
+
+export type LegacySeoInventoryBundleUnitUpdate = {
+  barcode: string;
+  bundleUnit: number;
+  updatedAt: string;
+};
+
+export async function saveLegacySeoInventoryBundleUnits(
+  updates: LegacySeoInventoryBundleUnitUpdate[],
+) {
+  const { baseUrl, secret } = productMasterConnection();
+  const response = await fetch(`${baseUrl}/api/integrations/sku-bundle-units`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-commerce-os-integration-secret": secret,
+    },
+    body: JSON.stringify({ updates }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    savedCount?: number;
+    updates?: LegacySeoInventoryBundleUnitUpdate[];
+    message?: string;
+    error?: string;
+  };
+  if (!response.ok || payload.ok !== true || !Array.isArray(payload.updates)) {
+    throw new Error(
+      payload.message ||
+        payload.error ||
+        `PRODUCT_MASTER_BUNDLE_UNIT_STORE_FAILED:${response.status}`,
+    );
+  }
+  return payload.updates;
 }
 
 export async function loadConfirmedLegacyInventoryProducts() {

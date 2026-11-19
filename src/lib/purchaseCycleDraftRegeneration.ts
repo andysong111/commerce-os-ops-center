@@ -31,6 +31,10 @@ import {
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
 import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "@/lib/purchaseDraftQuantityRounding";
+import {
   purchaseReplacementSnapshotIdentityBarcodes,
   purchaseReplacementTrustedPayloadRows,
 } from "@/lib/purchaseReplacementDraftLineage";
@@ -170,10 +174,17 @@ function normalizeLines(lines: FastPurchaseInternalDraftLine[]) {
     if (plannedQuantity < 1 || plannedQuantity > MAX_QUANTITY) {
       throw new Error(`PURCHASE_DRAFT_REGENERATION_QUANTITY_INVALID:${code}`);
     }
+    const bundleUnit = normalizePurchaseBundleUnit(line.bundleUnit);
+    if (!isPurchaseDraftQuantityUnit(plannedQuantity, bundleUnit)) {
+      throw new Error(
+        `PURCHASE_DRAFT_REGENERATION_BUNDLE_UNIT_INVALID:${code}:${bundleUnit}`,
+      );
+    }
     seen.add(code);
     return {
       ...line,
       barcode: code,
+      bundleUnit,
       plannedQuantity,
       referenceDemandQuantity: quantity(line.referenceDemandQuantity),
       note: text(line.note).slice(0, 300),
@@ -271,6 +282,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     purchaseRunCycle,
     lines: lines.map((line) => ({
       barcode: line.barcode,
+      bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
       plannedQuantity: line.plannedQuantity,
       stockSense: line.stockSense,
       referenceDemandQuantity: line.referenceDemandQuantity,
@@ -474,6 +486,8 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       ...draftCycleFields(purchaseRunCycle),
       modelNo: line.modelNo,
       productName: line.productName,
+      bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
+      bundleUnitUpdatedAt: line.bundleUnitUpdatedAt ?? null,
       referenceDemandQuantity: line.referenceDemandQuantity,
       stockSense: line.stockSense,
       operatorNote: evidence ? text(evidence.note).slice(0, 300) : line.note,

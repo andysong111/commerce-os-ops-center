@@ -47,6 +47,8 @@ export type FreightProductMasterMatch = {
   origin?: string;
   displayName?: string;
   imageUrl?: string;
+  bundleUnit?: number;
+  bundleUnitUpdatedAt?: string;
   source?: "PURCHASE_DRAFT" | "PRODUCT_MASTER";
 };
 
@@ -85,6 +87,8 @@ export type FreightPurchaseDraftLine = {
   orderNumber: string;
   supplierLink: string;
   quantity: number;
+  bundleUnit?: number;
+  bundleUnitUpdatedAt?: string | null;
 };
 
 export type FreightPurchaseDraftSource = {
@@ -238,6 +242,13 @@ function matched(
     displayName,
     imageUrl:
       text(candidate.sku.optionImageUrl) || text(candidate.product.mainImageUrl),
+    ...(Number.isSafeInteger(Number(candidate.sku.bundleUnit)) &&
+    Number(candidate.sku.bundleUnit) > 0
+      ? { bundleUnit: Number(candidate.sku.bundleUnit) }
+      : {}),
+    ...(Number.isFinite(Date.parse(text(candidate.sku.bundleUnitUpdatedAt)))
+      ? { bundleUnitUpdatedAt: new Date(text(candidate.sku.bundleUnitUpdatedAt)).toISOString() }
+      : {}),
     source: "PRODUCT_MASTER",
   };
 }
@@ -329,6 +340,13 @@ function matchedDraft(
     optionName,
     barcode: text(candidate.line.barcode),
     displayName: [modelName, optionName].filter(Boolean).join(" / "),
+    ...(Number.isSafeInteger(Number(candidate.line.bundleUnit)) &&
+    Number(candidate.line.bundleUnit) > 0
+      ? { bundleUnit: Number(candidate.line.bundleUnit) }
+      : {}),
+    ...(Number.isFinite(Date.parse(text(candidate.line.bundleUnitUpdatedAt)))
+      ? { bundleUnitUpdatedAt: new Date(text(candidate.line.bundleUnitUpdatedAt)).toISOString() }
+      : {}),
   };
 }
 
@@ -590,6 +608,9 @@ export function applyFreightProductMasterMatches(
         matchedOriginLabel: match.origin ?? item.matchedOriginLabel,
         matchedLabelText: match.displayName ?? item.matchedLabelText,
         matchedImageUrl: match.imageUrl ?? item.matchedImageUrl,
+        bundleUnit: match.bundleUnit ?? item.bundleUnit,
+        bundleUnitUpdatedAt:
+          match.bundleUnitUpdatedAt ?? item.bundleUnitUpdatedAt,
       };
     }),
   };

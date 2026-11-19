@@ -1317,8 +1317,9 @@ test("manual revision ignores a valid persisted exclusion after that line has al
   );
 
   assert.deepEqual(revision.lines.map((line) => line.barcode), ["BAC1-1"]);
+  assert.equal(revision.lines[0].plannedQuantity, 40);
   assert.equal(revision.removedCount, 0);
-  assert.equal(revision.changedCount, 0);
+  assert.equal(revision.changedCount, 1);
 });
 
 for (const mutate of [

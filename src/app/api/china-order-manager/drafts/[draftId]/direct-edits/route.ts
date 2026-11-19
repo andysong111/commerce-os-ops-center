@@ -24,7 +24,9 @@ function errorResponse(error: unknown) {
     PURCHASE_DRAFT_DIRECT_EDIT_AFTER_ORDER_STARTED:
       "일부 상품의 실제 주문 기록이 시작되어 현재 발주안 전체 편집을 중단했습니다.",
     PURCHASE_DRAFT_DIRECT_EDIT_QUANTITY_INVALID:
-      "수량은 5개 이상 9,995개 이하의 5개 단위로 입력하세요.",
+      "수량은 1개 이상 9,999개 이하의 정수로 입력하세요.",
+    PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID:
+      `이 상품은 소분단위가 ${detail.split(":").at(-1) || 5}개입니다.`,
     PURCHASE_DRAFT_DIRECT_EDIT_EMPTY:
       "저장할 상품 추가·제거·수량 변경이 없습니다.",
     PURCHASE_DRAFT_DIRECT_EDIT_READBACK_MISMATCH:

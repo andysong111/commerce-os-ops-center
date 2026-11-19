@@ -39,6 +39,8 @@ export type PlanningProduct = {
   skuActive?: boolean;
   moq?: number;
   cartonQuantity?: number;
+  bundleUnit?: number | null;
+  bundleUnitUpdatedAt?: string | null;
   latestCostKrw?: number;
   protectedCostKrw?: number;
   inventoryQuantity?: number;

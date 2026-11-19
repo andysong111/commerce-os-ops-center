@@ -1,4 +1,5 @@
 import { comparePurchaseStrategyPriority, type RisingStrength } from "./productDecisionEngine/purchaseStrategyPolicy.ts";
+import { normalizePurchaseBundleUnit } from "./purchaseDraftQuantityRounding.ts";
 
 export type PurchaseCashflowTier = "CORE" | "SUPPORT" | "CANARY";
 
@@ -12,14 +13,16 @@ export type PurchaseCashflowCandidate = {
   unitCostKrw: number;
   moq?: number;
   cartonQuantity?: number;
+  bundleUnit?: number;
 };
 
 export type PurchaseCashflowAllocation = Omit<
   PurchaseCashflowCandidate,
-  "moq" | "cartonQuantity"
+  "moq" | "cartonQuantity" | "bundleUnit"
 > & {
   moq: number;
   cartonQuantity: number;
+  bundleUnit: number;
   tier: PurchaseCashflowTier;
   minimumQuantity: number;
   baselineQuantity: number;
@@ -45,17 +48,24 @@ const greatestCommonDivisor = (left: number, right: number): number =>
 const leastCommonMultiple = (left: number, right: number) =>
   Math.abs(left * right) / greatestCommonDivisor(left, right);
 
-export function purchaseOrderQuantityUnit(cartonQuantity: unknown = 1) {
-  return leastCommonMultiple(5, Math.max(1, quantity(cartonQuantity) || 1));
+export function purchaseOrderQuantityUnit(
+  cartonQuantity: unknown = 1,
+  bundleUnit: unknown = 5,
+) {
+  return leastCommonMultiple(
+    normalizePurchaseBundleUnit(bundleUnit),
+    Math.max(1, quantity(cartonQuantity) || 1),
+  );
 }
 
 export function normalizePurchaseOrderQuantity(
   value: unknown,
   cartonQuantity: unknown = 1,
+  bundleUnit: unknown = 5,
 ) {
   const requested = quantity(value);
   if (requested <= 0) return 0;
-  const unit = purchaseOrderQuantityUnit(cartonQuantity);
+  const unit = purchaseOrderQuantityUnit(cartonQuantity, bundleUnit);
   return Math.max(unit, Math.round(requested / unit) * unit);
 }
 
@@ -91,11 +101,13 @@ export function allocatePurchaseCashflow(
     const targetQuantity = normalizePurchaseOrderQuantity(
       row.targetQuantity,
       row.cartonQuantity,
+      row.bundleUnit,
     );
     const unitCostKrw = quantity(row.unitCostKrw);
     const cartonQuantity = Math.max(1, quantity(row.cartonQuantity) || 1);
+    const bundleUnit = normalizePurchaseBundleUnit(row.bundleUnit);
     const moq = Math.max(1, quantity(row.moq) || 1);
-    const allocationUnit = purchaseOrderQuantityUnit(cartonQuantity);
+    const allocationUnit = purchaseOrderQuantityUnit(cartonQuantity, bundleUnit);
     const minimumQuantity = Math.min(
       targetQuantity,
       roundUp(moq, allocationUnit),
@@ -117,6 +129,7 @@ export function allocatePurchaseCashflow(
       unitCostKrw,
       moq,
       cartonQuantity,
+      bundleUnit,
       tier,
       minimumQuantity,
       baselineQuantity,
@@ -146,7 +159,10 @@ export function allocatePurchaseCashflow(
     const affordable = Math.floor(remaining / row.unitCostKrw);
     const additional = Math.min(
       row.targetQuantity - row.allocatedQuantity,
-      roundDown(affordable, purchaseOrderQuantityUnit(row.cartonQuantity)),
+      roundDown(
+        affordable,
+        purchaseOrderQuantityUnit(row.cartonQuantity, row.bundleUnit),
+      ),
     );
     if (additional <= 0) continue;
     row.allocatedQuantity += additional;

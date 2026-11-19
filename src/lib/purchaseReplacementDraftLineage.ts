@@ -1,5 +1,6 @@
 import type { PurchaseReplacementDraftLine } from "@/lib/purchaseCyclePreflightCore";
 import { isTrustedPurchaseDraftManualAddition } from "./purchaseCycleDraftRegenerationCore.ts";
+import { normalizePurchaseBundleUnit } from "./purchaseDraftQuantityRounding.ts";
 import {
   canonicalSourcingBarcode,
   type PurchaseIdentityMetadata,
@@ -321,6 +322,7 @@ export function purchaseReplacementDraftSnapshotLines(
     resolved.set(resolvedBarcode, {
       barcode: resolvedBarcode,
       quantity,
+      bundleUnit: normalizePurchaseBundleUnit(payload.bundleUnit),
       name: text(identityPayload.productName),
       preserveOnRegeneration,
       recoveredFromPredecessor,

@@ -43,6 +43,8 @@ function errorResponse(error: unknown) {
     message = "추가수량은 1개 이상 9,999개 이하로 입력하세요.";
   } else if (code === "INTERNAL_CHINA_MANUAL_ADD_QUANTITY_EXCEEDED") {
     message = "기존 수량과 추가수량의 합계는 B-code당 9,999개를 넘을 수 없습니다.";
+  } else if (code === "INTERNAL_CHINA_MANUAL_ADD_BUNDLE_UNIT_INVALID") {
+    message = `이 상품은 소분단위가 ${raw.split(":").at(-1) || 5}개입니다.`;
   } else if (code === "INTERNAL_CHINA_MANUAL_ADD_BARCODE_NOT_ACTIVE") {
     message = `상품마스터에서 활성 B-code를 찾지 못했습니다: ${raw
       .split(":")

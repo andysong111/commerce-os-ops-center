@@ -370,6 +370,9 @@ test("inline recalculation endpoint replaces the reserved draft without renderin
   );
   assert.match(route, /manualFallbackUsed/);
   assert.match(route, /초록색 재고 선택은 저장·적용 완료 기록/);
+  assert.match(route, /PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID/);
+  assert.match(route, /이 상품은 소분단위가/);
+  assert.doesNotMatch(route, /수량은 5개 단위로/);
 });
 
 test("manual fallback removes released legacy pins without persisting a permanent exclusion", async () => {

@@ -58,6 +58,22 @@ test("real stage shapes compose a budget-limited preview, never an approval", ()
   locked(report);
 });
 
+test("automatic Draft rounds each recommendation to the nearest B-code bundle", () => {
+  for (const [recommendedQty, expectedQuantity] of [[13, 10], [16, 20]]) {
+    const input = fixture();
+    input.options.cashLimitKrw = 145_000;
+    input.options.maxUnitsPerSku = 30;
+    input.priority.rows[0].recommendedQty = recommendedQty;
+    input.priority.rows[0].bundleUnit = 10;
+
+    const report = buildPurchaseCyclePreflight(input);
+
+    assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
+    assert.equal(report.selected[0].quantity, expectedQuantity);
+    assert.equal(report.selected[0].bundleUnit, 10);
+  }
+});
+
 test("preflight reserves the payment fee separately from the landed-cost multiplier", () => {
   const input = fixture();
   input.options.cashLimitKrw = 152_250;
@@ -201,9 +217,10 @@ test("operator exclusion refill can budget the next priority with the current sh
 test("operator quantity decrease is fixed and the freed budget fills the next priority", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.cashLimitKrw = 72_500;
   input.options.maxSkus = 2;
   input.options.replaceDraftId = draftId;
-  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 2 }];
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 5 }];
   input.priority.rows.push({
     ...input.priority.rows[0],
     barcode: "BAA2-1",
@@ -215,7 +232,7 @@ test("operator quantity decrease is fixed and the freed budget fills the next pr
   const snapshot = buildPurchaseReplacementDraftSnapshot(
     draftId,
     input.now,
-    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 5 }],
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 10 }],
   );
   input.replacementBefore = snapshot;
   input.replacementAfter = snapshot;
@@ -223,27 +240,27 @@ test("operator quantity decrease is fixed and the freed budget fills the next pr
   const report = buildPurchaseCyclePreflight(input);
 
   assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
-  assert.deepEqual(report.operatorQuantityOverrides, [{ barcode: "BAA1-1", targetQuantity: 2 }]);
+  assert.deepEqual(report.operatorQuantityOverrides, [{ barcode: "BAA1-1", targetQuantity: 5 }]);
   assert.deepEqual(
     report.selected.map((row) => [row.barcode, row.quantity]),
-    [["BAA1-1", 2], ["BAA2-1", 5]],
+    [["BAA1-1", 5], ["BAA2-1", 5]],
   );
   assert.equal(report.replacementAudit.added[0].barcode, "BAA2-1");
   assert.deepEqual(report.replacementAudit.quantityChanged[0], {
     barcode: "BAA1-1",
     name: "SIMULATION ONLY",
-    previousQuantity: 5,
-    selectedQuantity: 2,
+    previousQuantity: 10,
+    selectedQuantity: 5,
   });
 });
 
 test("operator quantity increase stays exact and lower priority still needs a five-unit lot", () => {
   const input = fixture();
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
-  input.options.cashLimitKrw = 65_000;
+  input.options.cashLimitKrw = 75_000;
   input.options.maxSkus = 2;
   input.options.replaceDraftId = draftId;
-  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 7 }];
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 10 }];
   input.priority.rows.push({
     ...input.priority.rows[0],
     barcode: "BAA2-1",
@@ -268,9 +285,9 @@ test("operator quantity increase stays exact and lower priority still needs a fi
   assert.equal(report.previewReady, true, JSON.stringify(report.blockers));
   assert.deepEqual(
     report.selected.map((row) => [row.barcode, row.quantity]),
-    [["BAA1-1", 7]],
+    [["BAA1-1", 10]],
   );
-  assert.equal(report.estimatedSpendKrw, 35_000);
+  assert.equal(report.estimatedSpendKrw, 50_000);
   assert.ok(report.excluded.find((row) => row.barcode === "BAA2-1").reasons.includes("CASH_BUDGET_LIMIT"));
 });
 
@@ -279,7 +296,7 @@ test("operator quantity that alone exceeds the budget blocks instead of shrinkin
   const draftId = "fast-purchase-draft:1234567890abcdef1234";
   input.options.maxUnitsPerSku = 20;
   input.options.replaceDraftId = draftId;
-  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 11 }];
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 15 }];
   const snapshot = buildPurchaseReplacementDraftSnapshot(
     draftId,
     input.now,
@@ -289,6 +306,27 @@ test("operator quantity that alone exceeds the budget blocks instead of shrinkin
   input.replacementAfter = snapshot;
 
   blocked(buildPurchaseCyclePreflight(input), "OPERATOR_QUANTITY_BUDGET_EXCEEDED");
+});
+
+test("operator quantity rejects 26 when the B-code bundle unit is 10", () => {
+  const input = fixture();
+  const draftId = "fast-purchase-draft:1234567890abcdef1234";
+  input.options.maxUnitsPerSku = 30;
+  input.options.replaceDraftId = draftId;
+  input.options.quantityOverrides = [{ barcode: "BAA1-1", targetQuantity: 26 }];
+  input.priority.rows[0].bundleUnit = 10;
+  const snapshot = buildPurchaseReplacementDraftSnapshot(
+    draftId,
+    input.now,
+    [{ barcode: "BAA1-1", name: "SIMULATION ONLY", quantity: 20, bundleUnit: 10 }],
+  );
+  input.replacementBefore = snapshot;
+  input.replacementAfter = snapshot;
+
+  blocked(
+    buildPurchaseCyclePreflight(input),
+    "OPERATOR_QUANTITY_BUNDLE_UNIT_INVALID:BAA1-1:10",
+  );
 });
 
 test("5-1 actual yuan price and grouped freight replace estimates before budget allocation", () => {
@@ -2753,6 +2791,7 @@ test("replacement snapshot preserves a manually added line across later recommen
   assert.deepEqual(lines, [{
     barcode: "BAA9-1",
     quantity: 25,
+    bundleUnit: 5,
     name: "사용자 수동 추가 상품",
     preserveOnRegeneration: true,
     recoveredFromPredecessor: false,
@@ -2814,6 +2853,7 @@ test("replacement audit reports a recovered predecessor as newly added to the vi
     barcode: "BAA2-1",
     name: "직전 초안에서 복구한 상품",
     quantity: 20,
+    bundleUnit: 5,
     recoveredFromPredecessor: true,
   }]);
   assert.equal(report.replacementAudit.complete, true);

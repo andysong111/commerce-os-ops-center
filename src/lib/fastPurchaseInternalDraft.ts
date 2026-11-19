@@ -16,6 +16,10 @@ import {
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "@/lib/purchaseDraftLimits";
 import { collapseCanonicalPurchaseDraftLines } from "@/lib/purchaseSkuCanonicalization";
+import {
+  isPurchaseDraftQuantityUnit,
+  normalizePurchaseBundleUnit,
+} from "@/lib/purchaseDraftQuantityRounding";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const MAX_LINES = PURCHASE_DRAFT_REVIEW_LINE_LIMIT;
@@ -31,6 +35,8 @@ export type PurchaseDraftDataMode =
 export type FastPurchaseInternalDraftLineInput = {
   barcode: string;
   plannedQuantity: number;
+  bundleUnit?: number;
+  bundleUnitUpdatedAt?: string | null;
   stockSense: FastPurchaseDraftStockSense;
   referenceDemandQuantity: number;
   note?: string;
@@ -44,6 +50,8 @@ export type FastPurchaseInternalDraftInput = {
 
 export type FastPurchaseInternalDraftLine = {
   barcode: string;
+  bundleUnit?: number;
+  bundleUnitUpdatedAt?: string | null;
   modelNo: string | null;
   productName: string;
   plannedQuantity: number;
@@ -156,6 +164,10 @@ export async function createFastPurchaseInternalDraft(
     if (plannedQuantity > MANUAL_QUANTITY_MAX) {
       throw new Error(`FAST_PURCHASE_DRAFT_QUANTITY_EXCEEDED:${key}`);
     }
+    const bundleUnit = normalizePurchaseBundleUnit(raw.bundleUnit);
+    if (!isPurchaseDraftQuantityUnit(plannedQuantity, bundleUnit)) {
+      throw new Error(`FAST_PURCHASE_DRAFT_BUNDLE_UNIT_INVALID:${key}:${bundleUnit}`);
+    }
     const currentReference = quantity(current.referenceDemandQuantity);
     if (quantity(raw.referenceDemandQuantity) !== currentReference) {
       throw new Error(`FAST_PURCHASE_DRAFT_REFERENCE_CHANGED:${key}`);
@@ -165,6 +177,8 @@ export async function createFastPurchaseInternalDraft(
       modelNo: current.modelNo,
       productName: current.productName,
       plannedQuantity,
+      bundleUnit,
+      bundleUnitUpdatedAt: raw.bundleUnitUpdatedAt ?? null,
       stockSense: raw.stockSense,
       referenceDemandQuantity: currentReference,
       note: text(raw.note).slice(0, 300),
@@ -210,9 +224,14 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     if (plannedQuantity <= 0 || plannedQuantity > MANUAL_QUANTITY_MAX) {
       throw new Error(`FAST_PURCHASE_DRAFT_QUANTITY_INVALID:${key}`);
     }
+    const bundleUnit = normalizePurchaseBundleUnit(line.bundleUnit);
+    if (!isPurchaseDraftQuantityUnit(plannedQuantity, bundleUnit)) {
+      throw new Error(`FAST_PURCHASE_DRAFT_BUNDLE_UNIT_INVALID:${key}:${bundleUnit}`);
+    }
     return {
       ...line,
       barcode: key,
+      bundleUnit,
       plannedQuantity,
       referenceDemandQuantity: quantity(line.referenceDemandQuantity),
       note: text(line.note).slice(0, 300),
@@ -250,6 +269,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
     purchaseRunCycle,
     lines: lines.map((line) => ({
       barcode: line.barcode,
+      bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
       plannedQuantity: line.plannedQuantity,
       stockSense: line.stockSense,
       referenceDemandQuantity: line.referenceDemandQuantity,
@@ -315,6 +335,8 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         cycleBootstrap: purchaseRunCycle.bootstrap,
         modelNo: line.modelNo,
         productName: line.productName,
+        bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
+        bundleUnitUpdatedAt: line.bundleUnitUpdatedAt ?? null,
         referenceDemandQuantity: line.referenceDemandQuantity,
         stockSense: line.stockSense,
         operatorNote: line.note,
@@ -351,6 +373,7 @@ export async function storeValidatedMonthlyPurchaseDraft(input: {
         previousCycleStartDate: purchaseRunCycle.previousCycleStartDate,
         draftId,
         barcode: line.barcode,
+        bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
         requestedQuantity: line.plannedQuantity,
       },
       error_message: null,

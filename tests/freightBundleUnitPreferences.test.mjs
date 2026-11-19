@@ -36,6 +36,29 @@ test("saved B-code units apply to future manual or automatic imports", () => {
   assert.equal(items[1].bundleUnit, undefined);
 });
 
+test("the latest timestamp wins when local preferences and Product Master differ", () => {
+  const base = {
+    id: "1",
+    rowNo: 1,
+    itemName: "A",
+    optionText: "",
+    quantity: 100,
+    barcode: "BCE6-1",
+  };
+  const remoteNewer = applyFreightBundleUnitPreferences(
+    [{ ...base, bundleUnit: 20, bundleUnitUpdatedAt: "2026-11-19T03:00:00.000Z" }],
+    [{ barcode: "BCE6-1", bundleUnit: 10, updatedAt: "2026-11-19T02:00:00.000Z" }],
+  );
+  assert.equal(remoteNewer[0].bundleUnit, 20);
+
+  const localNewer = applyFreightBundleUnitPreferences(
+    [{ ...base, bundleUnit: 20, bundleUnitUpdatedAt: "2026-11-19T03:00:00.000Z" }],
+    [{ barcode: "BCE6-1", bundleUnit: 30, updatedAt: "2026-11-19T04:00:00.000Z" }],
+  );
+  assert.equal(localNewer[0].bundleUnit, 30);
+  assert.equal(localNewer[0].bundleUnitUpdatedAt, "2026-11-19T04:00:00.000Z");
+});
+
 test("empty barcodes and non-positive units are not stored", () => {
   const storage = memoryStorage();
   assert.equal(saveFreightBundleUnitPreference("", 10, storage), undefined);

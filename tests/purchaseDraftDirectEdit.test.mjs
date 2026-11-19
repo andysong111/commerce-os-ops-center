@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { normalizePurchaseDraftDirectEditRequest } from "../src/lib/internalChinaPurchaseDraftDirectEditCore.ts";
+import {
+  assertPurchaseDraftDirectEditBundleUnits,
+  normalizePurchaseDraftDirectEditRequest,
+} from "../src/lib/internalChinaPurchaseDraftDirectEditCore.ts";
 
 const helper = await readFile(
   new URL("../src/lib/internalChinaPurchaseDraftDirectEdit.ts", import.meta.url),
@@ -40,16 +43,28 @@ test("direct edit request keeps exact additions, removals and quantities without
   );
 });
 
-test("direct edit rejects conflicting targets and non-5-unit quantities", () => {
+test("direct edit validates each B-code against its canonical bundle unit", () => {
+  const request = normalizePurchaseDraftDirectEditRequest({
+    requestId: "edit_request_456",
+    additions: [{ barcode: "BBC4-2", targetQuantity: 26 }],
+    quantityChanges: [],
+    excludedBarcodes: [],
+  });
   assert.throws(
-    () => normalizePurchaseDraftDirectEditRequest({
-      requestId: "edit_request_456",
-      additions: [{ barcode: "BBC4-2", targetQuantity: 7 }],
-      quantityChanges: [],
-      excludedBarcodes: [],
-    }),
-    /PURCHASE_DRAFT_DIRECT_EDIT_QUANTITY_INVALID/,
+    () => assertPurchaseDraftDirectEditBundleUnits(
+      request,
+      new Map([["BBC4-2", 10]]),
+    ),
+    /PURCHASE_DRAFT_DIRECT_EDIT_BUNDLE_UNIT_INVALID:BBC4-2:10/,
   );
+  request.additions[0].targetQuantity = 30;
+  assert.doesNotThrow(() => assertPurchaseDraftDirectEditBundleUnits(
+    request,
+    new Map([["BBC4-2", 10]]),
+  ));
+});
+
+test("direct edit rejects conflicting targets", () => {
   assert.throws(
     () => normalizePurchaseDraftDirectEditRequest({
       requestId: "edit_request_789",
