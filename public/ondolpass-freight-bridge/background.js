@@ -1,8 +1,10 @@
 "use strict";
 
 const FETCH_TYPE = "COMMERCE_OS_ONDOLPASS_FETCH_V1";
+const DATE_RANGE_FETCH_TYPE = "COMMERCE_OS_ONDOLPASS_DATE_RANGE_FETCH_V1";
 const CAPTURE_TYPE = "COMMERCE_OS_ONDOLPASS_CAPTURE_V1";
 const APPLICATION_NO_PATTERN = /^\d{4,20}$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const PAGE_TIMEOUT_MS = 25_000;
 let activeImport;
 
@@ -39,6 +41,27 @@ function applicationNoFromUrl(value) {
   } catch {
     return "";
   }
+}
+
+function normalizedDateRange(startDateInput, endDateInput) {
+  const startDate = String(startDateInput || "").trim();
+  const endDate = String(endDateInput || "").trim();
+  if (!DATE_PATTERN.test(startDate) || !DATE_PATTERN.test(endDate)) {
+    throw makeError("DATE_RANGE_RESULT_INVALID");
+  }
+  const startValue = Date.parse(`${startDate}T00:00:00.000Z`);
+  const endValue = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (
+    !Number.isFinite(startValue) ||
+    !Number.isFinite(endValue) ||
+    new Date(startValue).toISOString().slice(0, 10) !== startDate ||
+    new Date(endValue).toISOString().slice(0, 10) !== endDate ||
+    startValue > endValue ||
+    (endValue - startValue) / 86_400_000 > 366
+  ) {
+    throw makeError("DATE_RANGE_RESULT_INVALID");
+  }
+  return { startDate, endDate };
 }
 
 function waitForTabComplete(tabId) {
@@ -188,6 +211,74 @@ async function importApplication(applicationNo) {
   }
 }
 
+async function importDateRange(startDateInput, endDateInput) {
+  const { startDate, endDate } = normalizedDateRange(
+    startDateInput,
+    endDateInput,
+  );
+  const query = new URLSearchParams({
+    date_type: "order_date",
+    s_date: startDate,
+    e_date: endDate,
+    searchType: "addressee",
+    page_line: "500",
+    page_choice: "1",
+  });
+  const tab = await chrome.tabs.create({
+    url: `https://www.ondolpass.co.kr/mypage/ship_lcl_list.php?${query.toString()}`,
+    active: false,
+  });
+  if (!tab.id) throw makeError("ONDOLPASS_PAGE_TIMEOUT");
+  const tabId = tab.id;
+  try {
+    const loadedTab = await waitForTabComplete(tabId);
+    let loadedUrl;
+    try {
+      loadedUrl = new URL(String(loadedTab.url || ""));
+    } catch {
+      loadedUrl = undefined;
+    }
+    if (
+      !loadedUrl ||
+      loadedUrl.pathname !== "/mypage/ship_lcl_list.php" ||
+      loadedUrl.searchParams.get("s_date") !== startDate ||
+      loadedUrl.searchParams.get("e_date") !== endDate
+    ) {
+      await focusTab(tabId);
+      throw makeError("ONDOLPASS_LOGIN_REQUIRED");
+    }
+
+    let results;
+    try {
+      results = await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["ondolpass-range-extractor.js", "ondolpass-range-capture.js"],
+      });
+    } catch {
+      throw makeError("ONDOLPASS_CAPTURE_UNAVAILABLE");
+    }
+    const capture = results && results[0] && results[0].result;
+    if (!capture || !capture.ok || !capture.payload) {
+      throw makeError(
+        capture && typeof capture.errorCode === "string"
+          ? capture.errorCode
+          : "DATE_RANGE_RESULT_INVALID",
+      );
+    }
+    await chrome.tabs.remove(tabId);
+    return capture.payload;
+  } catch (error) {
+    if (!error || error.code !== "ONDOLPASS_LOGIN_REQUIRED") {
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {
+        // The tab may already be closed.
+      }
+    }
+    throw error;
+  }
+}
+
 async function runSerializedImport(applicationNo) {
   if (activeImport) {
     if (activeImport.applicationNo === applicationNo) return activeImport.promise;
@@ -201,13 +292,56 @@ async function runSerializedImport(applicationNo) {
   return promise;
 }
 
+async function runSerializedDateRange(startDate, endDate) {
+  const requestKey = `date:${startDate}:${endDate}`;
+  if (activeImport) {
+    if (activeImport.applicationNo === requestKey) return activeImport.promise;
+    throw makeError("BRIDGE_BUSY");
+  }
+
+  const promise = importDateRange(startDate, endDate).finally(() => {
+    if (activeImport && activeImport.promise === promise) activeImport = undefined;
+  });
+  activeImport = { applicationNo: requestKey, promise };
+  return promise;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (
     !message ||
-    message.type !== FETCH_TYPE ||
+    (message.type !== FETCH_TYPE && message.type !== DATE_RANGE_FETCH_TYPE) ||
     !isAllowedCommerceSender(sender)
   ) {
     return false;
+  }
+
+  if (message.type === DATE_RANGE_FETCH_TYPE) {
+    const startDate = String(message.startDate || "").trim();
+    const endDate = String(message.endDate || "").trim();
+    try {
+      normalizedDateRange(startDate, endDate);
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        errorCode:
+          error && typeof error.code === "string"
+            ? error.code
+            : "DATE_RANGE_RESULT_INVALID",
+      });
+      return false;
+    }
+    runSerializedDateRange(startDate, endDate)
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          errorCode:
+            error && typeof error.code === "string"
+              ? error.code
+              : "BRIDGE_UNKNOWN_ERROR",
+        }),
+      );
+    return true;
   }
 
   const applicationNo = String(message.applicationNo || "").trim();

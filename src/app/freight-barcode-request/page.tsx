@@ -58,8 +58,10 @@ import {
 import {
   ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
   ONDOLPASS_FREIGHT_PAGE_SOURCE,
+  buildOndolpassFreightDateRangeImport,
   buildOndolpassFreightImport,
   getOndolpassFreightBridgeErrorMessage,
+  normalizeOndolpassDateRange,
   parseOndolpassFreightExtensionMessage,
 } from "@/lib/ondolpassFreightBridge";
 import type {
@@ -214,10 +216,12 @@ function downloadZipFile(zipBytes: Uint8Array, filename: string) {
 async function requestFreightProductMasterMatches(
   application: FreightApplication,
 ): Promise<FreightProductMasterMatchResponse> {
+  const draftId = new URLSearchParams(window.location.search).get("draft") ?? "";
   const response = await fetch("/api/freight-product-master-match", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      ...(draftId ? { draftId } : {}),
       items: application.items.map((item) => ({
         id: item.id,
         applicationNo: item.applicationNo,
@@ -227,6 +231,8 @@ async function requestFreightProductMasterMatches(
         detailUrl: item.detailUrl,
         lookupText: item.lookupText,
         quantity: item.quantity,
+        orderNo: item.orderNo,
+        trackingNo: item.trackingNo,
       })),
     }),
   });
@@ -237,7 +243,7 @@ async function requestFreightProductMasterMatches(
     throw new Error(
       "message" in payload && payload.message
         ? payload.message
-        : "커머스OS 상품마스터 자동매칭에 실패했습니다.",
+        : "커머스OS 내부상품 자동매칭에 실패했습니다.",
     );
   }
   return payload;
@@ -262,7 +268,14 @@ function productMasterMatchMessage(
   response: FreightProductMasterMatchResponse,
 ) {
   const { total, matched, unmatched, ambiguous } = response.summary;
-  return `${prefix} 상품마스터 ${matched}/${total}개 자동매칭 완료${
+  const draftMatched = response.matches.filter(
+    (match) => match.status === "MATCHED" && match.source === "PURCHASE_DRAFT",
+  ).length;
+  const masterMatched = matched - draftMatched;
+  const sourceText = draftMatched
+    ? ` · 발주초안 ${draftMatched}개${masterMatched ? `, 상품마스터 ${masterMatched}개` : ""}`
+    : "";
+  return `${prefix} 내부상품 ${matched}/${total}개 자동매칭 완료${sourceText}${
     unmatched ? ` · 미등록/옵션 불일치 ${unmatched}개` : ""
   }${ambiguous ? ` · 중복 후보 확인 필요 ${ambiguous}개` : ""}`;
 }
@@ -270,6 +283,8 @@ function productMasterMatchMessage(
 export default function FreightBarcodeRequestPage() {
   const [rawText, setRawText] = useState("");
   const [ondolpassApplicationNo, setOndolpassApplicationNo] = useState("");
+  const [ondolpassStartDate, setOndolpassStartDate] = useState("");
+  const [ondolpassEndDate, setOndolpassEndDate] = useState("");
   const [ondolpassBridgeReady, setOndolpassBridgeReady] = useState(false);
   const [ondolpassBridgeStatus, setOndolpassBridgeStatus] =
     useState<OndolpassBridgeStatus>(null);
@@ -285,10 +300,16 @@ export default function FreightBarcodeRequestPage() {
     applicationNo: string;
   } | null>(null);
   const ondolpassBatchRef = useRef<OndolpassBatchState | null>(null);
+  const ondolpassDateRangeRequestRef = useRef<{
+    requestId: string;
+    startDate: string;
+    endDate: string;
+  } | null>(null);
   const startOndolpassRequestRef = useRef<
     (applicationNo: string, currentIndex: number, totalCount: number) => void
   >(() => undefined);
   const ondolpassTimeoutRef = useRef<number | undefined>(undefined);
+  const ondolpassDateRangeTimeoutRef = useRef<number | undefined>(undefined);
   const [application, setApplication] =
     useState<FreightApplication>(EMPTY_APPLICATION);
   const [lookupFailedIds, setLookupFailedIds] = useState<Set<string>>(
@@ -337,6 +358,14 @@ export default function FreightBarcodeRequestPage() {
       ondolpassRequestRef.current = null;
     }
 
+    function clearPendingDateRangeRequest() {
+      if (ondolpassDateRangeTimeoutRef.current !== undefined) {
+        window.clearTimeout(ondolpassDateRangeTimeoutRef.current);
+        ondolpassDateRangeTimeoutRef.current = undefined;
+      }
+      ondolpassDateRangeRequestRef.current = null;
+    }
+
     function startRequest(
       applicationNo: string,
       currentIndex: number,
@@ -381,6 +410,75 @@ export default function FreightBarcodeRequestPage() {
       if (!message) return;
       if (message.type === "READY") {
         setOndolpassBridgeReady(true);
+        return;
+      }
+
+      if (
+        message.type === "DATE_RANGE_RESULT" ||
+        message.type === "DATE_RANGE_ERROR"
+      ) {
+        const pendingRange = ondolpassDateRangeRequestRef.current;
+        if (!pendingRange || message.requestId !== pendingRange.requestId) return;
+        if (
+          message.startDate !== pendingRange.startDate ||
+          message.endDate !== pendingRange.endDate
+        ) {
+          clearPendingDateRangeRequest();
+          setOndolpassBridgeStatus({
+            kind: "error",
+            message: "요청한 신청일과 브리지 응답 기간이 달라 적용하지 않았습니다.",
+          });
+          return;
+        }
+        if (message.type === "DATE_RANGE_ERROR") {
+          clearPendingDateRangeRequest();
+          setOndolpassBridgeStatus({
+            kind: "error",
+            message: getOndolpassFreightBridgeErrorMessage(message.errorCode),
+          });
+          return;
+        }
+
+        try {
+          const rangeImport = buildOndolpassFreightDateRangeImport(
+            message.payload,
+            pendingRange.startDate,
+            pendingRange.endDate,
+          );
+          clearPendingDateRangeRequest();
+          if (rangeImport.applicationNos.length === 0) {
+            setOndolpassApplicationNo("");
+            setOndolpassBridgeStatus({
+              kind: "warning",
+              message: `${rangeImport.startDate}~${rangeImport.endDate} 신청서가 없습니다.`,
+            });
+            return;
+          }
+          setOndolpassApplicationNo(rangeImport.applicationNos.join(", "));
+          setOndolpassBridgeStatus({
+            kind: "loading",
+            message: `${rangeImport.startDate}~${rangeImport.endDate} 신청서 ${rangeImport.applicationNos.length}건을 찾았습니다. 상세 품목을 순차 조회합니다.`,
+          });
+          ondolpassBatchRef.current = {
+            applicationNos: rangeImport.applicationNos,
+            currentIndex: 0,
+            results: [],
+          };
+          startRequest(
+            rangeImport.applicationNos[0],
+            0,
+            rangeImport.applicationNos.length,
+          );
+        } catch (error) {
+          clearPendingDateRangeRequest();
+          setOndolpassBridgeStatus({
+            kind: "error",
+            message:
+              error instanceof Error
+                ? `${error.message} 자동 적용을 중단했습니다.`
+                : "온돌패스 날짜 조회 결과 검증에 실패했습니다.",
+          });
+        }
         return;
       }
 
@@ -470,17 +568,17 @@ export default function FreightBarcodeRequestPage() {
         setHistoryStatus("");
         setAnalysisStatus({
           kind: "success",
-          message: `자동 분석 완료: 신청서 ${importedApplicationNos.length}건에서 ${combinedApplication.items.length}개 품목을 찾았습니다. 상품마스터를 확인하는 중입니다.`,
+          message: `자동 분석 완료: 신청서 ${importedApplicationNos.length}건에서 ${combinedApplication.items.length}개 품목을 찾았습니다. 발주초안과 상품마스터를 확인하는 중입니다.`,
         });
         setOndolpassBridgeStatus({
           kind: "loading",
-          message: `신청서 품목을 가져왔습니다. 실제 커머스OS 상품마스터와 자동매칭하는 중입니다.`,
+          message: `신청서 품목을 가져왔습니다. 발주초안 우선으로 내부상품을 자동매칭하는 중입니다.`,
         });
         ondolpassBatchRef.current = null;
         setProductMasterMatchBusy(true);
         setProductMasterMatchStatus({
           kind: "warning",
-          message: "실제 커머스OS 상품마스터와 자동매칭하는 중입니다.",
+          message: "발주초안 우선으로 커머스OS 내부상품과 자동매칭하는 중입니다.",
         });
         try {
           const matchResponse = await requestFreightProductMasterMatches(
@@ -523,7 +621,7 @@ export default function FreightBarcodeRequestPage() {
           const message =
             matchError instanceof Error
               ? matchError.message
-              : "상품마스터 자동매칭에 실패했습니다.";
+              : "내부상품 자동매칭에 실패했습니다.";
           setAnalysisStatus({
             kind: "warning",
             message: `신청서 분석은 완료했지만 ${message} 품목 원문은 그대로 유지했습니다.`,
@@ -568,6 +666,9 @@ export default function FreightBarcodeRequestPage() {
       pingDelays.forEach((timeoutId) => window.clearTimeout(timeoutId));
       if (ondolpassTimeoutRef.current !== undefined) {
         window.clearTimeout(ondolpassTimeoutRef.current);
+      }
+      if (ondolpassDateRangeTimeoutRef.current !== undefined) {
+        window.clearTimeout(ondolpassDateRangeTimeoutRef.current);
       }
       startOndolpassRequestRef.current = () => undefined;
     };
@@ -658,6 +759,61 @@ export default function FreightBarcodeRequestPage() {
     startOndolpassRequestRef.current(applicationNos[0], 0, applicationNos.length);
   }
 
+  function importOndolpassDateRange() {
+    let dateRange: { startDate: string; endDate: string };
+    try {
+      dateRange = normalizeOndolpassDateRange(
+        ondolpassStartDate,
+        ondolpassEndDate,
+      );
+    } catch (error) {
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          error instanceof Error ? error.message : "신청일 범위를 확인해주세요.",
+      });
+      return;
+    }
+    if (!ondolpassBridgeReady) {
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          "온돌패스 브리지 확장이 연결되지 않았습니다. 확장을 설치하거나 켠 뒤 이 화면을 새로고침해주세요.",
+      });
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    ondolpassDateRangeRequestRef.current = { requestId, ...dateRange };
+    setOndolpassBridgeStatus({
+      kind: "loading",
+      message: `${dateRange.startDate}~${dateRange.endDate} 온돌패스 신청서를 조회하는 중입니다.`,
+    });
+    if (ondolpassDateRangeTimeoutRef.current !== undefined) {
+      window.clearTimeout(ondolpassDateRangeTimeoutRef.current);
+    }
+    ondolpassDateRangeTimeoutRef.current = window.setTimeout(() => {
+      if (ondolpassDateRangeRequestRef.current?.requestId !== requestId) return;
+      ondolpassDateRangeRequestRef.current = null;
+      ondolpassDateRangeTimeoutRef.current = undefined;
+      setOndolpassBridgeStatus({
+        kind: "error",
+        message:
+          "온돌패스 날짜 조회가 제한시간 안에 끝나지 않았습니다. 로그인과 인터넷 연결을 확인해주세요.",
+      });
+    }, 35_000);
+    window.postMessage(
+      {
+        channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+        source: ONDOLPASS_FREIGHT_PAGE_SOURCE,
+        type: "FETCH_DATE_RANGE",
+        requestId,
+        ...dateRange,
+      },
+      window.location.origin,
+    );
+  }
+
   async function analyzeText() {
     clearLocalImageObjectUrls();
     try {
@@ -679,7 +835,7 @@ export default function FreightBarcodeRequestPage() {
               kind: hasParseWarnings ? "warning" : "success",
               message: `분석 완료: 신청서 ${parsedApplication.applicationNos?.length || 1}건에서 ${parsedApplication.items.length}개 품목을 찾았습니다.${
                 hasParseWarnings ? " 일부 품목은 값이 없어 제외되었습니다." : ""
-              } 상품마스터를 확인하는 중입니다.`,
+              } 발주초안과 상품마스터를 확인하는 중입니다.`,
             }
           : { kind: "warning", message: NO_ITEMS_WARNING },
       );
@@ -687,7 +843,7 @@ export default function FreightBarcodeRequestPage() {
         setProductMasterMatchBusy(true);
         setProductMasterMatchStatus({
           kind: "warning",
-          message: "실제 커머스OS 상품마스터와 자동매칭하는 중입니다.",
+          message: "발주초안 우선으로 커머스OS 내부상품과 자동매칭하는 중입니다.",
         });
         try {
           const matchResponse = await requestFreightProductMasterMatches(
@@ -710,7 +866,7 @@ export default function FreightBarcodeRequestPage() {
           const message =
             matchError instanceof Error
               ? matchError.message
-              : "상품마스터 자동매칭에 실패했습니다.";
+              : "내부상품 자동매칭에 실패했습니다.";
           setAnalysisStatus({
             kind: "warning",
             message: `신청서 분석은 완료했지만 ${message} 품목 원문은 그대로 유지했습니다.`,
@@ -789,12 +945,19 @@ export default function FreightBarcodeRequestPage() {
     setProductMasterMatchStatus(null);
     setProductMasterMatchBusy(false);
     setOndolpassApplicationNo("");
+    setOndolpassStartDate("");
+    setOndolpassEndDate("");
     setOndolpassBridgeStatus(null);
     if (ondolpassTimeoutRef.current !== undefined) {
       window.clearTimeout(ondolpassTimeoutRef.current);
       ondolpassTimeoutRef.current = undefined;
     }
     ondolpassRequestRef.current = null;
+    if (ondolpassDateRangeTimeoutRef.current !== undefined) {
+      window.clearTimeout(ondolpassDateRangeTimeoutRef.current);
+      ondolpassDateRangeTimeoutRef.current = undefined;
+    }
+    ondolpassDateRangeRequestRef.current = null;
     ondolpassBatchRef.current = null;
     setLookupFailedIds(new Set());
     setLoadedHistoryId(undefined);
@@ -891,7 +1054,7 @@ export default function FreightBarcodeRequestPage() {
     setProductMasterMatchBusy(true);
     setProductMasterMatchStatus({
       kind: "warning",
-      message: "실제 커머스OS 상품마스터와 다시 매칭하는 중입니다.",
+      message: "발주초안 우선으로 커머스OS 내부상품과 다시 매칭하는 중입니다.",
     });
     try {
       const matchResponse = await requestFreightProductMasterMatches(application);
@@ -899,7 +1062,7 @@ export default function FreightBarcodeRequestPage() {
         applyLiveProductMasterMatches(application, matchResponse),
       );
       const message = productMasterMatchMessage(
-        "상품마스터 재매칭 완료 ·",
+        "내부상품 재매칭 완료 ·",
         matchResponse,
       );
       setProductMasterMatchStatus({
@@ -916,7 +1079,7 @@ export default function FreightBarcodeRequestPage() {
         message:
           error instanceof Error
             ? error.message
-            : "상품마스터 자동매칭에 실패했습니다.",
+            : "내부상품 자동매칭에 실패했습니다.",
       });
     } finally {
       setProductMasterMatchBusy(false);
@@ -1351,6 +1514,54 @@ export default function FreightBarcodeRequestPage() {
                   : "가져와서 자동 분석"}
               </Button>
             </div>
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-white/70 p-3">
+              <p className="text-xs font-semibold text-slate-800">
+                신청일 기간으로 자동 가져오기
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                온돌패스 LCL 신청현황의 실제 신청일 검색 결과를 읽고, 조회된
+                신청서를 번호 순서대로 자동 분석합니다.
+              </p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+                <label className="flex-1">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">
+                    신청일 시작
+                  </span>
+                  <input
+                    type="date"
+                    value={ondolpassStartDate}
+                    onChange={(event) => {
+                      setOndolpassStartDate(event.target.value);
+                      setOndolpassBridgeStatus(null);
+                    }}
+                    className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="flex-1">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">
+                    신청일 종료
+                  </span>
+                  <input
+                    type="date"
+                    value={ondolpassEndDate}
+                    onChange={(event) => {
+                      setOndolpassEndDate(event.target.value);
+                      setOndolpassBridgeStatus(null);
+                    }}
+                    className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+                <Button
+                  onClick={importOndolpassDateRange}
+                  primary
+                  disabled={ondolpassBridgeStatus?.kind === "loading"}
+                >
+                  {ondolpassBridgeStatus?.kind === "loading"
+                    ? "가져오는 중…"
+                    : "기간 신청서 가져와서 자동 분석"}
+                </Button>
+              </div>
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5">
               <a
                 href="/api/ondolpass-freight-bridge/download"
@@ -1547,7 +1758,7 @@ export default function FreightBarcodeRequestPage() {
           )}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button onClick={analyzeText} primary disabled={productMasterMatchBusy}>
-              {productMasterMatchBusy ? "상품마스터 매칭 중…" : "신청서 분석하기"}
+              {productMasterMatchBusy ? "내부상품 매칭 중…" : "신청서 분석하기"}
             </Button>
             <Button onClick={loadSample}>샘플 불러오기</Button>
             <Button onClick={reset}>초기화</Button>
@@ -1806,12 +2017,13 @@ export default function FreightBarcodeRequestPage() {
           <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="font-semibold text-slate-950">
-                분석 품목 편집 및 상품마스터 매칭
+                분석 품목 편집 및 내부상품 매칭
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                신청서의 1688 상품 URL과 중국 옵션을 실제 커머스OS
-                상품마스터와 대조해 B코드·모델번호·모델명을 자동 적용합니다.
-                후보가 중복되면 자동 입력하지 않습니다.
+                발주차시에서 들어온 경우 발주초안의 오픈마켓 주문번호를 먼저
+                대조하고, 없을 때 1688 URL·중국 옵션으로 상품마스터를 확인해
+                B코드·모델번호·모델명을 자동 적용합니다. 후보가 중복되면 자동
+                입력하지 않습니다.
               </p>
             </div>
             <label className="w-full sm:w-64">
@@ -1862,8 +2074,8 @@ export default function FreightBarcodeRequestPage() {
                   disabled={productMasterMatchBusy || application.items.length === 0}
                 >
                   {productMasterMatchBusy
-                    ? "상품마스터 매칭 중…"
-                    : "상품마스터 자동매칭 다시 실행"}
+                    ? "내부상품 매칭 중…"
+                    : "내부상품 자동매칭 다시 실행"}
                 </Button>
               </div>
             </div>

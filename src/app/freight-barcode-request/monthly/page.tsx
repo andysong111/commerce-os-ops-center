@@ -84,6 +84,7 @@ export default async function FreightBarcodeMonthlyBridgePage({
 
   const context: FreightMonthlyOrderContext = {
     cycleMonth: month,
+    ...(draftId ? { draftId } : {}),
     orderCount: summary.orderCount,
     lineCount: lines.length,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),

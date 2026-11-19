@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   applyFreightProductMasterMatches,
   extractFreight1688OfferId,
+  matchFreightItemsToPurchaseDraft,
   matchFreightItemsToProductMaster,
+  matchFreightItemsWithPurchaseDraftFallback,
   normalizeFreightChinaOption,
 } from "../src/lib/freightProductMasterMatcher.ts";
 
@@ -140,6 +142,106 @@ test("supports an exact B-code manual lookup without fuzzy inference", () => {
   assert.equal(response.matches[0].optionName, "실버");
 });
 
+test("matches the two real 673626 Product Master misses from the selected purchase draft by exact order number", () => {
+  const draftLines = [
+    {
+      barcode: "BBF8-1",
+      modelNo: "AAA367",
+      modelName: "차량용 소변기",
+      saleOption: "블루",
+      chinaOption: "单个蓝色OPP伸缩",
+      supplierLink: "https://detail.1688.com/offer/679581284406.html",
+      orderNumber: "3317016685189009453",
+      quantity: 150,
+    },
+    {
+      barcode: "BBE6-2",
+      modelNo: "AAA507",
+      modelName: "투명 플라스틱 서랍형 수납함",
+      saleOption: "90L",
+      chinaOption: "【深53】*48*35cm有卡扣 90L",
+      supplierLink: "https://detail.1688.com/offer/677122530258.html",
+      orderNumber: "3316586270196027099",
+      quantity: 4,
+    },
+  ];
+  const response = matchFreightItemsToPurchaseDraft(
+    [
+      item({
+        id: "urinal",
+        rowNo: 7,
+        itemName: "Plastic Urinal",
+        optionText: "规格: 单个蓝色OPP伸缩",
+        detailUrl: "https://detail.1688.com/offer/679581284406.html",
+        orderNo: "3317016685189009453",
+        quantity: 150,
+      }),
+      item({
+        id: "storage",
+        rowNo: 8,
+        itemName: "Plastic Storage Box",
+        optionText: "颜色: 白色外框+透明抽屉 尺寸: 【深53】*48*35cm有卡扣 90L",
+        detailUrl: "https://detail.1688.com/offer/677122530258.html",
+        orderNo: "3316586270196027099",
+        quantity: 4,
+      }),
+    ],
+    draftLines,
+  );
+
+  assert.deepEqual(response.summary, {
+    total: 2,
+    matched: 2,
+    unmatched: 0,
+    ambiguous: 0,
+  });
+  assert.equal(response.matches[0].barcode, "BBF8-1");
+  assert.equal(response.matches[0].modelNo, "AAA367");
+  assert.equal(response.matches[0].source, "PURCHASE_DRAFT");
+  assert.equal(response.matches[1].barcode, "BBE6-2");
+  assert.equal(response.matches[1].modelName, "투명 플라스틱 서랍형 수납함");
+});
+
+test("fails closed when duplicate purchase-draft order lines cannot be disambiguated", () => {
+  const duplicate = {
+    barcode: "BBF8-1",
+    modelNo: "AAA367",
+    modelName: "차량용 소변기",
+    saleOption: "",
+    chinaOption: "",
+    supplierLink: "",
+    orderNumber: "3317016685189009453",
+    quantity: 150,
+  };
+  const response = matchFreightItemsToPurchaseDraft(
+    [
+      item({
+        detailUrl: undefined,
+        optionText: "",
+        orderNo: duplicate.orderNumber,
+        quantity: 0,
+      }),
+    ],
+    [duplicate, { ...duplicate, barcode: "BBF8-2", saleOption: "다른 옵션" }],
+  );
+
+  assert.equal(response.matches[0].status, "AMBIGUOUS");
+  assert.equal(response.matches[0].reason, "PURCHASE_DRAFT_AMBIGUOUS");
+  assert.equal(response.matches[0].barcode, undefined);
+});
+
+test("uses Product Master only when no purchase-draft candidate exists", () => {
+  const response = matchFreightItemsWithPurchaseDraftFallback(
+    [item()],
+    [],
+    [product()],
+  );
+
+  assert.equal(response.matches[0].status, "MATCHED");
+  assert.equal(response.matches[0].source, "PRODUCT_MASTER");
+  assert.equal(response.matches[0].barcode, "BAA1-1");
+});
+
 test("applies only confirmed canonical fields to the freight row", () => {
   const application = {
     applicationNo: "673626",
@@ -168,7 +270,11 @@ test("keeps the Product Master secret server-side and wires both import paths to
   );
 
   assert.match(route, /loadLegacySeoInventoryCatalog/);
+  assert.match(route, /loadInternalChinaPurchaseDraft/);
+  assert.match(route, /matchFreightItemsWithPurchaseDraftFallback/);
   assert.match(route, /resolveProductLaunchIdentity/);
+  assert.match(page, /draftId/);
+  assert.match(page, /orderNo: item\.orderNo/);
   assert.doesNotMatch(page, /PRODUCT_MASTER_INTEGRATION_SECRET|x-commerce-os-integration-secret/);
   assert.ok(
     page.match(/requestFreightProductMasterMatches\(/g)?.length >= 4,

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Commerce OS 온돌패스 신청서 브리지",
   "short_name": "온돌패스 브리지",
-  "version": "0.1.1",
-  "description": "신청서 번호로 온돌패스 제품정보와 상품 이미지만 읽어 Commerce OS 바코드 생성기에 전달합니다.",
+  "version": "0.2.0",
+  "description": "신청서 번호 또는 신청일 범위로 온돌패스 제품정보와 상품 이미지만 읽어 Commerce OS 바코드 생성기에 전달합니다.",
   "permissions": [
     "tabs",
     "scripting"

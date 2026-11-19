@@ -5,6 +5,7 @@
   const PAGE_SOURCE = "commerce-os-freight-barcode-request";
   const EXTENSION_SOURCE = "commerce-os-ondolpass-freight-bridge";
   const FETCH_TYPE = "COMMERCE_OS_ONDOLPASS_FETCH_V1";
+  const DATE_RANGE_FETCH_TYPE = "COMMERCE_OS_ONDOLPASS_DATE_RANGE_FETCH_V1";
 
   function isAllowedCommercePage() {
     const allowedOrigin =
@@ -59,6 +60,48 @@
     }
   }
 
+  async function fetchDateRange(message) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: DATE_RANGE_FETCH_TYPE,
+        requestId: message.requestId,
+        startDate: message.startDate,
+        endDate: message.endDate,
+      });
+      if (response && response.ok) {
+        post({
+          type: "DATE_RANGE_RESULT",
+          requestId: message.requestId,
+          startDate: message.startDate,
+          endDate: message.endDate,
+          payload: response.payload,
+        });
+        return;
+      }
+      post({
+        type: "DATE_RANGE_ERROR",
+        requestId: message.requestId,
+        startDate: message.startDate,
+        endDate: message.endDate,
+        errorCode:
+          response && typeof response.errorCode === "string"
+            ? response.errorCode
+            : "BRIDGE_UNKNOWN_ERROR",
+      });
+    } catch (error) {
+      const runtimeErrorMessage = String((error && error.message) || "");
+      post({
+        type: "DATE_RANGE_ERROR",
+        requestId: message.requestId,
+        startDate: message.startDate,
+        endDate: message.endDate,
+        errorCode: /context invalidated/i.test(runtimeErrorMessage)
+          ? "BRIDGE_RELOAD_REQUIRED"
+          : "BRIDGE_RUNTIME_ERROR",
+      });
+    }
+  }
+
   window.addEventListener("message", (event) => {
     if (
       event.source !== window ||
@@ -85,6 +128,15 @@
       /^\d{4,20}$/.test(String(message.applicationNo || ""))
     ) {
       void fetchApplication(message);
+      return;
+    }
+    if (
+      message.type === "FETCH_DATE_RANGE" &&
+      typeof message.requestId === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(message.startDate || "")) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(message.endDate || ""))
+    ) {
+      void fetchDateRange(message);
     }
   });
 

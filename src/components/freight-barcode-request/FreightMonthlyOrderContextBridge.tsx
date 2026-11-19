@@ -16,8 +16,11 @@ export function FreightMonthlyOrderContextBridge({
 
   useEffect(() => {
     persistFreightMonthlyOrderContext({ ...context, savedAt: Date.now() });
+    const draftQuery = context.draftId
+      ? `&draft=${encodeURIComponent(context.draftId)}`
+      : "";
     router.replace(
-      `/freight-barcode-request?month=${encodeURIComponent(context.cycleMonth)}&source=purchase-run`,
+      `/freight-barcode-request?month=${encodeURIComponent(context.cycleMonth)}&source=purchase-run${draftQuery}`,
     );
   }, [context, router]);
 

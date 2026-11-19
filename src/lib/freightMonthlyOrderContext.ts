@@ -18,6 +18,7 @@ export type FreightMonthlyOrderLine = {
 
 export type FreightMonthlyOrderContext = {
   cycleMonth: string;
+  draftId?: string;
   orderCount: number;
   lineCount: number;
   totalQuantity: number;
@@ -55,6 +56,8 @@ function validContext(value: unknown): value is FreightMonthlyOrderContext {
   const row = value as Record<string, unknown>;
   return (
     /^\d{4}-\d{2}$/.test(text(row.cycleMonth)) &&
+    (row.draftId === undefined ||
+      /^fast-purchase-draft:[a-f0-9]{20}$/.test(text(row.draftId))) &&
     Number.isFinite(Number(row.savedAt)) &&
     Array.isArray(row.lines)
   );

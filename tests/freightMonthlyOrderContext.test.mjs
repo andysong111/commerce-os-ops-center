@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { applyFreightMonthlyOrderContext } from "../src/lib/freightMonthlyOrderContext.ts";
 
 const context = {
   cycleMonth: "2026-09",
+  draftId: "fast-purchase-draft:1234567890abcdef1234",
   orderCount: 1,
   lineCount: 2,
   totalQuantity: 25,
@@ -104,4 +106,21 @@ test("weak unrelated text does not receive a monthly B-code", () => {
 
   assert.equal(result.matchedCount, 0);
   assert.equal(result.items[0].matchedBarcode, undefined);
+});
+
+test("monthly bridge preserves the selected draft id on the final freight URL", () => {
+  const bridge = readFileSync(
+    new URL(
+      "../src/components/freight-barcode-request/FreightMonthlyOrderContextBridge.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const monthlyPage = readFileSync(
+    new URL("../src/app/freight-barcode-request/monthly/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(bridge, /draft=\$\{encodeURIComponent\(context\.draftId\)\}/);
+  assert.match(monthlyPage, /\.\.\.\(draftId \? \{ draftId \} : \{\}\)/);
 });

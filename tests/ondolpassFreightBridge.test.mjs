@@ -10,6 +10,7 @@ import { parseFreightApplicationText } from "../src/lib/freightApplicationParser
 import {
   ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
   ONDOLPASS_FREIGHT_EXTENSION_SOURCE,
+  buildOndolpassFreightDateRangeImport,
   buildOndolpassFreightImport,
   getOndolpassFreightBridgeErrorMessage,
   parseOndolpassFreightExtensionMessage,
@@ -157,6 +158,56 @@ test("page accepts only the versioned extension response envelope", () => {
     getOndolpassFreightBridgeErrorMessage("ONDOLPASS_LOGIN_REQUIRED"),
     /로그인/,
   );
+  assert.equal(
+    parseOndolpassFreightExtensionMessage({
+      channel: ONDOLPASS_FREIGHT_BRIDGE_CHANNEL,
+      source: ONDOLPASS_FREIGHT_EXTENSION_SOURCE,
+      type: "DATE_RANGE_RESULT",
+      requestId: "range-1",
+      startDate: "2026-11-18",
+      endDate: "2026-11-18",
+      payload: {},
+    })?.type,
+    "DATE_RANGE_RESULT",
+  );
+});
+
+test("validated Ondolpass date range returns only the exact application rows", () => {
+  const imported = buildOndolpassFreightDateRangeImport(
+    {
+      sourceUrl:
+        "https://www.ondolpass.co.kr/mypage/ship_lcl_list.php?date_type=order_date&s_date=2026-11-18&e_date=2026-11-18&searchType=addressee&page_line=500&page_choice=1",
+      startDate: "2026-11-18",
+      endDate: "2026-11-18",
+      applications: [
+        { applicationNo: "673626", applicationDate: "2026-11-18" },
+        { applicationNo: "673624", applicationDate: "2026-11-18" },
+        { applicationNo: "673623", applicationDate: "2026-11-18" },
+        { applicationNo: "673622", applicationDate: "2026-11-18" },
+      ],
+    },
+    "2026-11-18",
+    "2026-11-18",
+  );
+
+  assert.deepEqual(imported.applicationNos, ["673626", "673624", "673623", "673622"]);
+  assert.throws(
+    () =>
+      buildOndolpassFreightDateRangeImport(
+        {
+          sourceUrl:
+            "https://www.ondolpass.co.kr/mypage/ship_lcl_list.php?date_type=order_date&s_date=2026-11-18&e_date=2026-11-18&page_line=500",
+          startDate: "2026-11-18",
+          endDate: "2026-11-18",
+          applications: [
+            { applicationNo: "673592", applicationDate: "2026-11-17" },
+          ],
+        },
+        "2026-11-18",
+        "2026-11-18",
+      ),
+    /조회 범위를 벗어났습니다/,
+  );
 });
 
 test("browser extractor reads only exact product blocks and restores full 1688 URLs", async () => {
@@ -231,6 +282,40 @@ test("browser extractor reads only exact product blocks and restores full 1688 U
   );
 });
 
+test("browser date-range extractor reads the verified Ondolpass list row structure", async () => {
+  const source = await readFile(
+    new URL(
+      "../public/ondolpass-freight-bridge/ondolpass-range-extractor.js",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const context = vm.createContext({ URL });
+  vm.runInContext(source, context);
+  const rows = ["673626", "673624", "673623", "673622"].map(
+    (applicationNo) => ({
+      value: applicationNo,
+      closest() {
+        return { innerText: `2026-11-18 [L배]${applicationNo} 송승준` };
+      },
+    }),
+  );
+  const payload = context.OndolpassFreightRangeExtractor.extract({
+    location: {
+      href: "https://www.ondolpass.co.kr/mypage/ship_lcl_list.php?date_type=order_date&s_date=2026-11-18&e_date=2026-11-18&searchType=addressee&page_line=500&page_choice=1",
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, 'div.row.order_list input[name="ckbox"]');
+      return rows;
+    },
+  });
+
+  assert.deepEqual(
+    Array.from(payload.applications, (row) => row.applicationNo),
+    ["673626", "673624", "673623", "673622"],
+  );
+});
+
 test("extension manifest stays read-only and narrowly scoped", async () => {
   const manifest = JSON.parse(
     await readFile(
@@ -242,6 +327,7 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
     ),
   );
   assert.deepEqual(manifest.permissions, ["tabs", "scripting"]);
+  assert.equal(manifest.version, "0.2.0");
   assert.deepEqual(manifest.host_permissions, [
     "https://ondolpass.co.kr/*",
     "https://www.ondolpass.co.kr/*",
@@ -252,6 +338,8 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
     "background.js",
     "ondolpass-extractor.js",
     "ondolpass-capture.js",
+    "ondolpass-range-extractor.js",
+    "ondolpass-range-capture.js",
     "content-ondolpass.js",
     "content-commerce-os.js",
   ]) {
@@ -268,6 +356,11 @@ test("extension manifest stays read-only and narrowly scoped", async () => {
   );
   assert.match(background, /chrome\.scripting\.executeScript/);
   assert.match(background, /"ondolpass-extractor\.js", "ondolpass-capture\.js"/);
+  assert.match(
+    background,
+    /"ondolpass-range-extractor\.js", "ondolpass-range-capture\.js"/,
+  );
+  assert.match(background, /page_line: "500"/);
 });
 
 test("download route returns a complete no-cache extension ZIP", async () => {
@@ -277,7 +370,7 @@ test("download route returns a complete no-cache extension ZIP", async () => {
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.match(
     response.headers.get("content-disposition") || "",
-    /commerce-os-ondolpass-freight-bridge-v0\.1\.1\.zip/,
+    /commerce-os-ondolpass-freight-bridge-v0\.2\.0\.zip/,
   );
 
   const files = unzipSync(new Uint8Array(await response.arrayBuffer()));
@@ -289,6 +382,8 @@ test("download route returns a complete no-cache extension ZIP", async () => {
     "manifest.json",
     "ondolpass-capture.js",
     "ondolpass-extractor.js",
+    "ondolpass-range-capture.js",
+    "ondolpass-range-extractor.js",
   ]);
 });
 
@@ -299,6 +394,7 @@ test("freight page keeps the number import control and manual fallback together"
   );
   assert.match(pageSource, /id="ondolpass-application-no"/);
   assert.match(pageSource, /가져와서 자동 분석/);
+  assert.match(pageSource, /기간 신청서 가져와서 자동 분석/);
   assert.match(pageSource, /\/api\/ondolpass-freight-bridge\/download/);
   assert.match(pageSource, /신청서 분석하기/);
   assert.match(pageSource, /handleRichPaste/);

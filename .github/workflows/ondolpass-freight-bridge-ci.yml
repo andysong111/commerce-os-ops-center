@@ -7,13 +7,17 @@ on:
       - "src/app/api/ondolpass-freight-bridge/**"
       - "src/app/api/freight-product-master-match/**"
       - "src/app/freight-barcode-request/page.tsx"
+      - "src/app/freight-barcode-request/monthly/page.tsx"
+      - "src/components/freight-barcode-request/FreightMonthlyOrderContextBridge.tsx"
       - "src/lib/ondolpassFreightBridge.ts"
+      - "src/lib/freightMonthlyOrderContext.ts"
       - "src/lib/freightApplicationParser.ts"
       - "src/lib/freightProductMasterMatcher.ts"
       - "src/lib/richPasteExtractor.ts"
       - "tests/ondolpassFreightBridge.test.mjs"
       - "tests/freightApplicationParser.test.mjs"
       - "tests/freightProductMasterMatcher.test.mjs"
+      - "tests/freightMonthlyOrderContext.test.mjs"
       - "tests/richPasteExtractor.test.mjs"
       - ".github/workflows/ondolpass-freight-bridge-ci.yml"
   workflow_dispatch:
@@ -42,6 +46,7 @@ jobs:
           tests/ondolpassFreightBridge.test.mjs
           tests/freightApplicationParser.test.mjs
           tests/freightProductMasterMatcher.test.mjs
+          tests/freightMonthlyOrderContext.test.mjs
           tests/richPasteExtractor.test.mjs
       - name: Lint bridge and freight page
         run: >-
@@ -49,6 +54,9 @@ jobs:
           src/app/api/ondolpass-freight-bridge/download/route.ts
           src/app/api/freight-product-master-match/route.ts
           src/app/freight-barcode-request/page.tsx
+          src/app/freight-barcode-request/monthly/page.tsx
+          src/components/freight-barcode-request/FreightMonthlyOrderContextBridge.tsx
+          src/lib/freightMonthlyOrderContext.ts
           src/lib/freightProductMasterMatcher.ts
           src/lib/ondolpassFreightBridge.ts
           tests/ondolpassFreightBridge.test.mjs
@@ -57,6 +65,8 @@ jobs:
         run: >-
           node --check public/ondolpass-freight-bridge/background.js &&
           node --check public/ondolpass-freight-bridge/ondolpass-extractor.js &&
+          node --check public/ondolpass-freight-bridge/ondolpass-range-extractor.js &&
+          node --check public/ondolpass-freight-bridge/ondolpass-range-capture.js &&
           node --check public/ondolpass-freight-bridge/content-ondolpass.js &&
           node --check public/ondolpass-freight-bridge/content-commerce-os.js
       - name: Typecheck

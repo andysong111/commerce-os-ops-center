@@ -1,5 +1,9 @@
 import { loadLegacySeoInventoryCatalog } from "@/lib/legacySeoInventoryCatalog";
-import { matchFreightItemsToProductMaster } from "@/lib/freightProductMasterMatcher";
+import {
+  matchFreightItemsToProductMaster,
+  matchFreightItemsWithPurchaseDraftFallback,
+} from "@/lib/freightProductMasterMatcher";
+import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import type { FreightApplicationItem } from "@/types/freightBarcodeRequest";
 
@@ -15,7 +19,10 @@ let catalogCache:
 
 type MatchRequestBody = {
   items?: unknown;
+  draftId?: unknown;
 };
+
+const DRAFT_ID_PATTERN = /^fast-purchase-draft:[a-f0-9]{20}$/;
 
 function isMatchItem(value: unknown): value is FreightApplicationItem {
   if (!value || typeof value !== "object") return false;
@@ -29,7 +36,9 @@ function isMatchItem(value: unknown): value is FreightApplicationItem {
     typeof item.optionText === "string" &&
     (item.applicationNo === undefined || typeof item.applicationNo === "string") &&
     (item.detailUrl === undefined || typeof item.detailUrl === "string") &&
-    (item.lookupText === undefined || typeof item.lookupText === "string")
+    (item.lookupText === undefined || typeof item.lookupText === "string") &&
+    (item.orderNo === undefined || typeof item.orderNo === "string") &&
+    (item.trackingNo === undefined || typeof item.trackingNo === "string")
   );
 }
 
@@ -71,20 +80,42 @@ export async function POST(request: Request) {
     );
   }
 
+  const draftId = typeof body.draftId === "string" ? body.draftId.trim() : "";
+  if (body.draftId !== undefined && !DRAFT_ID_PATTERN.test(draftId)) {
+    return Response.json(
+      { ok: false, message: "연결된 발주초안 번호가 올바르지 않습니다." },
+      { status: 400 },
+    );
+  }
+
   try {
-    const products = await loadCachedCatalog();
-    return Response.json(matchFreightItemsToProductMaster(body.items, products));
+    const [products, draft] = await Promise.all([
+      loadCachedCatalog(),
+      draftId ? loadInternalChinaPurchaseDraft(draftId) : Promise.resolve(null),
+    ]);
+    return Response.json(
+      draft
+        ? matchFreightItemsWithPurchaseDraftFallback(
+            body.items,
+            draft.lines,
+            products,
+          )
+        : matchFreightItemsToProductMaster(body.items, products),
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : "UNKNOWN";
     const configurationError =
       detail === "PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED" ||
       detail === "PRODUCT_MASTER_BASE_URL_INVALID";
+    const draftError = Boolean(draftId) && detail.startsWith("INTERNAL_CHINA_");
     return Response.json(
       {
         ok: false,
-        message: configurationError
-          ? "커머스OS 상품마스터 연결 설정을 확인해주세요."
-          : "커머스OS 상품마스터를 불러오지 못했습니다.",
+        message: draftError
+          ? "선택한 발주초안을 불러오지 못했습니다. 발주차시 화면에서 다시 들어와주세요."
+          : configurationError
+            ? "커머스OS 상품마스터 연결 설정을 확인해주세요."
+            : "커머스OS 상품마스터를 불러오지 못했습니다.",
       },
       { status: 503 },
     );
