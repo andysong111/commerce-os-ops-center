@@ -77,6 +77,14 @@ test("normalizes 1688 offer IDs and Chinese option labels", () => {
     "710684525681",
   );
   assert.equal(normalizeFreightChinaOption("型号：(白色烤漆) 逆向1米/13MM"), "白色烤漆逆向1米13mm");
+  assert.equal(
+    normalizeFreightChinaOption("笔芯颜色: 普通版-红色 颜色数: 散装"),
+    "普通版红色散装",
+  );
+  assert.equal(
+    normalizeFreightChinaOption("颜色: 白色 规格: 45*45"),
+    normalizeFreightChinaOption("白色,45*45"),
+  );
 });
 
 test("matches the exact SKU by offer ID and normalized Chinese option regardless of row order", () => {
@@ -286,6 +294,83 @@ test("auto-selects the newest purchase draft by exact 1688 order number and igno
   assert.equal(selection.resolvedOrderCount, 1);
   assert.equal(selection.lines.length, 1);
   assert.equal(selection.lines[0].barcode, "BBA7-3");
+});
+
+test("keeps orderless lines from the selected draft and matches them only by an exact option", () => {
+  const selection = selectFreightPurchaseDraftLinesByOrderNumbers(
+    [item({ orderNo: "3316570791192027099", optionText: "ps4专用白色" })],
+    [
+      {
+        draftId: "fast-purchase-draft:current0000000000000",
+        lines: [
+          {
+            barcode: "BAC1-1",
+            modelNo: "AAA318",
+            modelName: "토끼 발세척매트",
+            saleOption: "그레이",
+            chinaOption: "灰色,45*45",
+            supplierLink: "https://detail.1688.com/offer/1063136870043.html",
+            orderNumber: "3316565931185009453",
+            quantity: 15,
+          },
+          {
+            barcode: "BCD8-1",
+            modelNo: "AAA365",
+            modelName: "컨트롤러 레이싱그립",
+            saleOption: "ps4",
+            chinaOption: "ps4专用白色",
+            supplierLink: "https://item.taobao.com/item.htm?id=851333972135",
+            orderNumber: "",
+            quantity: 30,
+          },
+        ],
+      },
+    ],
+  );
+
+  assert.equal(selection.lines.length, 0, "a draft without any requested order overlap is not selected");
+
+  const selected = selectFreightPurchaseDraftLinesByOrderNumbers(
+    [
+      item({ id: "ordered", orderNo: "3316565931185009453" }),
+      item({ id: "controller", orderNo: "3316570791192027099", optionText: "ps4专用白色" }),
+    ],
+    [
+      {
+        draftId: "fast-purchase-draft:current0000000000000",
+        lines: [
+          {
+            barcode: "BAC1-1",
+            modelNo: "AAA318",
+            modelName: "토끼 발세척매트",
+            saleOption: "그레이",
+            chinaOption: "灰色,45*45",
+            supplierLink: "https://detail.1688.com/offer/1063136870043.html",
+            orderNumber: "3316565931185009453",
+            quantity: 15,
+          },
+          {
+            barcode: "BCD8-1",
+            modelNo: "AAA365",
+            modelName: "컨트롤러 레이싱그립",
+            saleOption: "ps4",
+            chinaOption: "ps4专用白色",
+            supplierLink: "https://item.taobao.com/item.htm?id=851333972135",
+            orderNumber: "",
+            quantity: 30,
+          },
+        ],
+      },
+    ],
+  );
+  const response = matchFreightItemsToPurchaseDraft(
+    [item({ id: "controller", orderNo: "3316570791192027099", optionText: "ps4专用白色", quantity: 30 })],
+    selected.lines,
+  );
+
+  assert.equal(response.matches[0].status, "MATCHED");
+  assert.equal(response.matches[0].reason, "PURCHASE_DRAFT_OPTION_EXACT");
+  assert.equal(response.matches[0].barcode, "BCD8-1");
 });
 
 test("applies only confirmed canonical fields to the freight row", () => {

@@ -17,6 +17,8 @@ export type FreightProductMasterMatchReason =
   | "PURCHASE_DRAFT_ORDER_DISAMBIGUATED"
   | "PURCHASE_DRAFT_OFFER_EXACT"
   | "PURCHASE_DRAFT_OFFER_DISAMBIGUATED"
+  | "PURCHASE_DRAFT_OPTION_EXACT"
+  | "PURCHASE_DRAFT_OPTION_DISAMBIGUATED"
   | "PURCHASE_DRAFT_NOT_FOUND"
   | "PURCHASE_DRAFT_AMBIGUOUS"
   | "OFFER_AND_OPTION_EXACT"
@@ -148,7 +150,7 @@ export function selectFreightPurchaseDraftLinesByOrderNumbers(
     if (!draft) return [];
     return draft.lines.filter((line) => {
       const orderNumber = normalizeOrderNumber(line.orderNumber);
-      return orderNumber && ownerByOrder.get(orderNumber)?.draftId === draftId;
+      return !orderNumber || ownerByOrder.get(orderNumber)?.draftId === draftId;
     });
   });
 
@@ -174,8 +176,8 @@ export function normalizeFreightChinaOption(value: unknown) {
   return text(value)
     .toLocaleLowerCase("zh-CN")
     .replace(
-      /^(?:(?:옵션\s*\(\s*색상\s*,?\s*사이즈\s*\)|옵션|颜色|顏色|产品规格|產品規格|规格|規格|型号|型號|尺寸|款式|商品属性|商品屬性)\s*[:：]\s*)+/i,
-      "",
+      /(?:^|[\s,，;；|/])(?:옵션\s*\(\s*색상\s*,?\s*사이즈\s*\)|옵션|笔芯颜色|筆芯顏色|颜色数|顏色數|规格型号|規格型號|产品规格|產品規格|商品属性|商品屬性|颜色|顏色|规格|規格|型号|型號|尺寸|款式|尺码|尺碼|形状|形狀|纯度|純度|高度)\s*[:：]\s*/gi,
+      " ",
     )
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
@@ -403,6 +405,28 @@ export function matchFreightItemsToPurchaseDraft(
           exactOffer.length === 1
             ? "PURCHASE_DRAFT_OFFER_EXACT"
             : "PURCHASE_DRAFT_OFFER_DISAMBIGUATED",
+        );
+      }
+    }
+
+    const itemOption = normalizeFreightChinaOption(item.optionText);
+    if (itemOption) {
+      const exactOption = available.filter((candidate) => {
+        const saleOption = normalizeFreightChinaOption(candidate.line.saleOption);
+        return candidate.normalizedOption === itemOption || saleOption === itemOption;
+      });
+      if (exactOption.length > 0) {
+        const candidate = chooseUniqueDraftCandidate(item, exactOption);
+        if (!candidate) {
+          return unresolved(item, "AMBIGUOUS", "PURCHASE_DRAFT_AMBIGUOUS");
+        }
+        used.add(candidate.index);
+        return matchedDraft(
+          item,
+          candidate,
+          exactOption.length === 1
+            ? "PURCHASE_DRAFT_OPTION_EXACT"
+            : "PURCHASE_DRAFT_OPTION_DISAMBIGUATED",
         );
       }
     }
