@@ -100,6 +100,11 @@ jobs:
           src/app/stage8-latest-order-provisional-validation/page.tsx
           src/app/stage8-shopling-receipt-price-readiness/page.tsx
           src/app/stage8-receipt-live-price-proposals/page.tsx
+          src/lib/shoplingCaptchaApproval.ts
+          'src/app/api/shopling-captcha/[token]/route.ts'
+          'src/app/api/shopling-captcha/[token]/image/route.ts'
+          'src/app/shopling-captcha/[token]/page.tsx'
+          'src/app/shopling-captcha/[token]/ShoplingCaptchaClient.tsx'
       - name: Test existing bulk safety and new engine integration
         run: >-
           node --experimental-strip-types --test
@@ -115,6 +120,8 @@ jobs:
           tests/priceAdjustmentEngineIntegration.test.mjs
       - name: Test public picking share token and completion safety
         run: node --experimental-strip-types --test tests/pickingShare.test.mjs
+      - name: Test human-approved Shopling CAPTCHA handoff
+        run: node --experimental-strip-types --test tests/shoplingCaptchaWebApproval.test.mjs
       - name: Test managed Shopling sales scope and historical evidence safety
         run: >-
           node --experimental-strip-types --test
