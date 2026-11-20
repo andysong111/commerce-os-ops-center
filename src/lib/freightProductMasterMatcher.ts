@@ -6,6 +6,7 @@ import type {
   LegacySeoInventoryProduct,
   LegacySeoInventorySku,
 } from "./legacySeoInventoryCatalog.ts";
+import { getManagedBCodeValue } from "./barcodeValue.ts";
 
 export type FreightProductMasterMatchStatus =
   | "MATCHED"
@@ -110,8 +111,6 @@ type PurchaseDraftCandidate = {
   normalizedOption: string;
 };
 
-const B_CODE = /^B[A-Z]{2}\d+-\d+$/;
-
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
@@ -200,7 +199,7 @@ function canonicalCandidates(products: LegacySeoInventoryProduct[]) {
     for (const sku of product.skus) {
       if (
         sku.active === false ||
-        !text(sku.barcode) ||
+        !getManagedBCodeValue(sku.barcode) ||
         !text(product.modelNo) ||
         !text(product.productName)
       ) {
@@ -376,7 +375,7 @@ export function matchFreightItemsToPurchaseDraft(
     }))
     .filter(
       (candidate) =>
-        B_CODE.test(text(candidate.line.barcode)) &&
+        Boolean(getManagedBCodeValue(candidate.line.barcode)) &&
         text(candidate.line.modelNo) &&
         text(candidate.line.modelName),
     );

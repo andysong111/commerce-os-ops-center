@@ -286,11 +286,29 @@ test("browser PDF draws every visible text line with one Arial and Malgun Gothic
   }
 });
 
-test("missing barcode row is excluded while valid rows still generate", () => {
+test("missing B-code row is excluded while valid rows still generate", () => {
   const result = buildFreightForwarderMvpZip({ applicationNo: "634993", items: [item(1), item(7, "", 50)] });
   assert.deepEqual(result.validRows.map((row) => row.rowNo), [1]);
-  assert.deepEqual(result.excludedRows, [{ rowNo: 7, reason: "바코드 값 없음" }]);
+  assert.deepEqual(result.excludedRows, [{ rowNo: 7, reason: "B코드 미배정" }]);
   assert.ok(Object.hasOwn(zipEntries(result), "634993/634993-1번 50개.pdf"));
+});
+
+test("numeric option barcode and temporary code can never become handoff labels", () => {
+  const result = validateFreightForwarderMvpRows([
+    item(1, "000000000873"),
+    item(2, "TMP1-2"),
+    item(3, "BAA1-3"),
+  ]);
+
+  assert.deepEqual(result.validRows.map((row) => row.rowNo), [3]);
+  assert.deepEqual(result.excludedRows, [
+    { rowNo: 1, reason: "유효한 B코드 아님" },
+    { rowNo: 2, reason: "유효한 B코드 아님" },
+  ]);
+  assert.throws(
+    () => buildFreightForwarderMvpPdf(item(1, "000000000873"), 50),
+    /Managed B-code is required/,
+  );
 });
 
 test("duplicate rowNo is excluded", () => {

@@ -1,5 +1,6 @@
 export const BARCODE_ORIGIN_LABEL = "MADE IN CHINA";
 export const BARCODE_VALUE_PATTERN = /^[A-Z0-9-]+$/;
+export const MANAGED_B_CODE_PATTERN = /^B[A-Z]{2}\d+-\d+$/;
 
 export function sanitizeBarcodeValue(value: string): string {
   return value.toUpperCase();
@@ -14,4 +15,9 @@ export function getEncodedBarcodeValue(value?: string): string | null {
 
   const sanitizedValue = sanitizeBarcodeValue(value);
   return isValidBarcodeValue(sanitizedValue) ? sanitizedValue : null;
+}
+
+export function getManagedBCodeValue(value?: string): string | null {
+  const encoded = getEncodedBarcodeValue(value?.trim());
+  return encoded && MANAGED_B_CODE_PATTERN.test(encoded) ? encoded : null;
 }
