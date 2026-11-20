@@ -24,6 +24,8 @@ const ITEM_TABLE = "product_launch_items";
 const OPTION_TABLE = "product_launch_options";
 const WORKSPACE_TABLE = "product_launch_workspaces";
 
+export const maxDuration = 300;
+
 type UnknownRecord = Record<string, unknown>;
 type Config = { supabaseUrl: string; secretKey: string };
 type Identity = { userId: string; email: string };
@@ -154,6 +156,8 @@ export async function PATCH(request: NextRequest) {
     if (!isRecord(next)) throw new Error("저장할 상품 데이터를 만들지 못했습니다.");
 
     const afterSummary = summarizeProductLaunchTrackerItem(next);
+    const bCodeChange = detectExistingBCodeChange(asRecord(current), next);
+    await applyCanonicalBCodeChange(inputRecord, bCodeChange);
     await writeNormalizedItem(config.value, identity.value, next, afterSummary);
 
     after(async () => {
@@ -180,6 +184,7 @@ export async function PATCH(request: NextRequest) {
       items: [stripSearchText(afterSummary)],
       normalizedDirect: true,
       legacyMirrorQueued: true,
+      canonicalBCodeChanged: Boolean(bCodeChange),
     });
   } catch (error) {
     return Response.json(
@@ -193,6 +198,112 @@ export async function PATCH(request: NextRequest) {
       },
       { status: 503 },
     );
+  }
+}
+
+type ExistingBCodeChange = {
+  optionBarcodeNo: string;
+  previousBarcode: string;
+  currentBarcode: string;
+  optionName: string;
+  modelNumber: string;
+};
+
+function normalizedBCode(value: unknown) {
+  return text(value).normalize("NFKC").replace(/\s+/g, "").toUpperCase();
+}
+
+function itemOptions(item: UnknownRecord) {
+  return Array.isArray(item.orderOptions) ? item.orderOptions.filter(isRecord) : [];
+}
+
+function detectExistingBCodeChange(current: UnknownRecord, next: UnknownRecord) {
+  const beforeByOptionBarcode = new Map(
+    itemOptions(current)
+      .map((option) => [text(option.optionBarcodeNo), option] as const)
+      .filter(([optionBarcodeNo]) => /^\d{12}$/.test(optionBarcodeNo)),
+  );
+  const changes = itemOptions(next).flatMap((option): ExistingBCodeChange[] => {
+    const optionBarcodeNo = text(option.optionBarcodeNo);
+    if (!/^\d{12}$/.test(optionBarcodeNo)) return [];
+    const before = beforeByOptionBarcode.get(optionBarcodeNo);
+    if (!before) return [];
+    const previousBarcode = normalizedBCode(before.barcode);
+    const currentBarcode = normalizedBCode(option.barcode);
+    if (previousBarcode === currentBarcode) return [];
+    return [{
+      optionBarcodeNo,
+      previousBarcode,
+      currentBarcode,
+      optionName: text(option.saleOption ?? option.optionName),
+      modelNumber: text(next.modelNumber).toUpperCase(),
+    }];
+  });
+  if (changes.length > 1) throw new Error("BCODE_CHANGE_SERIALIZATION_REQUIRED");
+  return changes[0] ?? null;
+}
+
+async function applyCanonicalBCodeChange(input: UnknownRecord, detected: ExistingBCodeChange | null) {
+  const supplied = asRecord(input.bCodeChange);
+  if (!detected) {
+    if (Object.keys(supplied).length) throw new Error("BCODE_CHANGE_INTENT_MISMATCH");
+    return;
+  }
+  if (!/^B[A-Z]{2}\d+-\d+$/.test(detected.currentBarcode)) {
+    throw new Error("BCODE_REQUIRED_OR_INVALID");
+  }
+  const requestId = text(supplied.requestId);
+  const physicalPlacementConfirmed = supplied.physicalPlacementConfirmed === true;
+  const sourceEmptyConfirmed = supplied.sourceEmptyConfirmed === true;
+  const releaseSource = supplied.releaseSource === true;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)
+    || text(supplied.optionBarcodeNo) !== detected.optionBarcodeNo
+    || normalizedBCode(supplied.previousBarcode) !== detected.previousBarcode
+    || normalizedBCode(supplied.currentBarcode) !== detected.currentBarcode
+    || !physicalPlacementConfirmed
+    || (Boolean(detected.previousBarcode) && (!sourceEmptyConfirmed || !releaseSource))
+  ) {
+    throw new Error("BCODE_PHYSICAL_CONFIRMATION_REQUIRED");
+  }
+
+  const secret = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
+  const baseUrl = (process.env.PRODUCT_MASTER_BASE_URL?.trim() || "https://commerce-os-product-master.vercel.app").replace(/\/$/, "");
+  if (!secret) throw new Error("PRODUCT_MASTER_INTEGRATION_SECRET_REQUIRED");
+  if (!/^https:\/\//.test(baseUrl)) throw new Error("PRODUCT_MASTER_BASE_URL_INVALID");
+
+  const response = await fetch(`${baseUrl}/api/integrations/location-changes`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-commerce-os-integration-secret": secret,
+    },
+    body: JSON.stringify({
+      events: [{
+        eventId: `ops-product-launch-ui:${requestId}`,
+        previousBarcode: detected.previousBarcode || null,
+        currentBarcode: detected.currentBarcode,
+        changedAt: new Date().toISOString(),
+        source: "ops_product_launch_ui",
+        modelNumber: detected.modelNumber,
+        optionName: detected.optionName,
+        optionBarcodeNo: detected.optionBarcodeNo,
+        releaseSource: Boolean(detected.previousBarcode),
+        physicalPlacementConfirmed: true,
+      }],
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(240_000),
+  });
+  const body = await response.json().catch(() => ({})) as UnknownRecord;
+  const result = Array.isArray(body.results) ? asRecord(body.results[0]) : {};
+  if (
+    !response.ok
+    || body.ok !== true
+    || text(result.optionBarcodeNo) !== detected.optionBarcodeNo
+    || normalizedBCode(result.barcode) !== detected.currentBarcode
+  ) {
+    throw new Error(`CANONICAL_BCODE_CHANGE_FAILED:${text(body.message) || text(body.error) || response.status}`);
   }
 }
 

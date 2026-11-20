@@ -45,3 +45,18 @@ test("옵션 바코드 mirror trigger는 부모 상품 updated_at을 덮어쓰�
   assert.match(migration, /set option_barcode_nos =/i);
   assert.doesNotMatch(migration, /updated_at\s*=\s*now\(\)/i);
 });
+
+test("상품출시 B코드 수정은 물리 위치 확인 후 상품마스터 중앙 변경을 먼저 완료한다", async () => {
+  const route = await source("src/app/api/product-launch-tracker/item-editor/route.ts");
+  const editor = await source("src/app/product-launch-editor/ProductLaunchStandaloneEditor.tsx");
+  assert.match(route, /detectExistingBCodeChange/);
+  assert.match(route, /BCODE_CHANGE_SERIALIZATION_REQUIRED/);
+  assert.match(route, /BCODE_PHYSICAL_CONFIRMATION_REQUIRED/);
+  assert.match(route, /\/api\/integrations\/location-changes/);
+  assert.match(route, /optionBarcodeNo/);
+  assert.match(route, /releaseSource: Boolean\(detected\.previousBarcode\)/);
+  assert.match(route, /await applyCanonicalBCodeChange\(inputRecord, bCodeChange\);\s*await writeNormalizedItem/s);
+  assert.match(editor, /새 B코드 위치에 해당 상품이 실제로 적재되어 있습니다/);
+  assert.match(editor, /기존 B코드 위치는 비어 있으며 이전 위치를 해제해도 됩니다/);
+  assert.match(editor, /한 번에 여러 B코드를 바꿀 수 없습니다/);
+});

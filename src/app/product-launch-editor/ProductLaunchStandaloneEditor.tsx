@@ -11,6 +11,7 @@ const ITEM_API = "/api/product-launch-tracker/normalized-optimized";
 const TRANSIENT_STATUSES = new Set([409, 408, 425, 429, 502, 503, 504]);
 const RETRY_DELAYS_MS = [0, 300, 900];
 const OPTION_BARCODE_PATTERN = /^\d{12}$/;
+const B_CODE_PATTERN = /^B[A-Z]{2}\d+-\d+$/;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -53,6 +54,13 @@ type FormState = {
   detailHtml: string;
   mainImageUrl: string;
   additionalImageUrls: string;
+};
+
+type BCodeChange = {
+  optionBarcodeNo: string;
+  previousBarcode: string;
+  currentBarcode: string;
+  optionName: string;
 };
 
 function text(value: unknown) {
@@ -231,6 +239,26 @@ function verifySaved(expectedForm: FormState, expectedOptions: OrderOption[], ac
   });
 }
 
+function existingBCodeChanges(item: EditorItem | null, nextOptions: OrderOption[]) {
+  if (!item) return [] as BCodeChange[];
+  const beforeByOptionBarcode = new Map(
+    item.orderOptions
+      .filter((option) => OPTION_BARCODE_PATTERN.test(option.optionBarcodeNo))
+      .map((option) => [option.optionBarcodeNo, option] as const),
+  );
+  return nextOptions.flatMap((option) => {
+    if (!OPTION_BARCODE_PATTERN.test(option.optionBarcodeNo)) return [];
+    const before = beforeByOptionBarcode.get(option.optionBarcodeNo);
+    if (!before || before.barcode === option.barcode) return [];
+    return [{
+      optionBarcodeNo: option.optionBarcodeNo,
+      previousBarcode: before.barcode,
+      currentBarcode: option.barcode,
+      optionName: option.saleOption || option.optionName,
+    }];
+  });
+}
+
 function Field({
   label,
   value,
@@ -266,6 +294,8 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [verifiedAt, setVerifiedAt] = useState("");
+  const [physicalPlacementConfirmed, setPhysicalPlacementConfirmed] = useState(false);
+  const [sourceEmptyConfirmed, setSourceEmptyConfirmed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -278,6 +308,8 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
       setItem(next);
       setForm(formFromItem(next));
       setOptions(next.orderOptions);
+      setPhysicalPlacementConfirmed(false);
+      setSourceEmptyConfirmed(false);
       setVerifiedAt(new Date().toLocaleTimeString("ko-KR"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "상품을 불러오지 못했습니다.");
@@ -323,13 +355,35 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
     () => options.filter((option) => option.baseSalePriceKrw > 0 || option.unitCostKrw > 0).length,
     [options],
   );
+  const bCodeChanges = useMemo(() => existingBCodeChanges(item, options), [item, options]);
+  const bCodeChangeReady = bCodeChanges.length === 0 || (
+    bCodeChanges.length === 1
+    && B_CODE_PATTERN.test(bCodeChanges[0].currentBarcode)
+    && physicalPlacementConfirmed
+    && (!bCodeChanges[0].previousBarcode || sourceEmptyConfirmed)
+  );
 
   const save = async () => {
     if (!form || !item || !canSave) return;
+    if (bCodeChanges.length > 1) {
+      setError("B코드는 샵플링 확인까지 한 옵션씩 순서대로 변경합니다. 한 옵션만 수정해 저장해 주세요.");
+      return;
+    }
+    if (bCodeChanges.length === 1 && !B_CODE_PATTERN.test(bCodeChanges[0].currentBarcode)) {
+      setError("새 B코드는 BAA1-1 형식으로 입력해 주세요. B코드는 비워 둘 수 없습니다.");
+      return;
+    }
+    if (!bCodeChangeReady) {
+      setError(bCodeChanges[0]?.previousBarcode
+        ? "새 위치 적재와 기존 위치 비움을 모두 확인해야 B코드를 변경할 수 있습니다."
+        : "새 위치에 실제로 적재했음을 확인해야 B코드를 배정할 수 있습니다.");
+      return;
+    }
     setSaving(true);
     setError("");
     setSuccess("");
     const expectedOptions = options.map((option, index) => normalizeOption(option, index));
+    const bCodeChange = bCodeChanges[0];
     const existingAsset = record(item.detailPageAsset);
     const patch = {
       workBatch: form.workBatch.trim(),
@@ -358,6 +412,17 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
           itemId: item.id,
           patch,
           updatedBy: "상품상세 독립 편집기",
+          bCodeChange: bCodeChange ? {
+            requestId: crypto.randomUUID(),
+            optionBarcodeNo: bCodeChange.optionBarcodeNo,
+            previousBarcode: bCodeChange.previousBarcode,
+            currentBarcode: bCodeChange.currentBarcode,
+            modelNumber: form.modelNumber.trim().toUpperCase(),
+            optionName: bCodeChange.optionName,
+            physicalPlacementConfirmed: true,
+            releaseSource: Boolean(bCodeChange.previousBarcode),
+            sourceEmptyConfirmed: bCodeChange.previousBarcode ? sourceEmptyConfirmed : false,
+          } : null,
         }),
       });
 
@@ -368,6 +433,8 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
       setItem(saved);
       setForm(formFromItem(saved));
       setOptions(saved.orderOptions);
+      setPhysicalPlacementConfirmed(false);
+      setSourceEmptyConfirmed(false);
       setVerifiedAt(new Date().toLocaleTimeString("ko-KR"));
       setSuccess(
         pricedOptionCount
@@ -421,7 +488,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
             <Link href="/product-launch-tracker" className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black">목록으로</Link>
             <Link href={`/product-launch-tracker?detailPageItem=${encodeURIComponent(item.id)}`} className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-black text-slate-600">기존 상세화면</Link>
             <button type="button" onClick={() => void load()} disabled={saving} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-800 disabled:opacity-40">서버 다시 읽기</button>
-            <button type="button" onClick={() => void save()} disabled={!canSave} className="rounded-xl bg-blue-700 px-6 py-2 text-sm font-black text-white shadow disabled:opacity-40">
+            <button type="button" onClick={() => void save()} disabled={!canSave || !bCodeChangeReady || bCodeChanges.length > 1} className="rounded-xl bg-blue-700 px-6 py-2 text-sm font-black text-white shadow disabled:opacity-40">
               {saving ? "저장·검증 중…" : "저장"}
             </button>
           </div>
@@ -498,6 +565,31 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
             </tbody>
           </table>
         </div>
+        {bCodeChanges.length ? (
+          <div className={`mt-4 rounded-xl border p-4 ${bCodeChanges.length === 1 ? "border-amber-300 bg-amber-50" : "border-rose-300 bg-rose-50"}`}>
+            <div className="text-sm font-black text-slate-900">B코드 안전 변경</div>
+            {bCodeChanges.length === 1 ? (
+              <>
+                <p className="mt-1 text-xs font-semibold text-slate-700">
+                  옵션바코드NO {bCodeChanges[0].optionBarcodeNo} · {bCodeChanges[0].previousBarcode || "미배정"} → {bCodeChanges[0].currentBarcode || "비어 있음"}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">저장 시 상품마스터·창고지도·샵플링을 먼저 변경하고, 샵플링 재조회가 일치한 경우에만 이 화면에 반영합니다.</p>
+                <label className="mt-3 flex items-start gap-2 text-sm font-bold text-slate-800">
+                  <input type="checkbox" checked={physicalPlacementConfirmed} onChange={(event) => setPhysicalPlacementConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4" />
+                  새 B코드 위치에 해당 상품이 실제로 적재되어 있습니다.
+                </label>
+                {bCodeChanges[0].previousBarcode ? (
+                  <label className="mt-2 flex items-start gap-2 text-sm font-bold text-slate-800">
+                    <input type="checkbox" checked={sourceEmptyConfirmed} onChange={(event) => setSourceEmptyConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4" />
+                    기존 B코드 위치는 비어 있으며 이전 위치를 해제해도 됩니다.
+                  </label>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-1 text-sm font-bold text-rose-800">한 번에 여러 B코드를 바꿀 수 없습니다. 한 옵션씩 저장해 샵플링 확인을 완료해 주세요.</p>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
@@ -526,7 +618,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
 
       <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
         <span className="hidden text-xs font-bold text-slate-500 md:inline">상품 1건만 저장 · 서버 재조회 검증</span>
-        <button type="button" onClick={() => void save()} disabled={!canSave} className="rounded-xl bg-blue-700 px-7 py-3 text-sm font-black text-white disabled:opacity-40">
+        <button type="button" onClick={() => void save()} disabled={!canSave || !bCodeChangeReady || bCodeChanges.length > 1} className="rounded-xl bg-blue-700 px-7 py-3 text-sm font-black text-white disabled:opacity-40">
           {saving ? "저장·검증 중…" : "저장"}
         </button>
       </div>
