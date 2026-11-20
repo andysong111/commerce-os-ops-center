@@ -98,6 +98,7 @@ import type {
   FreightApplicationItem,
   FreightBarcodeHistoryRecord,
 } from "@/types/freightBarcodeRequest";
+import type { InternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFreightBarcodeCompletion";
 
 const SAMPLE_TEXT = `신청번호:642247
 
@@ -156,6 +157,12 @@ const NO_ITEMS_WARNING =
   "분석된 품목이 없습니다. 복사한 텍스트에서 품목/옵션/수량/URL을 찾지 못했습니다. 신청서 세부 페이지에서 제품정보 영역을 더 넓게 복사해주세요.";
 const ANALYSIS_ERROR =
   "분석 중 오류가 발생했습니다. 원문 형식이 예상과 다릅니다.";
+const PURCHASE_RUN_DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
+
+type PurchaseRunArchiveContext = {
+  cycleMonth: string;
+  draftId: string;
+};
 
 type AnalysisStatus =
   | { kind: "success"; message: string }
@@ -356,6 +363,13 @@ export default function FreightBarcodeRequestPage() {
   const [historyTitle, setHistoryTitle] = useState("");
   const [historyMemo, setHistoryMemo] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
+  const [purchaseRunArchiveContext, setPurchaseRunArchiveContext] =
+    useState<PurchaseRunArchiveContext | null>(null);
+  const [selectedServerHistoryId, setSelectedServerHistoryId] = useState("");
+  const [barcodeCompletion, setBarcodeCompletion] =
+    useState<InternalChinaFreightBarcodeCompletion | null>(null);
+  const [barcodeCompletionStatus, setBarcodeCompletionStatus] = useState("");
+  const [barcodeCompletionBusy, setBarcodeCompletionBusy] = useState(false);
   const [freightForwarderZipStatus, setFreightForwarderZipStatus] =
     useState("");
   const [workRequestZipStatus, setWorkRequestZipStatus] = useState("");
@@ -879,6 +893,60 @@ export default function FreightBarcodeRequestPage() {
       void refreshServerHistoryRecords();
     }, 0);
     return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const cycleMonth = params.get("month") ?? "";
+      const draftId = params.get("draft") ?? "";
+      if (
+        params.get("source") !== "purchase-run" ||
+        !/^20\d{2}-(0[1-9]|1[0-2])$/.test(cycleMonth) ||
+        !PURCHASE_RUN_DRAFT_ID.test(draftId)
+      ) {
+        return;
+      }
+
+      const context = { cycleMonth, draftId };
+      setPurchaseRunArchiveContext(context);
+      void fetch(
+        `/api/china-order-manager/freight-barcode-completion?draftId=${encodeURIComponent(draftId)}`,
+        { cache: "no-store", signal: abortController.signal },
+      )
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => ({}))) as {
+            completion?: InternalChinaFreightBarcodeCompletion | null;
+            message?: string;
+          };
+          if (!response.ok) {
+            throw new Error(
+              payload.message || "바코드 업무 완료 원장을 불러오지 못했습니다.",
+            );
+          }
+          const completion = payload.completion ?? null;
+          setBarcodeCompletion(completion);
+          if (completion) {
+            setSelectedServerHistoryId(completion.historyRecordId);
+          }
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setBarcodeCompletionStatus(
+            error instanceof Error
+              ? error.message
+              : "바코드 업무 완료 원장을 불러오지 못했습니다.",
+          );
+        });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      abortController.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -1571,6 +1639,12 @@ export default function FreightBarcodeRequestPage() {
   }
 
   async function removeServerHistory(id: string) {
+    if (barcodeCompletion?.historyRecordId === id) {
+      setHistoryStatus(
+        "이 파일은 현재 발주차시의 완료 근거이므로 삭제할 수 없습니다.",
+      );
+      return;
+    }
     if (!window.confirm("이 서버 작업요청 이력을 삭제하시겠습니까?")) return;
 
     try {
@@ -1588,6 +1662,69 @@ export default function FreightBarcodeRequestPage() {
       setHistoryStatus(
         "서버 이력을 삭제하지 못했습니다. 로컬 이력은 변경되지 않았습니다.",
       );
+    }
+  }
+
+  async function completePurchaseRunFreightBarcode() {
+    if (
+      !purchaseRunArchiveContext ||
+      barcodeCompletionBusy ||
+      barcodeCompletion
+    ) {
+      return;
+    }
+    const selected = serverHistoryRecords.find(
+      (record) => record.id === selectedServerHistoryId,
+    );
+    if (!selected) {
+      setBarcodeCompletionStatus(
+        "서버 문서 보관함에서 완료 근거 파일 한 건을 선택하세요.",
+      );
+      return;
+    }
+    const confirmed = window.confirm(
+      `${selected.applicationNo || "신청번호 없음"} · ${selected.itemCount}개 품목 파일로 이번 발주차시의 바코드 업무를 종결할까요?\n\n완료 후에는 다른 파일로 바꿀 수 없고 4단계 입고가 활성화됩니다.`,
+    );
+    if (!confirmed) return;
+
+    setBarcodeCompletionBusy(true);
+    setBarcodeCompletionStatus("선택한 서버 문서를 완료 근거로 확정하는 중입니다…");
+    try {
+      const response = await fetch(
+        "/api/china-order-manager/freight-barcode-completion",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            draftId: purchaseRunArchiveContext.draftId,
+            cycleMonth: purchaseRunArchiveContext.cycleMonth,
+            historyRecordId: selected.id,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        completion?: InternalChinaFreightBarcodeCompletion;
+        message?: string;
+      };
+      if (!response.ok || !payload.completion) {
+        throw new Error(
+          payload.message || "바코드 업무 완료 처리에 실패했습니다.",
+        );
+      }
+      setBarcodeCompletion(payload.completion);
+      setSelectedServerHistoryId(payload.completion.historyRecordId);
+      setBarcodeCompletionStatus(
+        payload.message ||
+          "바코드 업무를 완료했습니다. 발주차시 4단계 입고가 활성화됩니다.",
+      );
+    } catch (error) {
+      setBarcodeCompletionStatus(
+        error instanceof Error
+          ? error.message
+          : "바코드 업무 완료 처리에 실패했습니다.",
+      );
+    } finally {
+      setBarcodeCompletionBusy(false);
     }
   }
 
@@ -2063,21 +2200,79 @@ export default function FreightBarcodeRequestPage() {
 
           <div className="mt-5">
             <h3 className="text-sm font-semibold text-slate-900">
-              임시 서버 이력
+              서버 문서 보관함
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              서버가 재시작되면 사라지는 임시 저장소이며, 영구 데이터베이스는
-              아직 연결되지 않았습니다.
+              작업요청서 PDF ZIP 또는 배대지 전달용 개별 PDF ZIP을 다운로드하면
+              현재 작업이 서버에 자동 보관됩니다.
             </p>
+            {purchaseRunArchiveContext ? (
+              <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                <p className="text-sm font-black text-cyan-950">
+                  이번 발주차시 3단계 완료
+                </p>
+                <p className="mt-1 text-xs leading-5 text-cyan-900">
+                  온돌패스 직원에게 실제로 전달한 최종 파일 한 건을 아래
+                  체크박스로 선택한 뒤 종결하세요. 선택 파일 ID와 내용 해시가
+                  완료 근거로 고정되고 4단계 입고가 활성화됩니다.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={completePurchaseRunFreightBarcode}
+                    disabled={
+                      barcodeCompletionBusy ||
+                      Boolean(barcodeCompletion) ||
+                      !selectedServerHistoryId
+                    }
+                    className="rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-black text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {barcodeCompletion
+                      ? "바코드 업무 종결 완료"
+                      : barcodeCompletionBusy
+                        ? "완료 원장 저장 중…"
+                        : "선택 파일로 바코드 업무 종결"}
+                  </button>
+                  {barcodeCompletion ? (
+                    <a
+                      href={`/china-order-manager?run=${encodeURIComponent(purchaseRunArchiveContext.draftId)}`}
+                      className="rounded-lg border border-cyan-300 bg-white px-4 py-2.5 text-sm font-black text-cyan-900 hover:bg-cyan-100"
+                    >
+                      4단계 입고로 이동
+                    </a>
+                  ) : null}
+                </div>
+                {barcodeCompletionStatus ? (
+                  <p
+                    role="status"
+                    className="mt-3 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold leading-5 text-cyan-950"
+                  >
+                    {barcodeCompletionStatus}
+                  </p>
+                ) : null}
+                {barcodeCompletion ? (
+                  <p className="mt-2 text-xs font-semibold text-emerald-800">
+                    완료 근거: 신청번호 {barcodeCompletion.applicationNo} ·{" "}
+                    {barcodeCompletion.itemCount}개 품목 · 파일 해시{" "}
+                    {barcodeCompletion.evidenceHash.slice(0, 19)}…
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-3 overflow-x-auto">
               {serverHistoryRecords.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
                   저장된 서버 작업요청 이력이 없습니다.
                 </p>
               ) : (
-                <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[820px] border-collapse text-left text-sm">
                   <thead className="bg-slate-100 text-xs text-slate-600">
                     <tr>
+                      {purchaseRunArchiveContext ? (
+                        <th className="w-20 px-3 py-3 text-center font-semibold">
+                          종결 선택
+                        </th>
+                      ) : null}
                       <th className="px-3 py-3 font-semibold">신청번호</th>
                       <th className="px-3 py-3 font-semibold">저장일시</th>
                       <th className="px-3 py-3 font-semibold">품목 / 매칭</th>
@@ -2093,6 +2288,22 @@ export default function FreightBarcodeRequestPage() {
                         key={record.id}
                         className={`border-b border-slate-200 ${record.id === loadedServerHistoryId ? "bg-emerald-50/60" : ""}`}
                       >
+                        {purchaseRunArchiveContext ? (
+                          <td className="px-3 py-3 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`${record.applicationNo || "신청번호 없음"} 서버 문서를 종결 근거로 선택`}
+                              checked={selectedServerHistoryId === record.id}
+                              disabled={Boolean(barcodeCompletion)}
+                              onChange={(event) =>
+                                setSelectedServerHistoryId(
+                                  event.target.checked ? record.id : "",
+                                )
+                              }
+                              className="h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-600 disabled:cursor-not-allowed"
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-3 py-3 font-semibold text-slate-900">
                           {record.applicationNo || "-"}
                         </td>
@@ -2124,9 +2335,14 @@ export default function FreightBarcodeRequestPage() {
                             <button
                               type="button"
                               onClick={() => removeServerHistory(record.id)}
-                              className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                              disabled={
+                                barcodeCompletion?.historyRecordId === record.id
+                              }
+                              className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
                             >
-                              삭제
+                              {barcodeCompletion?.historyRecordId === record.id
+                                ? "완료 근거 보존"
+                                : "삭제"}
                             </button>
                           </div>
                         </td>

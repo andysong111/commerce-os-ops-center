@@ -35,6 +35,7 @@ import {
   filterVisiblePurchaseRunHistory,
   selectPurchaseRun,
 } from "@/lib/purchaseRunHistory";
+import { loadInternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFreightBarcodeCompletion";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -176,17 +177,29 @@ export default async function ChinaOrderManagerPage({
   const selectedDraftId = selectedRun?.draftId ?? "";
   const selectedMonth = selectedRun?.cycleStartDate.slice(0, 7) || currentCycleMonth;
   const purchaseByMonth = purchaseMap(purchaseSummaries);
-  const [budget, purchaseFallback] = await Promise.all([
+  const [budget, purchaseFallback, barcodeCompletionRead] = await Promise.all([
     loadBudget(currentCycleMonth),
     purchaseByMonth.has(selectedMonth)
       ? Promise.resolve(null)
       : loadInternalChinaMonthlyPurchaseSummary(selectedMonth).catch(() => null),
+    selectedDraftId
+      ? loadInternalChinaFreightBarcodeCompletion(selectedDraftId)
+          .then((value) => ({ value, error: null as string | null }))
+          .catch((error: unknown) => ({
+            value: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "FREIGHT_BARCODE_COMPLETION_READ_FAILED",
+          }))
+      : Promise.resolve({ value: null, error: null }),
   ]);
   const monthlyPurchase = purchaseByMonth.get(selectedMonth) ?? purchaseFallback;
   const purchase = selectInternalChinaPurchaseSummaryForDraft(
     monthlyPurchase,
     selectedDraftId,
   );
+  const barcodeCompletion = barcodeCompletionRead.value;
   if (monthlyPurchase && !purchaseByMonth.has(selectedMonth)) {
     purchaseByMonth.set(selectedMonth, monthlyPurchase);
   }
@@ -322,6 +335,7 @@ export default async function ChinaOrderManagerPage({
         )
       : 0;
   const receiptDone = orderedQuantity > 0 && inboundOpenQuantity === 0;
+  const barcodeStageDone = Boolean(barcodeCompletion) || receiptDone;
   const forwarderDone = selectedForwarderCloses.length > 0;
   const fundingDone = selectedFundingCloses.length > 0;
   const currentFundingTarget = costRows.find(
@@ -334,12 +348,14 @@ export default async function ChinaOrderManagerPage({
     : null;
   const actionNeeded =
     releasableQuantity > 0 ||
+    (hasOrder && !barcodeStageDone) ||
     (receiptDone && !forwarderDone) ||
     (forwarderDone && !fundingDone);
   const warnings = [
     draftState.error,
     ledger.error,
     budget.error,
+    barcodeCompletionRead.error,
     ...metadata.warnings,
   ].filter((value): value is string => Boolean(value));
 
@@ -397,6 +413,7 @@ export default async function ChinaOrderManagerPage({
                 <Badge tone="emerald">추적 품목 입고 완료</Badge>
               ) : null}
               {forwarderDone ? <Badge tone="emerald">실제 비용 저장</Badge> : null}
+              {barcodeCompletion ? <Badge tone="emerald">바코드 업무 완료</Badge> : null}
               {fundingDone ? <Badge tone="emerald">자금 마감</Badge> : null}
             </div>
           </div>
@@ -624,13 +641,17 @@ export default async function ChinaOrderManagerPage({
             <FlowStep
               number="3"
               title="배송대행지 바코드 출력"
-              state={receiptDone ? "done" : hasOrder ? "active" : "wait"}
+              state={barcodeStageDone ? "done" : hasOrder ? "active" : "wait"}
               detail={
-                receiptDone
-                  ? "입고 단계 통과 · 필요 시 주문정보로 다시 출력 가능"
-                  : hasOrder
-                    ? `${money.format(purchase?.assignedLineCount ?? selectedRows.length)}개 주문 품목 전달 · 온돌패스 주문번호로 B-code 자동연결`
-                    : "실주문 후 진행"
+                barcodeCompletion
+                  ? `신청번호 ${barcodeCompletion.applicationNo} · ${money.format(barcodeCompletion.itemCount)}개 품목 완료 근거 확정`
+                  : receiptDone
+                    ? "기존 입고완료 차시 · 필요 시 주문정보로 다시 출력 가능"
+                    : barcodeCompletionRead.error
+                      ? "완료 원장 조회 지연 · 새로고침 필요"
+                      : hasOrder
+                        ? `${money.format(purchase?.assignedLineCount ?? selectedRows.length)}개 주문 품목 전달 · 온돌패스 주문번호로 B-code 자동연결`
+                        : "실주문 후 진행"
               }
               href={
                 hasOrder
@@ -642,13 +663,21 @@ export default async function ChinaOrderManagerPage({
             <FlowStep
               number="4"
               title="입고"
-              state={inboundOpenQuantity ? "active" : receiptDone ? "done" : "wait"}
+              state={
+                receiptDone
+                  ? "done"
+                  : barcodeCompletion && hasOrder
+                    ? "active"
+                    : "wait"
+              }
               detail={
-                inboundOpenQuantity
+                receiptDone
+                  ? "추적 품목 입고 완료"
+                  : !barcodeCompletion
+                    ? "바코드 업무 종결 후 진행"
+                    : inboundOpenQuantity
                   ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
-                  : receiptDone
-                    ? "추적 품목 입고 완료"
-                    : "실주문 후 진행"
+                  : "입고 수량 입력 대기"
               }
             />
             <FlowStep

@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'src/lib/internalChinaReceipt*'
+      - 'src/lib/internalChinaFreightBarcodeCompletion*'
       - 'src/lib/inventoryStockControl.ts'
       - 'src/lib/inventoryStocktakeBaselines.ts'
       - 'src/lib/purchaseCycle*'
@@ -11,11 +12,14 @@ on:
       - 'src/app/api/china-order-manager/**'
       - 'src/app/china-order-manager/layout.tsx'
       - 'src/app/china-order-manager/page.tsx'
+      - 'src/app/freight-barcode-request/page.tsx'
       - 'src/components/china-order-manager/PurchaseCycleClosurePanel.tsx'
       - 'tests/internalChinaReceipt*.test.mjs'
+      - 'tests/internalChinaFreightBarcodeCompletion.test.mjs'
       - 'tests/purchaseCycle*.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'scripts/verify-purchase-cycle-browser.mjs'
+      - 'scripts/verify-freight-barcode-completion-browser.mjs'
       - '.github/workflows/purchase-cycle-closure-ci.yml'
   workflow_dispatch:
 permissions:
@@ -46,12 +50,16 @@ jobs:
           src/lib/purchaseCycleMonthlyFlow.ts
           src/lib/productMasterVerifiedInventoryBaselines.ts
           src/lib/fastPurchaseCashEnvelope.ts
+          src/lib/internalChinaFreightBarcodeCompletion.ts
+          src/lib/internalChinaFreightBarcodeCompletionCore.ts
+          src/app/api/china-order-manager/freight-barcode-completion/route.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
           src/app/china-order-manager/layout.tsx src/app/china-order-manager/page.tsx
+          src/app/freight-barcode-request/page.tsx
           src/components/china-order-manager/PurchaseCycleClosurePanel.tsx
       - name: Permanent receipt persistence, retry, cycle and stock evidence regressions
-        run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/purchaseCycle*.test.mjs
+        run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/internalChinaFreightBarcodeCompletion.test.mjs tests/purchaseCycle*.test.mjs
       - name: Build production application
         run: npm run build
       - name: Install isolated browser fixture tools without changing dependency manifests
@@ -60,10 +68,14 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Verify real component in Chromium with no external writes
         run: node scripts/verify-purchase-cycle-browser.mjs
+      - name: Verify freight barcode completion in Chromium with no external writes
+        run: node scripts/verify-freight-barcode-completion-browser.mjs
       - name: Retain browser proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: purchase-cycle-browser-${{ github.sha }}
-          path: artifacts/purchase-cycle-browser
+          path: |
+            artifacts/purchase-cycle-browser
+            artifacts/freight-barcode-completion-browser
           if-no-files-found: ignore

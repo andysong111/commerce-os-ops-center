@@ -6,6 +6,7 @@ on:
       - "public/ondolpass-freight-bridge/**"
       - "src/app/api/ondolpass-freight-bridge/**"
       - "src/app/api/freight-product-master-match/**"
+      - "src/app/api/china-order-manager/freight-barcode-completion/**"
       - "src/app/freight-barcode-request/page.tsx"
       - "src/app/freight-barcode-request/monthly/page.tsx"
       - "src/components/freight-barcode-request/FreightMonthlyOrderContextBridge.tsx"
@@ -14,11 +15,13 @@ on:
       - "src/lib/freightApplicationParser.ts"
       - "src/lib/freightProductMasterMatcher.ts"
       - "src/lib/richPasteExtractor.ts"
+      - "src/lib/internalChinaFreightBarcodeCompletion*.ts"
       - "tests/ondolpassFreightBridge.test.mjs"
       - "tests/freightApplicationParser.test.mjs"
       - "tests/freightProductMasterMatcher.test.mjs"
       - "tests/freightMonthlyOrderContext.test.mjs"
       - "tests/richPasteExtractor.test.mjs"
+      - "tests/internalChinaFreightBarcodeCompletion.test.mjs"
       - ".github/workflows/ondolpass-freight-bridge-ci.yml"
   workflow_dispatch:
 
@@ -48,6 +51,7 @@ jobs:
           tests/freightProductMasterMatcher.test.mjs
           tests/freightMonthlyOrderContext.test.mjs
           tests/richPasteExtractor.test.mjs
+          tests/internalChinaFreightBarcodeCompletion.test.mjs
       - name: Lint bridge and freight page
         run: >-
           npx eslint
@@ -59,8 +63,12 @@ jobs:
           src/lib/freightMonthlyOrderContext.ts
           src/lib/freightProductMasterMatcher.ts
           src/lib/ondolpassFreightBridge.ts
+          src/lib/internalChinaFreightBarcodeCompletion.ts
+          src/lib/internalChinaFreightBarcodeCompletionCore.ts
+          src/app/api/china-order-manager/freight-barcode-completion/route.ts
           tests/ondolpassFreightBridge.test.mjs
           tests/freightProductMasterMatcher.test.mjs
+          tests/internalChinaFreightBarcodeCompletion.test.mjs
       - name: Check extension script syntax
         run: >-
           node --check public/ondolpass-freight-bridge/background.js &&
