@@ -172,6 +172,7 @@ try {
   const checkboxes = page.getByRole("checkbox", {
     name: /서버 문서를 종결 근거로 선택/,
   });
+  await checkboxes.first().waitFor();
   assert.equal(await checkboxes.count(), 2);
   await page
     .getByRole("checkbox", {
