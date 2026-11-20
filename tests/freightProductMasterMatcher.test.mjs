@@ -138,6 +138,26 @@ test("matches a unique SKU by offer ID when the application has no option", () =
   assert.equal(response.matches[0].barcode, "BAA1-1");
 });
 
+test("Product Master fallback never matches an unassigned numeric or temporary B-code", () => {
+  const numeric = product({
+    skus: [{ ...product().skus[0], barcode: "000000000873" }],
+  });
+  const temporary = product({
+    productId: "product-temp",
+    modelNo: "AAA129",
+    skus: [{ ...product().skus[0], skuId: "sku-temp", barcode: "TMP1-2" }],
+  });
+
+  for (const source of [numeric, temporary]) {
+    const response = matchFreightItemsToProductMaster(
+      [item({ optionText: "" })],
+      [source],
+    );
+    assert.equal(response.matches[0].status, "UNMATCHED");
+    assert.equal(response.matches[0].barcode, undefined);
+  }
+});
+
 test("supports an exact B-code manual lookup without fuzzy inference", () => {
   const source = product();
   source.skus[1].supplierUrl = "";

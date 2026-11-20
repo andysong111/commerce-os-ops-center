@@ -538,3 +538,34 @@ archived/excluded, 309 active, and 196 marked ready by the older check. Applying
 the new checker to the same production export produced 193 ready and 116 blocked
 active products. Of the blocked products, 13 were sourcing products waiting for
 receipt confirmation. The new first-error text is the authoritative repair queue.
+
+---
+
+## 17. B-code reconciliation incident — 2026-11-20
+
+Owner-confirmed operating truth and verified repairs:
+
+- AAA129 pheasant-glasses-and-pliers set owns BBD3-1 / BBD3-2. AAA090 no longer
+  owns those locations. Product Master, OPS canonical projection ledger, and all
+  six Shopling sales listings were independently read back after correction.
+- The Shopling defect was partial fan-out: a prior one-off transfer updated only
+  the first of six listings. The guarded repair now preflights all six, serializes
+  one listing at a time, and requires an immediate plus final readback.
+- AAA383 is already correct: penetrating BBD4-1 and non-penetrating BBD4-2.
+- AAA275 and AAA278 are owner-marked planned discontinuations. Keep remaining
+  inventory sellable as CLEARANCE, block reordering, and do not mark fully
+  discontinued until stock is actually exhausted.
+
+Do not guess the following conflicts. They require current physical evidence:
+
+- AAA014: Product Master currently has purple M at BDE4-3 and sky S unassigned.
+  Twenty Shopling listings mostly carry the older BCG4-2 / BCG4-3 values; goods
+  115236 is malformed because both options carry BCG4-3. Confirm current physical
+  codes before repairing either system.
+- AAA022: gray and sky are unassigned in Product Master while Shopling still has
+  older BDE5-2 / BDE5-3 values. Those locations were displaced by later direct
+  warehouse evidence, so they must not be restored without a new physical check.
+- AAA357: gray is BCH6-1; sky still has only temporary code TMP1-7. Confirm the
+  sky option's current location or discontinuation state.
+- AAA086 shark and AAA127 special components are owner-confirmed genuine
+  unassigned cases and must remain visible in the review queue.

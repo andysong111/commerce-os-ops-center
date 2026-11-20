@@ -1,6 +1,6 @@
 import { zipSync, zlibSync } from "fflate";
 import { createCode128Layout } from "./code128.ts";
-import { getEncodedBarcodeValue } from "./barcodeValue.ts";
+import { getManagedBCodeValue } from "./barcodeValue.ts";
 import { calculateBarcodeLabelPrint, formatBarcodeBundleUnit } from "./barcodeLabelPrint.ts";
 import { getFreightApplicationNumbers } from "./freightApplicationBatch.ts";
 import type { FreightApplication, FreightApplicationItem } from "../types/freightBarcodeRequest.ts";
@@ -87,13 +87,13 @@ export function validateFreightForwarderMvpRows(
       continue;
     }
 
-    const barcodeValue = getEncodedBarcodeValue(item.barcode);
+    const barcodeValue = getManagedBCodeValue(item.barcode);
     if (!item.barcode?.trim()) {
-      excludedRows.push({ rowNo, reason: "바코드 값 없음" });
+      excludedRows.push({ rowNo, reason: "B코드 미배정" });
       continue;
     }
     if (!barcodeValue) {
-      excludedRows.push({ rowNo, reason: "바코드 형식 오류" });
+      excludedRows.push({ rowNo, reason: "유효한 B코드 아님" });
       continue;
     }
 
@@ -132,8 +132,8 @@ export function buildFreightForwarderMvpStatusMessage(result: FreightForwarderMv
 
 export function buildFreightForwarderMvpPdf(item: FreightApplicationItem, printCount: number): Uint8Array {
   void printCount;
-  const barcodeValue = getEncodedBarcodeValue(item.barcode);
-  if (!barcodeValue) throw new Error("Valid barcode is required to build freight-forwarder MVP PDF.");
+  const barcodeValue = getManagedBCodeValue(item.barcode);
+  if (!barcodeValue) throw new Error("Managed B-code is required to build freight-forwarder MVP PDF.");
 
   const layout = createCode128Layout(barcodeValue);
   const barcodeX = 7;

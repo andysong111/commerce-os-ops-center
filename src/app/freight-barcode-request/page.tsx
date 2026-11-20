@@ -26,7 +26,10 @@ import {
   reconcileFreightBundleUnitLedgerReceipts,
   saveFreightBundleUnitPreference,
 } from "@/lib/freightBundleUnitPreferences";
-import { buildFreightForwarderMvpZip } from "@/lib/freightForwarderZipMvp";
+import {
+  buildFreightForwarderMvpZip,
+  validateFreightForwarderMvpRows,
+} from "@/lib/freightForwarderZipMvp";
 import {
   applyFreightProductMasterMatches,
   type FreightProductMasterMatchResponse,
@@ -46,10 +49,14 @@ import {
   getSampleBarcodeLabelCount,
   getTotalBarcodeLabelCount,
 } from "@/lib/barcodeLabelPrint";
-import { buildFreightWorkRequestZip } from "@/lib/freightWorkRequestZip";
+import {
+  buildFreightWorkRequestZip,
+  groupFreightWorkRequestItems,
+} from "@/lib/freightWorkRequestZip";
 import {
   BARCODE_ORIGIN_LABEL,
   getEncodedBarcodeValue,
+  getManagedBCodeValue,
   isValidBarcodeValue,
   sanitizeBarcodeValue,
 } from "@/lib/barcodeValue";
@@ -368,6 +375,26 @@ export default function FreightBarcodeRequestPage() {
   const matchedCount = application.items.filter(
     (item) => item.matchedModelNo,
   ).length;
+  const handoffValidation = useMemo(
+    () => ({
+      excludedRows: groupFreightWorkRequestItems(application).flatMap((group) =>
+        validateFreightForwarderMvpRows(group.items).excludedRows.map((row) => ({
+          ...row,
+          applicationNo: group.applicationNo,
+        })),
+      ),
+    }),
+    [application],
+  );
+  const handoffReady =
+    application.items.length > 0 && handoffValidation.excludedRows.length === 0;
+
+  function handoffBlockedMessage() {
+    const detail = handoffValidation.excludedRows
+      .map((row) => `${row.applicationNo}/${row.rowNo ? `${row.rowNo}번` : "순번 없음"} ${row.reason}`)
+      .join(" · ");
+    return `다운로드 차단: 모든 품목에 유효한 B코드와 출력수량이 필요합니다.${detail ? ` ${detail}` : ""}`;
+  }
 
   useEffect(() => {
     const latestByBarcode = new Map<
@@ -1565,6 +1592,10 @@ export default function FreightBarcodeRequestPage() {
   }
 
   function downloadFreightForwarderMvpZip() {
+    if (!handoffReady) {
+      setFreightForwarderZipStatus(handoffBlockedMessage());
+      return;
+    }
     const result = buildFreightForwarderMvpZip(application);
     downloadZipFile(result.zipBytes, result.zipFilename);
     setFreightForwarderZipStatus(result.statusMessage);
@@ -1572,6 +1603,10 @@ export default function FreightBarcodeRequestPage() {
 
   async function downloadWorkRequestZip() {
     if (workRequestZipBusy) return;
+    if (!handoffReady) {
+      setWorkRequestZipStatus(handoffBlockedMessage());
+      return;
+    }
     setWorkRequestZipBusy(true);
     setWorkRequestZipStatus("신청서별 작업요청서 PDF를 생성하는 중입니다…");
     try {
@@ -2392,7 +2427,7 @@ export default function FreightBarcodeRequestPage() {
               <Button
                 onClick={downloadWorkRequestZip}
                 primary
-                disabled={workRequestZipBusy || application.items.length === 0}
+                disabled={workRequestZipBusy || !handoffReady}
               >
                 {workRequestZipBusy
                   ? "작업요청서 ZIP 생성 중…"
@@ -2428,6 +2463,7 @@ export default function FreightBarcodeRequestPage() {
         </section>
         <BarcodeLabelOutput
           application={application}
+          handoffReady={handoffReady}
           freightForwarderZipStatus={freightForwarderZipStatus}
           onDownloadFreightForwarderZip={downloadFreightForwarderMvpZip}
         />
@@ -3108,22 +3144,26 @@ function BarcodeLabelCard({
 
 function BarcodeLabelOutput({
   application,
+  handoffReady,
   freightForwarderZipStatus,
   onDownloadFreightForwarderZip,
 }: {
   application: FreightApplication;
+  handoffReady: boolean;
   freightForwarderZipStatus: string;
   onDownloadFreightForwarderZip: () => void;
 }) {
-  const barcodeItems = application.items.filter((item) => item.barcode?.trim());
-  const printableItems = application.items.map((item) => ({
-    ...item,
-    printCount: item.labelPrintCount,
-  }));
+  const barcodeItems = application.items.filter((item) => getManagedBCodeValue(item.barcode));
+  const printableItems = application.items
+    .filter((item) => getManagedBCodeValue(item.barcode))
+    .map((item) => ({
+      ...item,
+      printCount: item.labelPrintCount,
+    }));
   const totalPrintCount = getTotalBarcodeLabelCount(printableItems);
   const samplePrintCount = getSampleBarcodeLabelCount(printableItems);
   const missingBarcodeItems = application.items.filter(
-    (item) => !item.barcode?.trim(),
+    (item) => !getManagedBCodeValue(item.barcode),
   );
   const remainderItems = application.items
     .map((item) => ({ item, calculation: getItemLabelCalculation(item) }))
@@ -3150,7 +3190,7 @@ function BarcodeLabelOutput({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={onDownloadFreightForwarderZip} primary>
+          <Button onClick={onDownloadFreightForwarderZip} primary disabled={!handoffReady}>
             배대지 전달용 개별 PDF ZIP 다운로드
           </Button>
         </div>
@@ -3189,7 +3229,7 @@ function BarcodeLabelOutput({
           {missingBarcodeItems.map((item) => (
             <p key={item.id}>
               {item.applicationNo ? `${item.applicationNo} / ` : ""}
-              {item.rowNo}번 품목 바코드 미입력 · 라벨 PDF에서 제외됩니다.
+              {item.rowNo}번 품목 B코드 미배정/형식 오류 · 두 전달 ZIP 다운로드가 차단됩니다.
             </p>
           ))}
         </div>

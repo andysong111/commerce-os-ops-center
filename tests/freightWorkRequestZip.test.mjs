@@ -68,6 +68,21 @@ test("work-request ZIP keeps one PDF in each application-number folder", async (
   );
 });
 
+test("work-request handoff fails closed when any item lacks a managed B-code", async () => {
+  await assert.rejects(
+    buildFreightWorkRequestZip(
+      {
+        applicationNo: "673626",
+        applicationNos: ["673626"],
+        items: [{ ...item("673626", 1), barcode: "000000000873" }],
+      },
+      "2026-11-20",
+      async () => new Uint8Array(),
+    ),
+    /FREIGHT_HANDOFF_BCODE_READINESS_REQUIRED:673626\/1/,
+  );
+});
+
 test("rasterized work-request PDF supports multiple A4 pages", () => {
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   const pdf = buildJpegPagesPdf([
@@ -102,6 +117,10 @@ test("long helper areas are collapsed and the on-screen work-request preview is 
   assert.doesNotMatch(pageSource, /작업요청서 PDF 저장\/인쇄/);
   assert.match(pageSource, /작업요청서 PDF ZIP 다운로드/);
   assert.match(pageSource, /buildFreightWorkRequestZip\(application, createdDate\)/);
+  assert.match(pageSource, /disabled=\{workRequestZipBusy \|\| !handoffReady\}/);
+  assert.match(pageSource, /disabled=\{!handoffReady\}/);
+  assert.match(pageSource, /getManagedBCodeValue\(item\.barcode\)/);
+  assert.match(pageSource, /두 전달 ZIP 다운로드가 차단됩니다/);
   assert.match(
     enhancerSource,
     /WORK_REQUEST_BUTTON_LABEL = "작업요청서 PDF ZIP 다운로드"/,

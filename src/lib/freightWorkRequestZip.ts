@@ -5,6 +5,7 @@ import { createCode128Layout } from "./code128.ts";
 import { getFreightApplicationNumbers } from "./freightApplicationBatch.ts";
 import { buildFreightImageSourceChain } from "./freightImageProxy.ts";
 import { getFreightItemImageSources } from "./richPasteExtractor.ts";
+import { validateFreightForwarderMvpRows } from "./freightForwarderZipMvp.ts";
 import type {
   FreightApplication,
   FreightApplicationItem,
@@ -78,6 +79,18 @@ export async function buildFreightWorkRequestZip(
   renderPdf: FreightWorkRequestPdfRenderer = renderFreightWorkRequestPdf,
 ): Promise<FreightWorkRequestZipResult> {
   const groups = groupFreightWorkRequestItems(application);
+  const excludedRows = groups.flatMap((group) =>
+    validateFreightForwarderMvpRows(group.items).excludedRows.map((row) => ({
+      ...row,
+      applicationNo: group.applicationNo,
+    })),
+  );
+  if (excludedRows.length > 0) {
+    const rows = excludedRows
+      .map((row) => `${row.applicationNo}/${row.rowNo ?? "순번 없음"}`)
+      .join(",");
+    throw new Error(`FREIGHT_HANDOFF_BCODE_READINESS_REQUIRED:${rows}`);
+  }
   const files: Record<string, Uint8Array> = {};
 
   for (const group of groups) {
