@@ -7,6 +7,7 @@ export type MonthlyDraftDisplayMetadata = {
   modelNo: string;
   modelName: string;
   saleOption: string;
+  imageUrl?: string;
 };
 
 function text(value: unknown) {

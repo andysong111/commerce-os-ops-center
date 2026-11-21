@@ -274,24 +274,14 @@ export default async function ChinaOrderManagerPage({
   );
   const releasableQuantity = total(releasableRows, (row) => row.openQuantity);
 
-  const selectedBarcodes = [
-    ...new Set([
-      ...selectedDrafts.flatMap((draft) =>
-        draft.lines.map((line) => line.barcode),
-      ),
-      ...selectedRows
-        .filter((row) => row.orderedQuantity > 0)
-        .map((row) => row.barcode),
-      ...(purchase?.lines
-        .filter((line) => line.assigned)
-        .map((line) => line.barcode) ?? []),
-    ]),
-  ];
+  const missingReceiptMetadataBarcodes = effectiveReceiptOrderLines
+    .filter((line) => !line.modelNo || !line.modelName || !line.saleOption)
+    .map((line) => line.barcode);
   const metadata: Awaited<
     ReturnType<typeof loadMonthlyDraftDisplayMetadata>
-  > = selectedBarcodes.length
+  > = missingReceiptMetadataBarcodes.length
     ? ((await timebox(
-        loadMonthlyDraftDisplayMetadata(selectedBarcodes),
+        loadMonthlyDraftDisplayMetadata(missingReceiptMetadataBarcodes),
         METADATA_TIMEOUT_MS,
       )) ?? {
         byBarcode: {},

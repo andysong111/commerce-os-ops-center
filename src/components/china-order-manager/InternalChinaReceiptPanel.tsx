@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -8,6 +9,7 @@ import {
   validReceiptRequestId,
 } from "@/domain/china-receipt-request";
 import type { InternalChinaForwarderCostSummary } from "@/lib/internalChinaForwarderCost";
+import { toFreightImageProxyUrl } from "@/lib/freightImageProxy";
 import { runInboundReceiptOnSaleSync } from "@/lib/inboundReceiptOnSaleSync";
 
 export type InternalChinaReceiptPanelLine = {
@@ -15,6 +17,7 @@ export type InternalChinaReceiptPanelLine = {
   modelNo: string;
   modelName: string;
   saleOption: string;
+  imageUrl: string;
   orderedQuantity: number;
   receivedQuantity: number;
   openQuantity: number;
@@ -22,6 +25,36 @@ export type InternalChinaReceiptPanelLine = {
 };
 
 const number = new Intl.NumberFormat("ko-KR");
+
+function ProductThumbnail({
+  imageUrl,
+  label,
+}: {
+  imageUrl: string;
+  label: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const proxyUrl = toFreightImageProxyUrl(imageUrl);
+  if (!proxyUrl || failed) {
+    return (
+      <span className="grid size-16 shrink-0 place-items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-1 text-center text-[10px] font-bold leading-4 text-slate-400">
+        이미지 없음
+      </span>
+    );
+  }
+  return (
+    <Image
+      src={proxyUrl}
+      alt={`${label} 상품 이미지`}
+      width={64}
+      height={64}
+      loading="lazy"
+      unoptimized
+      onError={() => setFailed(true)}
+      className="size-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+    />
+  );
+}
 
 function monthLabel(month: string) {
   const matched = month.match(/^(\d{4})-(\d{2})$/);
@@ -462,10 +495,10 @@ export function InternalChinaReceiptPanel({
               </div>
 
               <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-200">
-                <table className="min-w-[980px] text-left text-sm">
+                <table className="min-w-[1120px] text-left text-sm">
                   <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-bold text-slate-500">
                     <tr>
-                      <th className="px-3 py-3">B-code / 상품</th>
+                      <th className="px-3 py-3">상품 이미지 / B-code / 모델정보</th>
                       <th className="px-3 py-3">옵션</th>
                       <th className="px-3 py-3 text-right">실주문</th>
                       <th className="px-3 py-3 text-right">누적 입고</th>
@@ -477,14 +510,24 @@ export function InternalChinaReceiptPanel({
                     {openLines.map((line) => (
                       <tr key={line.barcode}>
                         <td className="px-3 py-3">
-                          <strong className="font-mono text-slate-950">
-                            {line.barcode}
-                          </strong>
-                          <span className="mt-1 block text-xs text-slate-600">
-                            {[line.modelNo, line.modelName]
-                              .filter(Boolean)
-                              .join(" · ") || "상품정보 확인 중"}
-                          </span>
+                          <div className="flex min-w-[300px] items-center gap-3">
+                            <ProductThumbnail
+                              key={line.imageUrl || line.barcode}
+                              imageUrl={line.imageUrl}
+                              label={line.modelName || line.barcode}
+                            />
+                            <div className="min-w-0">
+                              <strong className="block font-mono text-slate-950">
+                                {line.barcode}
+                              </strong>
+                              <span className="mt-1 block text-xs font-bold text-slate-700">
+                                모델번호 · {line.modelNo || "정보 없음"}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-slate-600">
+                                모델명 · {line.modelName || "정보 없음"}
+                              </span>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-3 py-3 text-slate-700">
                           {line.saleOption || "-"}
