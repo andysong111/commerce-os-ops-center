@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   buildInternalChinaFreightBarcodeCompletion,
+  buildInternalChinaFreightBarcodeReceiptEvidence,
   completeInternalChinaFreightBarcodeWithDependencies,
   freightBarcodeHistoryEvidenceHash,
   parseStoredInternalChinaFreightBarcodeCompletion,
@@ -18,8 +19,8 @@ function historyRecord(overrides = {}) {
     { id: "item-2", rowNo: 2, itemName: "상품 2", optionText: "흰색", quantity: 1 },
   ];
   const productMasterMatches = [
-    { itemId: "item-1", matchedModelNo: "A1", matchedBarcode: "880000000001" },
-    { itemId: "item-2", matchedModelNo: "A2", matchedBarcode: "880000000002" },
+    { itemId: "item-1", matchedModelNo: "A1", matchedBarcode: "BBA1-1" },
+    { itemId: "item-2", matchedModelNo: "A2", matchedBarcode: "BBB2-1" },
   ];
   return {
     id: "history-final-1",
@@ -84,6 +85,34 @@ test("완료 근거는 발주차시와 완전 매칭된 서버 파일을 불변 
   assert.notEqual(
     freightBarcodeHistoryEvidenceHash(historyRecord({ rawText: "변경된 문서" })),
     freightBarcodeHistoryEvidenceHash(record),
+  );
+});
+
+test("완료 파일의 불변 품목·B-code·수량이 4단계 입고 근거가 된다", () => {
+  const record = historyRecord();
+  const completion = buildInternalChinaFreightBarcodeCompletion({
+    draftId,
+    cycleMonth,
+    historyRecordId: record.id,
+    purchase: purchase(),
+    historyRecord: record,
+    completedAt: "2026-11-21T00:00:00.000Z",
+  });
+  const evidence = buildInternalChinaFreightBarcodeReceiptEvidence(
+    completion,
+    record,
+  );
+  assert.deepEqual(evidence.lines, [
+    { barcode: "BBA1-1", quantity: 2 },
+    { barcode: "BBB2-1", quantity: 1 },
+  ]);
+  assert.throws(
+    () =>
+      buildInternalChinaFreightBarcodeReceiptEvidence(
+        completion,
+        historyRecord({ rawText: "변조된 완료 파일" }),
+      ),
+    /CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID/,
   );
 });
 

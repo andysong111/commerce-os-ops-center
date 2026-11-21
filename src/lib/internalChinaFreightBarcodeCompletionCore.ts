@@ -17,6 +17,11 @@ export type InternalChinaFreightBarcodeCompletion = {
   completedAt: string;
 };
 
+export type InternalChinaFreightBarcodeReceiptEvidence =
+  InternalChinaFreightBarcodeCompletion & {
+    lines: Array<{ barcode: string; quantity: number }>;
+  };
+
 export type InternalChinaFreightBarcodePurchaseContext = {
   cycleMonth: string;
   orderCount: number;
@@ -102,6 +107,56 @@ export function freightBarcodeHistoryEvidenceHash(
   return `sha256:${createHash("sha256")
     .update(stableJson(canonicalEvidence), "utf8")
     .digest("hex")}`;
+}
+
+export function buildInternalChinaFreightBarcodeReceiptEvidence(
+  completion: InternalChinaFreightBarcodeCompletion,
+  record: FreightBarcodeHistoryRecord | undefined,
+): InternalChinaFreightBarcodeReceiptEvidence {
+  if (
+    !record ||
+    record.id !== completion.historyRecordId ||
+    record.itemCount !== completion.itemCount ||
+    record.matchedItemCount !== completion.matchedItemCount ||
+    iso(record.updatedAt) !== completion.recordUpdatedAt ||
+    freightBarcodeHistoryEvidenceHash(record) !== completion.evidenceHash ||
+    record.parsedItems.length !== completion.itemCount ||
+    record.productMasterMatches.length !== completion.itemCount
+  ) {
+    throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
+  }
+
+  const quantityByItemId = new Map<string, number>();
+  for (const item of record.parsedItems) {
+    const itemId = text(item.id);
+    const quantity = positiveInteger(item.quantity);
+    if (!itemId || quantityByItemId.has(itemId) || quantity <= 0) {
+      throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
+    }
+    quantityByItemId.set(itemId, quantity);
+  }
+
+  const seenItemIds = new Set<string>();
+  const lines = record.productMasterMatches.map((match) => {
+    const itemId = text(match.itemId);
+    const barcode = text(match.matchedBarcode)
+      .toUpperCase()
+      .replace(/\s+/g, "");
+    const quantity = quantityByItemId.get(itemId) ?? 0;
+    if (
+      seenItemIds.has(itemId) ||
+      !/^[A-Z]{3}\d+-\d+$/.test(barcode) ||
+      quantity <= 0
+    ) {
+      throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
+    }
+    seenItemIds.add(itemId);
+    return { barcode, quantity };
+  });
+  if (seenItemIds.size !== quantityByItemId.size) {
+    throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
+  }
+  return { ...completion, lines };
 }
 
 export function buildInternalChinaFreightBarcodeCompletion(input: {

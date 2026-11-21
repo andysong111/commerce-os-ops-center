@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  buildInternalChinaReceiptWorkspaceLines,
+  hasActualOrderForReceiptWorkspace,
+  resolveInternalChinaReceiptOrderEvidence,
+} from "../src/lib/internalChinaReceiptWorkspace.ts";
 
 const [engine, route, panel, page, monthlyPolicy, followup] = await Promise.all([
   readFile("src/lib/internalChinaReceipt.ts", "utf8"),
@@ -19,10 +24,150 @@ test("receipt UI supports full and partial receipt quantities on the existing Ch
   for (const value of ["입고 처리", "남은 수량 전부 채우기", "PARTIALLY_RECEIVED", "RECEIVED", "/api/china-order-manager/receipts"]) assert.ok(panel.includes(value));
   assert.ok(page.includes("InternalChinaReceiptPanel")); assert.ok(page.includes('title="입고"'));
 });
+test("stage 4 uses actual ledger order evidence even when the stored Draft snapshot is stale", () => {
+  const commitments = [
+    {
+      barcode: "BBA1-1",
+      orderedQuantity: 7,
+      receivedQuantity: 2,
+      cancelledQuantity: 0,
+      committedQuantity: 7,
+      openQuantity: 5,
+      status: "PARTIALLY_RECEIVED",
+    },
+  ];
+  const evidence = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11",
+    commitments,
+    purchase: {
+      cycleMonth: "2026-11",
+      orderCount: 1,
+      lineCount: 1,
+      actualOrderPaidCny: 14,
+      assignedLineCount: 1,
+      unassignedLineCount: 0,
+      lines: [{
+        barcode: "BBA1-1", quantity: 7, goodsPaidCny: 14,
+        orderNumber: "673842", supplierLink: "https://detail.1688.com/offer/1.html",
+        chinaOption: "검정", assigned: true,
+      }],
+    },
+    barcodeCompletion: {
+      cycleMonth: "2026-11",
+      itemCount: 1,
+      matchedItemCount: 1,
+      lines: [{ barcode: "BBA1-1", quantity: 7 }],
+    },
+  });
+  const staleDraftLines = [
+    {
+      barcode: "BBA1-1",
+      modelNo: "AAA001",
+      modelName: "원장 기준 상품",
+      saleOption: "검정",
+      orderedQuantity: 0,
+    },
+  ];
+  assert.equal(hasActualOrderForReceiptWorkspace(evidence), true);
+  assert.deepEqual(
+    buildInternalChinaReceiptWorkspaceLines(evidence.lines, staleDraftLines, {}),
+    [
+      {
+        barcode: "BBA1-1",
+        modelNo: "AAA001",
+        modelName: "원장 기준 상품",
+        saleOption: "검정",
+        orderedQuantity: 7,
+        receivedQuantity: 2,
+        openQuantity: 5,
+        status: "PARTIALLY_RECEIVED",
+      },
+    ],
+  );
+});
+test("completed barcode evidence recovers the real legacy paid-order fixture without trusting RESERVED alone", () => {
+  const commitments = [
+    {
+      barcode: "BBA1-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 10, openQuantity: 10, status: "RESERVED",
+    },
+    {
+      barcode: "BBB2-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 3, openQuantity: 3, status: "RESERVED",
+    },
+    {
+      barcode: "BBC3-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 4, openQuantity: 4, status: "RESERVED",
+    },
+  ];
+  const purchase = {
+    cycleMonth: "2026-11", orderCount: 2, lineCount: 3,
+    actualOrderPaidCny: 42, assignedLineCount: 3, unassignedLineCount: 0,
+    lines: [
+      { barcode: "BBA1-1", quantity: 5, goodsPaidCny: 10, orderNumber: "673842", supplierLink: "https://detail.1688.com/offer/1.html", chinaOption: "검정", assigned: true },
+      { barcode: "BBB2-1", quantity: 8, goodsPaidCny: 32, orderNumber: "673626", supplierLink: "https://detail.1688.com/offer/2.html", chinaOption: "흰색", assigned: true },
+      { barcode: "BBC3-1", quantity: 4, goodsPaidCny: 0, orderNumber: "", supplierLink: "https://detail.1688.com/offer/3.html", chinaOption: "파랑", assigned: true },
+    ],
+  };
+  const completion = {
+    cycleMonth: "2026-11", itemCount: 2, matchedItemCount: 2,
+    lines: [
+      { barcode: "BBA1-1", quantity: 5 },
+      { barcode: "BBB2-1", quantity: 8 },
+    ],
+  };
+  const result = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11", commitments, purchase, barcodeCompletion: completion,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.recoveredLegacyLineCount, 2);
+  assert.deepEqual(result.lines.map((line) => [line.barcode, line.orderedQuantity, line.openQuantity]), [
+    ["BBA1-1", 5, 5],
+    ["BBB2-1", 8, 8],
+  ]);
+  assert.deepEqual(result.lines.map((line) => [line.ledgerOrderedQuantity, line.ledgerCancelledQuantity]), [
+    [10, 5],
+    [8, 0],
+  ]);
+  assert.deepEqual(result.cancelledReservationBarcodes, ["BBC3-1"]);
+  const mismatch = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11",
+    commitments: [{ ...commitments[0], receivedQuantity: 6 }],
+    purchase: { ...purchase, lineCount: 1, assignedLineCount: 1, lines: [purchase.lines[0]], actualOrderPaidCny: 10 },
+    barcodeCompletion: {
+      ...completion,
+      itemCount: 1,
+      matchedItemCount: 1,
+      lines: [completion.lines[0]],
+    },
+  });
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.error, "CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
+  const reservedOnly = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11", commitments, purchase: null, barcodeCompletion: completion,
+  });
+  assert.equal(reservedOnly.ok, false);
+  assert.equal(reservedOnly.error, "CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
+});
+test("active receipt and actual-cost steps link to the visible purchase-run input workspace", () => {
+  assert.ok(page.includes('id="purchase-run-input-workspace"'));
+  assert.ok(page.includes('"#purchase-run-input-workspace"'));
+  assert.ok(page.includes('"입고 처리로 이동"'));
+  assert.ok(page.includes('"실제비용·원가 입력"'));
+  assert.ok(page.includes("resolveInternalChinaReceiptOrderEvidence"));
+  assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
+  assert.equal(page.includes(".filter((draft) => draft.orderedQuantity > 0)"), false);
+  assert.ok(panel.includes("openLines.length > 0 || !forwarderCost.actualCostKrw"));
+});
 test("receipt engine never receives more than the current open quantity", () => {
-  assert.ok(engine.includes("receivedNow > commitment.openQuantity"));
+  assert.ok(engine.includes("receivedNow > effectiveOrder.openQuantity"));
   assert.ok(engine.includes("CHINA_RECEIPT_QUANTITY_EXCEEDED"));
-  assert.ok(engine.includes("commitment.receivedQuantity + receivedNow"));
+  assert.ok(engine.includes("effectiveOrder.receivedQuantity + receivedNow"));
+  assert.ok(engine.includes("orderedQuantity: effectiveOrder.ledgerOrderedQuantity"));
+  assert.ok(engine.includes("cancelledQuantity: effectiveOrder.ledgerCancelledQuantity"));
+  assert.ok(engine.includes("orderEvidence.cancelledReservationBarcodes"));
+  assert.ok(engine.includes("actualOrderEvidenceReconciled: true"));
+  assert.ok(engine.includes("const storedOperations = [...reconciliationOperations, ...operations]"));
 });
 test("receipt engine writes ledger status and product purchase cost without the 1.45 forwarder estimate", () => {
   assert.ok(engine.includes('status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED"'));

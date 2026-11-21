@@ -139,9 +139,16 @@ test("actual follow-up API authenticates first, rejects quantity input, and only
 test("actual receipt engine captures original cost durably before downstream failure and preserves open-quantity guard", async () => {
   const writes = []; let followups = 0;
   const engine = load("src/lib/internalChinaReceipt.ts", {
-    "@/lib/chinaOrderLedger": { CHINA_ORDER_EVENT_OPERATION_TYPE: "CHINA_ORDER_COMMITMENT_EVENT", normalizeChinaOrderCommitmentEvent: (event) => event, loadChinaOrderLedger: async () => ({ error: null, commitments: [{ sourceSystem: "fast-purchase-mvp", sourceRunId: draftId, sourceLineId: "line-1", barcode, reservedAt: at, updatedAt: at, openQuantity: 10, committedQuantity: 10, cancelledQuantity: 0, receivedQuantity: 0 }] }) },
+    "@/lib/chinaOrderLedger": { CHINA_ORDER_EVENT_OPERATION_TYPE: "CHINA_ORDER_COMMITMENT_EVENT", normalizeChinaOrderCommitmentEvent: (event) => event, loadChinaOrderLedger: async () => ({ error: null, commitments: [{ sourceSystem: "fast-purchase-mvp", sourceRunId: draftId, sourceLineId: "line-1", barcode, reservedAt: at, updatedAt: at, status: "ORDERED", openQuantity: 10, committedQuantity: 10, orderedQuantity: 10, cancelledQuantity: 0, receivedQuantity: 0 }] }) },
+    "@/lib/internalChinaActualPurchaseCostDraft": { buildInternalChinaActualPurchaseCostDraft: ({ baseDraft }) => baseDraft },
     "@/lib/internalChinaDraftQuantityOverride": { loadInternalChinaDraftWithQuantityOverrides: async (value) => value },
+    "@/lib/internalChinaFreightBarcodeCompletion": {
+      loadInternalChinaFreightBarcodeCompletion: async () => ({ cycleMonth: "2026-09", itemCount: 1, matchedItemCount: 1 }),
+      loadInternalChinaFreightBarcodeReceiptEvidence: async (value) => ({ ...value, lines: [{ barcode, quantity: 10 }] }),
+    },
+    "@/lib/internalChinaMonthlyPurchaseSummary": { loadInternalChinaMonthlyPurchaseSummary: async () => ({}), selectInternalChinaPurchaseSummaryForDraft: () => ({}) },
     "@/lib/internalChinaPurchaseDraft": { loadInternalChinaPurchaseDraft: async () => ({ exchangeRateKrwPerCny: 230, lines: [{ barcode, modelNo: "AAA123", saleOption: "단품", quantity: 10, freightGroupId: "group-1", unitPriceCny: 2, domesticChinaFreightCny: 10 }] }) },
+    "@/lib/internalChinaReceiptWorkspace": { resolveInternalChinaReceiptOrderEvidence: ({ commitments }) => ({ ok: true, error: null, recoveredLegacyLineCount: 0, cancelledReservationBarcodes: [], lines: commitments.map((row) => ({ ...row, recoveredFromPurchaseEvidence: false })) }) },
     "@/lib/monthlyPurchasePolicy": { koreanMonthLabel: (value) => value, seoulCalendarMonth: () => "2026-09" },
     "@/lib/internalChinaReceiptFollowup": { retryInternalChinaReceiptFollowup: async () => { assert.equal(writes.length, 1); assert.equal(writes[0][0].result_snapshot.receiptCost.unitCostKrw, 690); followups++; throw new Error("RECEIPT_FOLLOWUP_READBACK_MISSING"); } },
     "@/lib/supabase/admin": { createSupabaseAdminHeaders: () => ({}) },

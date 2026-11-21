@@ -9,8 +9,17 @@ import {
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
-import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
+import { buildInternalChinaActualPurchaseCostDraft } from "@/lib/internalChinaActualPurchaseCostDraft";
+import {
+  loadInternalChinaFreightBarcodeCompletion,
+  loadInternalChinaFreightBarcodeReceiptEvidence,
+} from "@/lib/internalChinaFreightBarcodeCompletion";
+import {
+  loadInternalChinaMonthlyPurchaseSummary,
+  selectInternalChinaPurchaseSummaryForDraft,
+} from "@/lib/internalChinaMonthlyPurchaseSummary";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
+import { resolveInternalChinaReceiptOrderEvidence } from "@/lib/internalChinaReceiptWorkspace";
 import { koreanMonthLabel, seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import type { PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
 import { retryInternalChinaReceiptFollowup } from "@/lib/internalChinaReceiptFollowup";
@@ -98,6 +107,12 @@ async function readStoredReceiptReplay(
 }
 
 function lineReceiptEventId(receiptId: string, code: string) { return `receipt:${receiptId}:${code}`; }
+function orderReconciliationEventId(draftId: string, code: string) {
+  return `actual-order-reconcile:${createHash("sha256")
+    .update(`${draftId}:${code}:v1`)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
 function orderItemId(draftId: string, code: string) {
   return parseInt(createHash("sha256").update(`${draftId}:${code}`).digest("hex").slice(0, 7), 16);
 }
@@ -168,21 +183,48 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     return Date.parse(candidate) < Date.parse(earliest) ? candidate : earliest;
   }, ""));
   if (actualCycleMonth !== requestedCycleMonth) throw new Error(`CHINA_RECEIPT_CYCLE_MONTH_CONFLICT:${requestedCycleMonth}:${actualCycleMonth}`);
+  const [monthlyPurchase, barcodeCompletion, baseDraft] = await Promise.all([
+    loadInternalChinaMonthlyPurchaseSummary(actualCycleMonth),
+    loadInternalChinaFreightBarcodeCompletion(draftId),
+    loadInternalChinaPurchaseDraft(draftId),
+  ]);
+  const purchase = selectInternalChinaPurchaseSummaryForDraft(
+    monthlyPurchase,
+    draftId,
+  );
+  const barcodeReceiptEvidence = barcodeCompletion
+    ? await loadInternalChinaFreightBarcodeReceiptEvidence(barcodeCompletion)
+    : null;
+  const orderEvidence = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: actualCycleMonth,
+    commitments,
+    purchase,
+    barcodeCompletion: barcodeReceiptEvidence,
+  });
+  if (!orderEvidence.ok) throw new Error(orderEvidence.error);
+  const effectiveOrderByBarcode = new Map(
+    orderEvidence.lines.map((row) => [row.barcode, row] as const),
+  );
   const commitmentByBarcode = new Map(commitments.map((row) => [row.barcode, row] as const));
   const sourcedByBarcode = new Map<string, NonNullable<ReturnType<typeof sourcingMetadataFromCommitmentPayload>>>();
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code);
     if (!commitment) throw new Error(`CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT:${code}`);
-    if (commitment.openQuantity <= 0) throw new Error(`CHINA_RECEIPT_ALREADY_CLOSED:${code}`);
-    if (receivedNow > commitment.openQuantity) throw new Error(`CHINA_RECEIPT_QUANTITY_EXCEEDED:${code}:${receivedNow}:${commitment.openQuantity}`);
+    const effectiveOrder = effectiveOrderByBarcode.get(code);
+    if (!effectiveOrder) throw new Error(`CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT:${code}`);
+    if (effectiveOrder.openQuantity <= 0) throw new Error(`CHINA_RECEIPT_ALREADY_CLOSED:${code}`);
+    if (receivedNow > effectiveOrder.openQuantity) throw new Error(`CHINA_RECEIPT_QUANTITY_EXCEEDED:${code}:${receivedNow}:${effectiveOrder.openQuantity}`);
     const sourced = sourcingMetadataFromCommitmentPayload(commitment.latestPayload);
     if (sourced) {
-      if (commitment.orderedQuantity <= 0) throw new Error("SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED");
+      if (effectiveOrder.orderedQuantity <= 0) throw new Error("SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED");
       sourcedByBarcode.set(code, sourced);
     }
   }
-  const baseDraft = await loadInternalChinaPurchaseDraft(draftId);
-  const draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
+  const draft = buildInternalChinaActualPurchaseCostDraft({
+    baseDraft,
+    purchase: purchase!,
+    barcodeEvidence: barcodeReceiptEvidence!,
+  });
   const draftByBarcode = new Map(draft.lines.map((line) => [line.barcode, line] as const));
   for (const code of byBarcode.keys()) {
     if (!draftByBarcode.has(code)) throw new Error(`CHINA_RECEIPT_DRAFT_LINE_MISSING:${code}`);
@@ -197,17 +239,77 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   }
   const now = new Date().toISOString();
   const operations: Record<string, unknown>[] = [];
+  const reconciliationOperations: Record<string, unknown>[] = [];
   const receiptCosts: PriceAdjustmentReceipt[] = [];
+  const reconciliationBarcodes = new Set([
+    ...orderEvidence.lines
+      .filter((row) => !byBarcode.has(row.barcode))
+      .map((row) => row.barcode),
+    ...orderEvidence.cancelledReservationBarcodes,
+  ]);
+  for (const code of reconciliationBarcodes) {
+    const commitment = commitmentByBarcode.get(code)!;
+    const effectiveOrder = effectiveOrderByBarcode.get(code);
+    const cancelledReservation = !effectiveOrder;
+    const event = normalizeChinaOrderCommitmentEvent({
+      sourceSystem: commitment.sourceSystem,
+      sourceLineId: commitment.sourceLineId,
+      sourceRunId: draftId,
+      sourceEventId: orderReconciliationEventId(draftId, code),
+      barcode: code,
+      status: cancelledReservation ? "CANCELLED" : "ORDERED",
+      orderedQuantity: effectiveOrder?.ledgerOrderedQuantity,
+      cancelledQuantity: cancelledReservation
+        ? commitment.committedQuantity
+        : effectiveOrder?.ledgerCancelledQuantity,
+      occurredAt: now,
+      note: cancelledReservation
+        ? `${koreanMonthLabel(actualCycleMonth)} 실제 결제 제외 예약줄 종결`
+        : `${koreanMonthLabel(actualCycleMonth)} 실제 결제 주문수량 원장 대조`,
+      payload: {
+        draftId,
+        cycleMonth: actualCycleMonth,
+        actualOrderEvidenceReconciled: true,
+        externalOrderExecuted: false,
+      },
+    });
+    reconciliationOperations.push({
+      operation_type: CHINA_ORDER_EVENT_OPERATION_TYPE,
+      status: "SUCCEEDED",
+      source: RECEIPT_SOURCE,
+      source_event_id: `china-order:${encodeURIComponent(event.sourceSystem)}:${encodeURIComponent(event.sourceEventId)}`,
+      correlation_id: `china-order-line:${encodeURIComponent(event.sourceSystem)}:${encodeURIComponent(event.sourceLineId)}`,
+      actor_type: "OPS_OPERATOR",
+      input_snapshot: event,
+      result_snapshot: {
+        accepted: true,
+        actualOrderEvidenceReconciled: true,
+        draftId,
+        cycleMonth: actualCycleMonth,
+        barcode: code,
+        cancelledReservation,
+        externalOrderExecuted: false,
+      },
+      error_message: null,
+      started_at: now,
+      finished_at: now,
+      updated_at: now,
+    });
+  }
   let fullyReceivedCount = 0, partiallyReceivedCount = 0, receivedNowTotal = 0;
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code)!;
+    const effectiveOrder = effectiveOrderByBarcode.get(code)!;
     const line = draftByBarcode.get(code)!;
     const sourcing = sourcedByBarcode.get(code) ?? null;
     if (sourcing && (line.modelNo !== sourcing.modelNumber || !(line.unitPriceCny > 0))) {
       throw new Error("SOURCING_RECEIPT_DRAFT_IDENTITY_OR_COST_INVALID");
     }
-    const cumulativeReceived = commitment.receivedQuantity + receivedNow;
-    const receivableTotal = Math.max(0, commitment.committedQuantity - commitment.cancelledQuantity);
+    const cumulativeReceived = effectiveOrder.receivedQuantity + receivedNow;
+    const receivableTotal = Math.max(
+      0,
+      effectiveOrder.orderedQuantity - effectiveOrder.cancelledQuantity,
+    );
     const finished = cumulativeReceived >= receivableTotal;
     if (finished) fullyReceivedCount += 1;
     else partiallyReceivedCount += 1;
@@ -215,7 +317,10 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const event = normalizeChinaOrderCommitmentEvent({
       sourceSystem: commitment.sourceSystem, sourceLineId: commitment.sourceLineId,
       sourceRunId: draftId, sourceEventId: lineReceiptEventId(receiptId, code), barcode: code,
-      status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED", receivedQuantity: cumulativeReceived,
+      status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED",
+      orderedQuantity: effectiveOrder.ledgerOrderedQuantity,
+      receivedQuantity: cumulativeReceived,
+      cancelledQuantity: effectiveOrder.ledgerCancelledQuantity,
       occurredAt: now, note: `${koreanMonthLabel(actualCycleMonth)} 입고확정 · 이번 ${receivedNow.toLocaleString("ko-KR")}개`,
       payload: { receiptId, draftId, cycleMonth: actualCycleMonth, receivedNow, cumulativeReceived,
         ...(sourcing ? { sourcingConfirmed: true, sourcingIntakeId: sourcing.intakeId, sourcingOutboxId: sourcing.outboxId } : {}),
@@ -252,11 +357,12 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     });
   }
   if (receiptCosts.length !== operations.length) throw new Error("CHINA_RECEIPT_COST_CAPTURE_INCOMPLETE");
+  const storedOperations = [...reconciliationOperations, ...operations];
   const { baseUrl, secret } = supabaseConnection();
   const response = await fetch(`${baseUrl}/rest/v1/commerce_operation_runs?on_conflict=source_event_id&select=source_event_id`, {
     method: "POST",
     headers: { ...createSupabaseAdminHeaders(secret), Prefer: "resolution=ignore-duplicates,return=representation" },
-    body: JSON.stringify(operations), cache: "no-store",
+    body: JSON.stringify(storedOperations), cache: "no-store",
   });
   const responseBody = await response.text();
   if (!response.ok) throw new Error(`CHINA_RECEIPT_STORE_FAILED:${response.status}:${responseBody.slice(0, 400)}`);
