@@ -52,6 +52,7 @@ type ReceiptObservationSummary = {
   displayedQuantity: number;
   observedReceivedQuantity: number;
   complete: boolean;
+  issues: string[];
 };
 
 const number = new Intl.NumberFormat("ko-KR");
@@ -68,7 +69,7 @@ function ProductThumbnail({
   const proxyUrl = toFreightImageProxyUrl(imageUrl);
   if (!proxyUrl || failed) {
     return (
-      <span className="grid size-16 shrink-0 place-items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-1 text-center text-[10px] font-bold leading-4 text-slate-400">
+      <span className="grid size-12 shrink-0 place-items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-1 text-center text-[10px] font-bold leading-4 text-slate-400">
         이미지 없음
       </span>
     );
@@ -77,13 +78,208 @@ function ProductThumbnail({
     <Image
       src={proxyUrl}
       alt={`${label} 상품 이미지`}
-      width={64}
-      height={64}
+      width={48}
+      height={48}
       loading="lazy"
       unoptimized
       onError={() => setFailed(true)}
-      className="size-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+      className="size-12 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
     />
+  );
+}
+type ReceiptLineViewState = "COMPLETE" | "PARTIAL" | "PENDING" | "REVIEW";
+
+function receiptLineViewState(line: InternalChinaReceiptPanelLine): ReceiptLineViewState {
+  if (line.ondolpassMismatchCount > 0 || line.ondolpassDisposedRowCount > 0) {
+    return "REVIEW";
+  }
+  if (
+    line.ondolpassRowCount > 0 &&
+    line.ondolpassReceivedRowCount === line.ondolpassRowCount &&
+    line.ondolpassPendingRowCount === 0 &&
+    (line.ondolpassReceivedQuantity ?? 0) > 0
+  ) {
+    return "COMPLETE";
+  }
+  if (
+    line.ondolpassReceivedRowCount > 0 ||
+    (line.ondolpassReceivedQuantity ?? 0) > 0
+  ) {
+    return "PARTIAL";
+  }
+  return "PENDING";
+}
+
+function observationIssueLabel(issue: string) {
+  const parts = issue.split(":");
+  if (parts[0] === "RECEIPT_SHORTAGE" && parts.length >= 5) {
+    return `신청 ${parts[1]} · ${parts[2]}행: 주문 ${number.format(Number(parts[3]))}개보다 ${number.format(Number(parts[3]) - Number(parts[4]))}개 부족 입고됐습니다.`;
+  }
+  if (parts[0] === "RECEIPT_OVERAGE" && parts.length >= 5) {
+    return `신청 ${parts[1]} · ${parts[2]}행: 주문 ${number.format(Number(parts[3]))}개보다 ${number.format(Number(parts[4]) - Number(parts[3]))}개 많이 입고됐습니다.`;
+  }
+  if (parts[0] === "ORDER_NO_MISMATCH" && parts.length >= 3) {
+    return `신청 ${parts[1]} · ${parts[2]}행: 1688 주문번호가 바코드 완료 근거와 다릅니다.`;
+  }
+  return "바코드 완료 근거와 온돌패스 현재 정보가 달라 자동 입력에서 제외했습니다.";
+}
+
+function ReceiptLineTable({
+  lines,
+  quantities,
+  onQuantityChange,
+  tone,
+}: {
+  lines: InternalChinaReceiptPanelLine[];
+  quantities: Record<string, number>;
+  onQuantityChange: (barcode: string, quantity: number) => void;
+  tone: "attention" | "complete";
+}) {
+  if (!lines.length) return null;
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border ${
+        tone === "complete"
+          ? "border-emerald-200 bg-emerald-50/30"
+          : "border-amber-200 bg-amber-50/20"
+      }`}
+    >
+      <table className="w-full table-fixed text-left text-sm">
+        <colgroup>
+          <col className="w-[44%]" />
+          <col className="w-[18%]" />
+          <col className="w-[22%]" />
+          <col className="w-[16%]" />
+        </colgroup>
+        <thead className="bg-white/80 text-[11px] font-bold text-slate-500">
+          <tr>
+            <th className="px-3 py-2">상품 · 옵션</th>
+            <th className="px-2 py-2 text-right">OPS 수량</th>
+            <th className="px-2 py-2 text-right">온돌패스 확인</th>
+            <th className="px-3 py-2 text-right">이번 입고</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {lines.map((line) => {
+            const state = receiptLineViewState(line);
+            const badge = state === "REVIEW"
+              ? "주문 매칭 실패"
+              : line.ondolpassOverageQuantity > 0
+                ? "주문보다 많이 입고"
+                : line.ondolpassShortageQuantity > 0
+                  ? "부족 입고"
+                  : state === "COMPLETE"
+                    ? "입고 감지완료"
+              : state === "PARTIAL"
+                ? "부분입고"
+                : line.ondolpassReceivedQuantity === null
+                  ? "미확인"
+                  : "미입고";
+            const badgeClass = state === "REVIEW"
+              ? "bg-rose-100 text-rose-800"
+              : line.ondolpassOverageQuantity > 0
+                ? "bg-violet-100 text-violet-800"
+                : line.ondolpassShortageQuantity > 0
+                  ? "bg-amber-100 text-amber-800"
+                  : state === "COMPLETE"
+                    ? "bg-emerald-100 text-emerald-800"
+              : state === "PARTIAL"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-slate-100 text-slate-600";
+            const enteredQuantity = receiptQuantity(quantities[line.barcode]);
+            return (
+              <tr key={line.barcode} className="align-middle">
+                <td className="px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <ProductThumbnail
+                      key={line.imageUrl || line.barcode}
+                      imageUrl={line.imageUrl}
+                      label={line.modelName || line.barcode}
+                    />
+                    <div className="min-w-0 leading-4">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <strong className="font-mono text-slate-950">{line.barcode}</strong>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${badgeClass}`}>
+                          {badge}
+                        </span>
+                      </div>
+                      <span className="mt-0.5 block truncate text-xs font-bold text-slate-700">
+                        모델명 · {line.modelName || "정보 없음"}
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-600">
+                        모델번호 · {line.modelNo || "정보 없음"}
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-500">
+                        옵션 · {line.saleOption || "-"}
+                      </span>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-2 py-2 text-right text-[11px] leading-5 text-slate-600">
+                  <span className="block">주문 {number.format(line.orderedQuantity)}</span>
+                  <span className="block">누적 {number.format(line.receivedQuantity)}</span>
+                  <strong className="block text-blue-700">미입고 {number.format(line.openQuantity)}</strong>
+                </td>
+                <td className="px-2 py-2 text-right text-xs">
+                  {line.ondolpassReceivedQuantity === null ? (
+                    <span className="text-slate-400">아직 확인하지 않음</span>
+                  ) : (
+                    <>
+                      <strong className={state === "COMPLETE" ? "block text-emerald-700" : "block text-cyan-800"}>
+                        {number.format(line.ondolpassReceivedQuantity)} / {number.format(line.ondolpassExpectedQuantity ?? 0)}개
+                      </strong>
+                      <span className="mt-0.5 block text-[11px] text-slate-500">
+                        {line.ondolpassReceivedRowCount}/{line.ondolpassRowCount}행
+                        {line.ondolpassDisposedRowCount ? ` · 폐기 ${line.ondolpassDisposedRowCount}` : ""}
+                        {line.ondolpassMismatchCount ? ` · 주문 매칭 실패 ${line.ondolpassMismatchCount}` : ""}
+                      </span>
+                      {line.ondolpassShortageQuantity > 0 ? (
+                        <span className="mt-0.5 block font-black text-amber-700">
+                          부족 입고 -{number.format(line.ondolpassShortageQuantity)}개
+                        </span>
+                      ) : null}
+                      {line.ondolpassOverageQuantity > 0 ? (
+                        <span className="mt-0.5 block font-black text-violet-700">
+                          주문보다 많이 입고 +{number.format(line.ondolpassOverageQuantity)}개
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <input
+                    aria-label={`${line.barcode} 이번 입고수량`}
+                    type="number"
+                    min={0}
+                    max={MAX_RECEIPT_QUANTITY}
+                    step={1}
+                    value={quantities[line.barcode] ?? 0}
+                    onChange={(event) => onQuantityChange(
+                      line.barcode,
+                      receiptQuantity(event.target.value),
+                    )}
+                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right font-black outline-none focus:border-emerald-500"
+                  />
+                  {enteredQuantity > line.openQuantity ? (
+                    <span className="mt-1 block text-[11px] font-black text-violet-700">
+                      초과 입고 +{number.format(enteredQuantity - line.openQuantity)}개
+                    </span>
+                  ) : enteredQuantity > 0 && enteredQuantity < line.openQuantity ? (
+                    <span className="mt-1 block text-[11px] font-black text-amber-700">
+                      부족 입고 -{number.format(line.openQuantity - enteredQuantity)}개
+                    </span>
+                  ) : enteredQuantity === line.openQuantity ? (
+                    <span className="mt-1 block text-[11px] font-black text-emerald-700">
+                      정상 입고
+                    </span>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -128,6 +324,23 @@ export function InternalChinaReceiptPanel({
     () => lines.filter((line) => line.openQuantity > 0),
     [lines],
   );
+  const observedCompleteLines = useMemo(
+    () => openLines.filter((line) => receiptLineViewState(line) === "COMPLETE"),
+    [openLines],
+  );
+  const attentionLines = useMemo(
+    () => openLines.filter((line) => receiptLineViewState(line) !== "COMPLETE"),
+    [openLines],
+  );
+  const partialLineCount = attentionLines.filter(
+    (line) => receiptLineViewState(line) === "PARTIAL",
+  ).length;
+  const pendingLineCount = attentionLines.filter(
+    (line) => receiptLineViewState(line) === "PENDING",
+  ).length;
+  const reviewLineCount = attentionLines.filter(
+    (line) => receiptLineViewState(line) === "REVIEW",
+  ).length;
   const [expanded, setExpanded] = useState(
     () => openLines.length > 0 || !forwarderCost.actualCostKrw,
   );
@@ -470,6 +683,20 @@ export function InternalChinaReceiptPanel({
               업무센터의 11-2 입고현황 확인을 실행하면 온돌패스에서 확인된 수량이 이 입력칸에 준비됩니다.
             </p>
           )}
+          {observation?.mismatchCount ? (
+            <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
+              <strong className="block">주문 매칭 실패란?</strong>
+              <span>
+                신청번호·행번호는 찾았지만 1688 주문번호가 바코드 완료 근거와 다른 경우입니다. 수량 차이는 실패가 아니라 부족 입고 또는 주문보다 많이 입고로 표시합니다.
+              </span>
+              {observation.issues
+                .filter((issue) => issue.startsWith("ORDER_NO_MISMATCH:"))
+                .slice(0, 3)
+                .map((issue) => (
+                  <span key={issue} className="block font-bold">· {observationIssueLabel(issue)}</span>
+                ))}
+            </div>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {forwarderCost.actualCostKrw ? (
@@ -621,139 +848,52 @@ export function InternalChinaReceiptPanel({
                 </span>
               </div>
 
-              <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-200">
-                <table className="min-w-[1280px] text-left text-sm">
-                  <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-bold text-slate-500">
-                    <tr>
-                      <th className="px-3 py-3">상품 이미지 / B-code / 모델정보</th>
-                      <th className="px-3 py-3">옵션</th>
-                      <th className="px-3 py-3 text-right">실주문</th>
-                      <th className="px-3 py-3 text-right">누적 입고</th>
-                      <th className="px-3 py-3 text-right">남은 미입고</th>
-                      <th className="px-3 py-3 text-right">온돌패스 확인</th>
-                      <th className="px-3 py-3 text-right">이번 입고수량</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {openLines.map((line) => (
-                      <tr key={line.barcode}>
-                        <td className="px-3 py-3">
-                          <div className="flex min-w-[300px] items-center gap-3">
-                            <ProductThumbnail
-                              key={line.imageUrl || line.barcode}
-                              imageUrl={line.imageUrl}
-                              label={line.modelName || line.barcode}
-                            />
-                            <div className="min-w-0">
-                              <strong className="block font-mono text-slate-950">
-                                {line.barcode}
-                              </strong>
-                              <span className="mt-1 block text-xs font-bold text-slate-700">
-                                모델번호 · {line.modelNo || "정보 없음"}
-                              </span>
-                              <span className="mt-0.5 block text-xs text-slate-600">
-                                모델명 · {line.modelName || "정보 없음"}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-slate-700">
-                          {line.saleOption || "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-semibold">
-                          {number.format(line.orderedQuantity)}
-                        </td>
-                        <td className="px-3 py-3 text-right font-semibold">
-                          {number.format(line.receivedQuantity)}
-                        </td>
-                        <td className="px-3 py-3 text-right font-black text-blue-700">
-                          {number.format(line.openQuantity)}
-                        </td>
-                        <td className="px-3 py-3 text-right text-xs">
-                          {line.ondolpassReceivedQuantity === null ? (
-                            <span className="text-slate-400">미확인</span>
-                          ) : (
-                            <>
-                              <strong className="block text-cyan-800">
-                                {number.format(line.ondolpassReceivedQuantity)} / {number.format(line.ondolpassExpectedQuantity ?? 0)}개
-                              </strong>
-                              <span className="mt-1 block text-slate-500">
-                                {line.ondolpassReceivedRowCount}/{line.ondolpassRowCount}행
-                                {line.ondolpassDisposedRowCount
-                                  ? ` · 폐기 ${line.ondolpassDisposedRowCount}`
-                                  : ""}
-                                {line.ondolpassMismatchCount
-                                  ? ` · 주문 매칭 실패 ${line.ondolpassMismatchCount}`
-                                  : ""}
-                              </span>
-                              {line.ondolpassShortageQuantity > 0 ? (
-                                <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 font-black text-amber-800">
-                                  부족 입고 -{number.format(line.ondolpassShortageQuantity)}개
-                                </span>
-                              ) : null}
-                              {line.ondolpassOverageQuantity > 0 ? (
-                                <span className="mt-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 font-black text-violet-800">
-                                  주문보다 많이 입고 +{number.format(line.ondolpassOverageQuantity)}개
-                                </span>
-                              ) : null}
-                              {line.ondolpassReceivedRowCount > 0 &&
-                              line.ondolpassShortageQuantity <= 0 &&
-                              line.ondolpassOverageQuantity <= 0 &&
-                              line.ondolpassMismatchCount <= 0 ? (
-                                <span className="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 font-black text-emerald-800">
-                                  정상 입고
-                                </span>
-                              ) : null}
-                            </>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            max={MAX_RECEIPT_QUANTITY}
-                            step={1}
-                            value={quantities[line.barcode] ?? 0}
-                            onChange={(event) =>
-                              setQuantities((current) => ({
-                                ...current,
-                                [line.barcode]: receiptQuantity(event.target.value),
-                              }))
-                            }
-                            className="w-28 rounded-lg border border-slate-300 px-2.5 py-2 text-right font-black outline-none focus:border-emerald-500"
-                          />
-                          {receiptQuantity(quantities[line.barcode]) >
-                          line.openQuantity ? (
-                            <span className="mt-1 block font-black text-violet-700">
-                              초과 입고 +
-                              {number.format(
-                                receiptQuantity(quantities[line.barcode]) -
-                                  line.openQuantity,
-                              )}
-                              개
-                            </span>
-                          ) : receiptQuantity(quantities[line.barcode]) > 0 &&
-                            receiptQuantity(quantities[line.barcode]) <
-                              line.openQuantity ? (
-                            <span className="mt-1 block font-black text-amber-700">
-                              부족 입고 -
-                              {number.format(
-                                line.openQuantity -
-                                  receiptQuantity(quantities[line.barcode]),
-                              )}
-                              개
-                            </span>
-                          ) : receiptQuantity(quantities[line.barcode]) ===
-                            line.openQuantity ? (
-                            <span className="mt-1 block font-black text-emerald-700">
-                              정상 입고
-                            </span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {attentionLines.length ? (
+                  <section aria-labelledby={`receipt-attention-${draftId}`}>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 id={`receipt-attention-${draftId}`} className="font-black text-amber-950">
+                          확인이 필요한 품목 · {number.format(attentionLines.length)}개
+                        </h3>
+                        <p className="text-[11px] text-amber-800">
+                          미입고 {number.format(pendingLineCount)} · 부분입고 {number.format(partialLineCount)} · 근거확인 {number.format(reviewLineCount)}
+                        </p>
+                      </div>
+                    </div>
+                    <ReceiptLineTable
+                      lines={attentionLines}
+                      quantities={quantities}
+                      onQuantityChange={(barcode, quantity) => setQuantities((current) => ({
+                        ...current,
+                        [barcode]: quantity,
+                      }))}
+                      tone="attention"
+                    />
+                  </section>
+                ) : null}
+
+                {observedCompleteLines.length ? (
+                  <section aria-labelledby={`receipt-complete-${draftId}`}>
+                    <div className="mb-2">
+                      <h3 id={`receipt-complete-${draftId}`} className="font-black text-emerald-900">
+                        입고 감지완료 품목 · {number.format(observedCompleteLines.length)}개
+                      </h3>
+                      <p className="text-[11px] text-emerald-700">
+                        온돌패스에서 모든 신청행에 입고수량이 확인된 품목입니다. 실제 재고 반영은 아래 입고확정 버튼을 눌러야 완료됩니다.
+                      </p>
+                    </div>
+                    <ReceiptLineTable
+                      lines={observedCompleteLines}
+                      quantities={quantities}
+                      onQuantityChange={(barcode, quantity) => setQuantities((current) => ({
+                        ...current,
+                        [barcode]: quantity,
+                      }))}
+                      tone="complete"
+                    />
+                  </section>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">

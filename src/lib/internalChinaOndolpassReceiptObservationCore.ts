@@ -399,7 +399,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
         (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))?.status !==
           "RECEIVED" ||
           !currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
-            ?.eligible)
+            ?.eligible ||
+          (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
+            ?.receivedQuantity ?? 0) < oldRow.receivedQuantity)
       ) {
         throw new Error("ONDOLPASS_RECEIPT_STATUS_REGRESSION");
       }

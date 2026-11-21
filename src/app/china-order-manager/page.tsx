@@ -255,6 +255,7 @@ export default async function ChinaOrderManagerPage({
         observedReceivedQuantity:
           ondolpassObservation.observedReceivedQuantity,
         complete: ondolpassObservation.complete,
+        issues: ondolpassObservation.issues,
       }
     : null;
   if (monthlyPurchase && !purchaseByMonth.has(selectedMonth)) {

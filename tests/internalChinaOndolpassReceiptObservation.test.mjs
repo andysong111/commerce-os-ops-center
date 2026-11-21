@@ -135,6 +135,26 @@ test("주문보다 적게 입고된 수량도 실제 수량으로 보존하고 �
   assert.match(result.issues.join("\n"), /RECEIPT_SHORTAGE:673842:1:10:7/);
 });
 
+test("모든 행에 일부 수량이라도 입고되면 부분입고 수량을 준비하고 완료로 판정한다", () => {
+  const partial = input({
+    applications: input().applications.map((application) => ({
+      ...application,
+      rows: application.rows.map((row) => ({
+        ...row,
+        status: "RECEIVED",
+        quantity: row.rowNo === 1 ? Math.max(1, row.quantity - 2) : row.quantity,
+      })),
+    })),
+  });
+  const result = buildInternalChinaOndolpassReceiptObservation(partial, evidence);
+  assert.equal(result.receivedRowCount, 3);
+  assert.equal(result.pendingRowCount, 0);
+  assert.equal(result.mismatchCount, 0);
+  assert.equal(result.observedReceivedQuantity, 19);
+  assert.equal(result.expectedQuantity, 23);
+  assert.equal(result.complete, true);
+  assert.equal(result.rows.every((row) => row.receivedQuantity > 0), true);
+});
 test("바코드 근거에 주문번호가 있으면 온돌패스 주문번호 누락도 입고 제안에서 제외한다", () => {
   const missingOrderNo = input({
     applications: input().applications.map((application) =>
@@ -174,6 +194,28 @@ test("누락·중복 행과 이미 입고된 행의 회귀는 fail-closed 한다
   });
   assert.throws(
     () => buildInternalChinaOndolpassReceiptObservation(regressed, evidence, previous),
+    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  );
+
+  const partialPrevious = buildInternalChinaOndolpassReceiptObservation(input({
+    applications: input().applications.map((application) => ({
+      ...application,
+      rows: application.rows.map((row) => ({ ...row, status: "RECEIVED" })),
+    })),
+  }), evidence);
+  const reducedQuantity = input({
+    observedAt: "2026-11-21T05:00:00.000Z",
+    applications: input().applications.map((application) => ({
+      ...application,
+      rows: application.rows.map((row) => (
+        application.applicationNo === "673842" && row.rowNo === 1
+          ? { ...row, status: "RECEIVED", quantity: 9 }
+          : { ...row, status: "RECEIVED" }
+      )),
+    })),
+  });
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(reducedQuantity, evidence, partialPrevious),
     /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
   );
 });
@@ -279,6 +321,14 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
   assert.match(service, /resolution=ignore-duplicates/);
   assert.match(service, /snapshotHash/);
   assert.match(panel, /온돌패스 확인수량 채우기/);
+  assert.match(panel, /확인이 필요한 품목/);
+  assert.match(panel, /입고 감지완료 품목/);
+  assert.match(panel, /w-full table-fixed/);
+  assert.doesNotMatch(panel, /max-h-\[560px\] overflow-auto/);
+  assert.doesNotMatch(panel, /min-w-\[1280px\]/);
+  assert.match(panel, /수량 차이는 실패가 아니라 부족 입고 또는 주문보다 많이 입고/);
+  assert.doesNotMatch(panel, /근거 불일치/);
+  assert.match(page, /issues: ondolpassObservation\.issues/);
   assert.match(panel, /suggestedReceiptQuantity/);
   assert.match(panel, /\/api\/china-order-manager\/receipts/);
   assert.match(page, /loadLatestInternalChinaOndolpassReceiptObservation/);
