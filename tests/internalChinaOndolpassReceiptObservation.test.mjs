@@ -323,6 +323,13 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
   assert.match(panel, /온돌패스 확인수량 채우기/);
   assert.match(panel, /확인이 필요한 품목/);
   assert.match(panel, /입고 감지완료 품목/);
+  assert.match(panel, /OPS 입고확정 대기/);
+  assert.match(panel, /정상입고 \{number\.format\(observationNormalReceivedRowCount\)\}행/);
+  assert.match(panel, /미입고 대기 \{number\.format\(observation\.pendingRowCount\)\}행/);
+  assert.match(panel, /확인 필요 \{number\.format\(observationReviewRowCount\)\}행/);
+  assert.match(panel, /부족입고 \{number\.format\(observation\.shortageRowCount\)\}행/);
+  assert.match(panel, /초과입고 \{number\.format\(observation\.overageRowCount\)\}행/);
+  assert.match(panel, /주문 매칭 실패 \{number\.format\(observation\.mismatchCount\)\}행/);
   assert.match(panel, /w-full table-fixed/);
   assert.doesNotMatch(panel, /max-h-\[560px\] overflow-auto/);
   assert.doesNotMatch(panel, /min-w-\[1280px\]/);

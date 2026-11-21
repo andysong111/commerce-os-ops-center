@@ -187,6 +187,9 @@ function ReceiptLineTable({
                 ? "bg-amber-100 text-amber-800"
                 : "bg-slate-100 text-slate-600";
             const enteredQuantity = receiptQuantity(quantities[line.barcode]);
+            const openQuantityLabel = tone === "complete"
+              ? "OPS 입고확정 대기"
+              : "미입고";
             return (
               <tr key={line.barcode} className="align-middle">
                 <td className="px-3 py-2">
@@ -218,7 +221,9 @@ function ReceiptLineTable({
                 <td className="px-2 py-2 text-right text-[11px] leading-5 text-slate-600">
                   <span className="block">주문 {number.format(line.orderedQuantity)}</span>
                   <span className="block">누적 {number.format(line.receivedQuantity)}</span>
-                  <strong className="block text-blue-700">미입고 {number.format(line.openQuantity)}</strong>
+                  <strong className={`block ${tone === "complete" ? "text-cyan-700" : "text-blue-700"}`}>
+                    {openQuantityLabel} {number.format(line.openQuantity)}
+                  </strong>
                 </td>
                 <td className="px-2 py-2 text-right text-xs">
                   {line.ondolpassReceivedQuantity === null ? (
@@ -341,6 +346,17 @@ export function InternalChinaReceiptPanel({
   const reviewLineCount = attentionLines.filter(
     (line) => receiptLineViewState(line) === "REVIEW",
   ).length;
+  const observationNormalReceivedRowCount = observation
+    ? Math.max(
+        0,
+        observation.receivedRowCount -
+          observation.shortageRowCount -
+          observation.overageRowCount,
+      )
+    : 0;
+  const observationReviewRowCount = observation
+    ? observation.disposedRowCount + observation.mismatchCount
+    : 0;
   const [expanded, setExpanded] = useState(
     () => openLines.length > 0 || !forwarderCost.actualCostKrw,
   );
@@ -658,26 +674,36 @@ export function InternalChinaReceiptPanel({
           </p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">{draftId}</p>
           {observation ? (
-            <p className="mt-2 text-xs leading-5 text-cyan-800">
-              최근 자동확인 · {new Date(observation.observedAt).toLocaleString("ko-KR", {
-                timeZone: "Asia/Seoul",
-              })} · 실제 입고 {number.format(observation.observedReceivedQuantity)} / 주문 {number.format(observation.expectedQuantity)}개
-              {observation.pendingRowCount
-                ? ` · 대기 ${number.format(observation.pendingRowCount)}행`
-                : ""}
-              {observation.disposedRowCount
-                ? ` · 폐기 ${number.format(observation.disposedRowCount)}행`
-                : ""}
-              {observation.shortageRowCount
-                ? ` · 부족 입고 ${number.format(observation.shortageRowCount)}행(-${number.format(observation.shortageQuantity)}개)`
-                : ""}
-              {observation.overageRowCount
-                ? ` · 주문보다 많이 입고 ${number.format(observation.overageRowCount)}행(+${number.format(observation.overageQuantity)}개)`
-                : ""}
-              {observation.mismatchCount
-                ? ` · 주문 매칭 실패 ${number.format(observation.mismatchCount)}행`
-                : ""}
-            </p>
+            <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs leading-5 text-cyan-950">
+              <p>
+                최근 자동확인 · {new Date(observation.observedAt).toLocaleString("ko-KR", {
+                  timeZone: "Asia/Seoul",
+                })} · 입고 감지 {number.format(observation.receivedRowCount)}/{number.format(observation.rowCount)}행 · {number.format(observation.observedReceivedQuantity)}/{number.format(observation.expectedQuantity)}개
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-black text-emerald-800">
+                  정상입고 {number.format(observationNormalReceivedRowCount)}행
+                </span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-bold text-slate-700">
+                  미입고 대기 {number.format(observation.pendingRowCount)}행
+                </span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-black text-amber-800">
+                  확인 필요 {number.format(observationReviewRowCount)}행
+                </span>
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 font-bold text-amber-800">
+                  부족입고 {number.format(observation.shortageRowCount)}행(-{number.format(observation.shortageQuantity)}개)
+                </span>
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 font-bold text-violet-800">
+                  초과입고 {number.format(observation.overageRowCount)}행(+{number.format(observation.overageQuantity)}개)
+                </span>
+                <span className="rounded-full bg-rose-50 px-2 py-0.5 font-bold text-rose-800">
+                  주문 매칭 실패 {number.format(observation.mismatchCount)}행
+                </span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-bold text-slate-700">
+                  폐기 {number.format(observation.disposedRowCount)}행
+                </span>
+              </div>
+            </div>
           ) : (
             <p className="mt-2 text-xs leading-5 text-slate-500">
               업무센터의 11-2 입고현황 확인을 실행하면 온돌패스에서 확인된 수량이 이 입력칸에 준비됩니다.
