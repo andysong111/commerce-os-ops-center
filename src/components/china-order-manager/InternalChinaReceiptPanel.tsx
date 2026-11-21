@@ -179,8 +179,10 @@ function ReceiptLineTable({
         <tbody className="divide-y divide-slate-100 bg-white">
           {lines.map((line) => {
             const state = receiptLineViewState(line);
-            const badge = state === "REVIEW"
+            const badge = line.ondolpassMismatchCount > 0
               ? "주문 매칭 실패"
+              : line.ondolpassDisposedRowCount > 0
+                ? "폐기 확인 필요"
               : line.ondolpassOverageQuantity > 0
                 ? "주문보다 많이 입고"
                 : line.ondolpassShortageQuantity > 0
@@ -192,8 +194,10 @@ function ReceiptLineTable({
                 : line.ondolpassReceivedQuantity === null
                   ? "미확인"
                   : "미입고";
-            const badgeClass = state === "REVIEW"
+            const badgeClass = line.ondolpassMismatchCount > 0
               ? "bg-rose-100 text-rose-800"
+              : line.ondolpassDisposedRowCount > 0
+                ? "bg-amber-100 text-amber-800"
               : line.ondolpassOverageQuantity > 0
                 ? "bg-violet-100 text-violet-800"
                 : line.ondolpassShortageQuantity > 0
@@ -945,13 +949,19 @@ export function InternalChinaReceiptPanel({
             <>
               <div className="flex flex-wrap gap-2">
                 {observation ? (
-                  <button
-                    type="button"
-                    onClick={fillObserved}
-                    className="rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800"
-                  >
-                    온돌패스 확인수량 채우기
-                  </button>
+                  <div className="flex flex-col items-start gap-1">
+                    <button
+                      type="button"
+                      onClick={fillObserved}
+                      title="새로 조회하지 않고 업무센터 11-2가 마지막으로 저장한 수량을 입력칸에 적용합니다."
+                      className="rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800"
+                    >
+                      최근 11-2 확인수량 입력칸에 적용
+                    </button>
+                    <span className="text-[10px] font-bold text-cyan-800">
+                      새 조회 아님 · 업무센터 11-2의 최근 저장결과 사용
+                    </span>
+                  </div>
                 ) : null}
                 <button
                   type="button"

@@ -378,7 +378,9 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
   assert.match(service, /snapshotHash/);
   assert.match(service, /INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION/);
   assert.match(service, /applyInternalChinaOndolpassOrderNumberCorrections/);
-  assert.match(panel, /온돌패스 확인수량 채우기/);
+  assert.match(panel, /최근 11-2 확인수량 입력칸에 적용/);
+  assert.match(panel, /새 조회 아님 · 업무센터 11-2의 최근 저장결과 사용/);
+  assert.match(panel, /폐기 확인 필요/);
   assert.match(panel, /확인이 필요한 품목/);
   assert.match(panel, /입고 감지완료 품목/);
   assert.match(panel, /OPS 입고확정 대기/);
