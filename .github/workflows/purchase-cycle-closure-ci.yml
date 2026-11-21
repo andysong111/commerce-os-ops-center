@@ -5,6 +5,7 @@ on:
       - 'src/lib/internalChinaReceipt*'
       - 'src/lib/internalChinaActualPurchaseCostDraft.ts'
       - 'src/lib/internalChinaFreightBarcodeCompletion*'
+      - 'src/lib/internalChinaOndolpassReceiptObservation*'
       - 'src/lib/inventoryStockControl.ts'
       - 'src/lib/inventoryStocktakeBaselines.ts'
       - 'src/lib/purchaseCycle*'
@@ -18,6 +19,7 @@ on:
       - 'src/components/china-order-manager/PurchaseCycleClosurePanel.tsx'
       - 'tests/internalChinaReceipt*.test.mjs'
       - 'tests/internalChinaFreightBarcodeCompletion.test.mjs'
+      - 'tests/internalChinaOndolpassReceiptObservation.test.mjs'
       - 'tests/purchaseCycle*.test.mjs'
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'scripts/verify-purchase-cycle-browser.mjs'
@@ -56,7 +58,10 @@ jobs:
           src/lib/fastPurchaseCashEnvelope.ts
           src/lib/internalChinaFreightBarcodeCompletion.ts
           src/lib/internalChinaFreightBarcodeCompletionCore.ts
+          src/lib/internalChinaOndolpassReceiptObservation.ts
+          src/lib/internalChinaOndolpassReceiptObservationCore.ts
           src/app/api/china-order-manager/freight-barcode-completion/route.ts
+          src/app/api/china-order-manager/ondolpass-receipt-observation/route.ts
           src/app/api/china-order-manager/receipts/route.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
@@ -65,7 +70,7 @@ jobs:
           src/components/china-order-manager/InternalChinaReceiptPanel.tsx
           src/components/china-order-manager/PurchaseCycleClosurePanel.tsx
       - name: Permanent receipt persistence, retry, cycle and stock evidence regressions
-        run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/internalChinaFreightBarcodeCompletion.test.mjs tests/purchaseCycle*.test.mjs
+        run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/internalChinaFreightBarcodeCompletion.test.mjs tests/internalChinaOndolpassReceiptObservation.test.mjs tests/purchaseCycle*.test.mjs
       - name: Build production application
         run: npm run build
       - name: Install isolated browser fixture tools without changing dependency manifests

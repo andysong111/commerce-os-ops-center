@@ -22,6 +22,28 @@ export type InternalChinaReceiptPanelLine = {
   receivedQuantity: number;
   openQuantity: number;
   status: string;
+  ondolpassExpectedQuantity: number | null;
+  ondolpassReceivedQuantity: number | null;
+  ondolpassRowCount: number;
+  ondolpassReceivedRowCount: number;
+  ondolpassPendingRowCount: number;
+  ondolpassDisposedRowCount: number;
+  ondolpassMismatchCount: number;
+  suggestedReceiptQuantity: number | null;
+};
+
+type ReceiptObservationSummary = {
+  observedAt: string;
+  snapshotHash: string;
+  rowCount: number;
+  receivedRowCount: number;
+  pendingRowCount: number;
+  disposedRowCount: number;
+  mismatchCount: number;
+  expectedQuantity: number;
+  displayedQuantity: number;
+  observedReceivedQuantity: number;
+  complete: boolean;
 };
 
 const number = new Intl.NumberFormat("ko-KR");
@@ -84,11 +106,13 @@ export function InternalChinaReceiptPanel({
   cycleMonth,
   lines,
   forwarderCost,
+  observation,
 }: {
   draftId: string;
   cycleMonth: string;
   lines: InternalChinaReceiptPanelLine[];
   forwarderCost: InternalChinaForwarderCostSummary;
+  observation: ReceiptObservationSummary | null;
 }) {
   const router = useRouter();
   const openLines = useMemo(
@@ -101,7 +125,12 @@ export function InternalChinaReceiptPanel({
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
-    Object.fromEntries(openLines.map((line) => [line.barcode, line.openQuantity])),
+    Object.fromEntries(
+      openLines.map((line) => [
+        line.barcode,
+        line.suggestedReceiptQuantity ?? line.openQuantity,
+      ]),
+    ),
   );
   const [forwarderCostInput, setForwarderCostInput] = useState(
     forwarderCost.actualCostKrw ? String(forwarderCost.actualCostKrw) : "",
@@ -137,6 +166,18 @@ export function InternalChinaReceiptPanel({
   function clearAll() {
     setQuantities(Object.fromEntries(openLines.map((line) => [line.barcode, 0])));
     setNotice("이번 입고수량을 모두 0으로 초기화했습니다.");
+  }
+
+  function fillObserved() {
+    setQuantities(
+      Object.fromEntries(
+        openLines.map((line) => [
+          line.barcode,
+          line.suggestedReceiptQuantity ?? 0,
+        ]),
+      ),
+    );
+    setNotice("최근 온돌패스 확인값 중 완료 근거와 일치한 수량만 채웠습니다.");
   }
 
   function pendingReceiptRequest(linesToReceive: { barcode: string; quantity: number }[]) {
@@ -350,6 +391,11 @@ export function InternalChinaReceiptPanel({
                 실제 비용 저장됨
               </span>
             ) : null}
+            {observation ? (
+              <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-800">
+                온돌패스 {number.format(observation.receivedRowCount)}/{number.format(observation.rowCount)}행 입고
+              </span>
+            ) : null}
           </div>
           <h2 className="mt-3 text-lg font-black text-slate-950">
             {openLines.length ? "입고 처리" : "배송대행지 비용 · 실제 원가 마감"}
@@ -360,6 +406,26 @@ export function InternalChinaReceiptPanel({
               : `입고수량은 모두 마감됐습니다. 배송대행지 실제 청구 총액으로 기존 임시 ${forwarderCost.estimatedMultiplier.toFixed(2)} 대신 실제 원가배수를 확정하세요.`}
           </p>
           <p className="mt-1 font-mono text-[11px] text-slate-400">{draftId}</p>
+          {observation ? (
+            <p className="mt-2 text-xs leading-5 text-cyan-800">
+              최근 자동확인 · {new Date(observation.observedAt).toLocaleString("ko-KR", {
+                timeZone: "Asia/Seoul",
+              })} · 입고 {number.format(observation.observedReceivedQuantity)} / 근거 {number.format(observation.expectedQuantity)}개
+              {observation.pendingRowCount
+                ? ` · 대기 ${number.format(observation.pendingRowCount)}행`
+                : ""}
+              {observation.disposedRowCount
+                ? ` · 폐기 ${number.format(observation.disposedRowCount)}행`
+                : ""}
+              {observation.mismatchCount
+                ? ` · 근거 불일치 ${number.format(observation.mismatchCount)}행`
+                : ""}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              업무센터의 11-2 입고현황 확인을 실행하면 온돌패스에서 확인된 수량이 이 입력칸에 준비됩니다.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {forwarderCost.actualCostKrw ? (
@@ -475,6 +541,15 @@ export function InternalChinaReceiptPanel({
           {openLines.length ? (
             <>
               <div className="flex flex-wrap gap-2">
+                {observation ? (
+                  <button
+                    type="button"
+                    onClick={fillObserved}
+                    className="rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-800"
+                  >
+                    온돌패스 확인수량 채우기
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={fillAll}
@@ -495,7 +570,7 @@ export function InternalChinaReceiptPanel({
               </div>
 
               <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-200">
-                <table className="min-w-[1120px] text-left text-sm">
+                <table className="min-w-[1280px] text-left text-sm">
                   <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-bold text-slate-500">
                     <tr>
                       <th className="px-3 py-3">상품 이미지 / B-code / 모델정보</th>
@@ -503,6 +578,7 @@ export function InternalChinaReceiptPanel({
                       <th className="px-3 py-3 text-right">실주문</th>
                       <th className="px-3 py-3 text-right">누적 입고</th>
                       <th className="px-3 py-3 text-right">남은 미입고</th>
+                      <th className="px-3 py-3 text-right">온돌패스 확인</th>
                       <th className="px-3 py-3 text-right">이번 입고수량</th>
                     </tr>
                   </thead>
@@ -540,6 +616,26 @@ export function InternalChinaReceiptPanel({
                         </td>
                         <td className="px-3 py-3 text-right font-black text-blue-700">
                           {number.format(line.openQuantity)}
+                        </td>
+                        <td className="px-3 py-3 text-right text-xs">
+                          {line.ondolpassReceivedQuantity === null ? (
+                            <span className="text-slate-400">미확인</span>
+                          ) : (
+                            <>
+                              <strong className="block text-cyan-800">
+                                {number.format(line.ondolpassReceivedQuantity)} / {number.format(line.ondolpassExpectedQuantity ?? 0)}개
+                              </strong>
+                              <span className="mt-1 block text-slate-500">
+                                {line.ondolpassReceivedRowCount}/{line.ondolpassRowCount}행
+                                {line.ondolpassDisposedRowCount
+                                  ? ` · 폐기 ${line.ondolpassDisposedRowCount}`
+                                  : ""}
+                                {line.ondolpassMismatchCount
+                                  ? ` · 불일치 ${line.ondolpassMismatchCount}`
+                                  : ""}
+                              </span>
+                            </>
+                          )}
                         </td>
                         <td className="px-3 py-3 text-right">
                           <input
