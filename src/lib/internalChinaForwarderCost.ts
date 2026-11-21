@@ -1,5 +1,13 @@
 import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
-import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
+import { buildInternalChinaActualPurchaseCostDraft } from "@/lib/internalChinaActualPurchaseCostDraft";
+import {
+  loadInternalChinaFreightBarcodeCompletion,
+  loadInternalChinaFreightBarcodeReceiptEvidence,
+} from "@/lib/internalChinaFreightBarcodeCompletion";
+import {
+  loadInternalChinaMonthlyPurchaseSummary,
+  selectInternalChinaPurchaseSummaryForDraft,
+} from "@/lib/internalChinaMonthlyPurchaseSummary";
 import {
   loadInternalChinaPurchaseDraft,
   loadStoredInternalChinaPurchaseDraftForCost,
@@ -364,6 +372,32 @@ async function readStoredCost(draftId: string) {
   };
 }
 
+async function loadActualPurchaseCostDraft(
+  draftId: string,
+  cycleMonth: string,
+) {
+  const [storedDraft, monthlyPurchase, completion] = await Promise.all([
+    loadStoredInternalChinaPurchaseDraftForCost(draftId),
+    loadInternalChinaMonthlyPurchaseSummary(cycleMonth),
+    loadInternalChinaFreightBarcodeCompletion(draftId),
+  ]);
+  const baseDraft = storedDraft ?? await loadInternalChinaPurchaseDraft(draftId);
+  const purchase = selectInternalChinaPurchaseSummaryForDraft(
+    monthlyPurchase,
+    draftId,
+  );
+  if (!purchase || !completion) {
+    throw new Error("INTERNAL_CHINA_ACTUAL_COST_EVIDENCE_REQUIRED");
+  }
+  const barcodeEvidence =
+    await loadInternalChinaFreightBarcodeReceiptEvidence(completion);
+  return buildInternalChinaActualPurchaseCostDraft({
+    baseDraft,
+    purchase,
+    barcodeEvidence,
+  });
+}
+
 async function storeSummary(
   draftId: string,
   actualCycleMonth: string,
@@ -419,11 +453,7 @@ export async function loadInternalChinaForwarderCostSummary(
 ): Promise<InternalChinaForwarderCostSummary> {
   const draftId = validDraftId(draftIdInput);
   const cycleMonth = validCycleMonth(cycleMonthInput);
-  const storedDraft =
-    await loadStoredInternalChinaPurchaseDraftForCost(draftId);
-  const draft = await loadInternalChinaDraftWithQuantityOverrides(
-    storedDraft ?? await loadInternalChinaPurchaseDraft(draftId),
-  );
+  const draft = await loadActualPurchaseCostDraft(draftId, cycleMonth);
   const stored = await readStoredCost(draftId);
   return buildInternalChinaForwarderCostSummaryFromDraft(
     draft,
@@ -466,9 +496,7 @@ export async function recordInternalChinaForwarderCost(
     throw new Error(`CHINA_FORWARDER_COST_RECEIPT_OPEN:${openQuantity}`);
   }
 
-  const draft = await loadInternalChinaDraftWithQuantityOverrides(
-    await loadInternalChinaPurchaseDraft(draftId),
-  );
+  const draft = await loadActualPurchaseCostDraft(draftId, actualCycleMonth);
   let reconciliation: InternalChinaReceiptCostReconciliation;
   try {
     reconciliation = await reconcileReceiptCosts(

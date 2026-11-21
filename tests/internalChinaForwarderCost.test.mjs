@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { buildInternalChinaActualPurchaseCostDraft } from "../src/lib/internalChinaActualPurchaseCostDraft.ts";
 
 const [
   engine,
@@ -49,6 +50,56 @@ test("China domestic freight is included before payment fee and landed-cost allo
   assert.ok(engine.includes("productCost + domesticFreight"));
   assert.ok(engine.includes("orderPaymentCost + actualCostKrw"));
   assert.ok(engine.includes("group.freightCny / group.quantity"));
+});
+
+test("receipt and forwarder cost use final barcode quantities with exact paid CNY instead of stale reservations", () => {
+  const baseLine = {
+    bundleUnit: 1, bundleUnitUpdatedAt: null, modelNo: "AAA001",
+    modelName: "상품", productName: "상품", saleOption: "단품",
+    chinaOption: "黑色", supplierLink: "https://detail.1688.com/offer/1.html",
+    freightGroupId: "legacy", orderNumber: "", note: "", stockInputMode: "MANUAL",
+  };
+  const baseDraft = {
+    draftId: "fast-purchase-draft:1234567890abcdef1234", cycleMonth: "2026-11",
+    cycleMode: "ON_DEMAND", cycleKey: "2026-11-04", cycleStartDate: "2026-11-04",
+    previousCycleStartDate: null, revenueRangeStartDate: null, revenueRangeEndDate: null,
+    cycleBootstrap: false, status: "DRAFT", exchangeRateKrwPerCny: 230,
+    internalOrderCostMultiplier: 1.5, paymentFeeMultiplier: 1.05,
+    lineCount: 2, totalQuantity: 140, createdFrom: "FAST_PURCHASE_RESERVED",
+    sourceUpdatedAt: "2026-11-04T00:00:00.000Z", savedAt: null,
+    metadataWarnings: [], externalOrderExecuted: false,
+    lines: [
+      { ...baseLine, barcode: "BBA1-1", quantity: 100, unitPriceCny: 1, domesticChinaFreightCny: 0 },
+      { ...baseLine, barcode: "BBB2-1", quantity: 40, unitPriceCny: 1, domesticChinaFreightCny: 0 },
+    ],
+  };
+  const purchase = {
+    cycleMonth: "2026-11", draftCount: 1, orderCount: 2, lineCount: 2,
+    skuCount: 2, totalQuantity: 140, goodsPaidCny: 72,
+    domesticChinaFreightCny: 8, serviceFeeCny: 0, actualOrderPaidCny: 80,
+    actualOrderPaidKrwAtInternalFx: 18_400, exchangeRateKrwPerCny: 230,
+    assignedLineCount: 2, unassignedLineCount: 0, importedFromActualOrder: false,
+    cashFlowEarlyClose: false, latestRecordedAt: null,
+    lines: [
+      { draftId: baseDraft.draftId, barcode: "BBA1-1", modelNo: "AAA001", modelName: "상품", saleOption: "단품", chinaOption: "黑色", orderNumber: "1", supplierLink: baseLine.supplierLink, quantity: 5, goodsPaidCny: 40, domesticChinaFreightCny: 5, serviceFeeCny: 0, actualLinePaidCny: 45, actualLinePaidKrwAtInternalFx: 10_350, assigned: true },
+      { draftId: baseDraft.draftId, barcode: "BBB2-1", modelNo: "AAA002", modelName: "상품2", saleOption: "흰색", chinaOption: "白色", orderNumber: "2", supplierLink: baseLine.supplierLink, quantity: 8, goodsPaidCny: 32, domesticChinaFreightCny: 3, serviceFeeCny: 0, actualLinePaidCny: 35, actualLinePaidKrwAtInternalFx: 8_050, assigned: true },
+    ],
+  };
+  const result = buildInternalChinaActualPurchaseCostDraft({
+    baseDraft,
+    purchase,
+    barcodeEvidence: {
+      draftId: baseDraft.draftId, cycleMonth: "2026-11", historyRecordId: "history",
+      applicationNo: "1, 2", itemCount: 2, matchedItemCount: 2,
+      recordUpdatedAt: "2026-11-19T00:00:00.000Z", evidenceHash: `sha256:${"a".repeat(64)}`,
+      completedAt: "2026-11-21T00:00:00.000Z",
+      lines: [{ barcode: "BBA1-1", quantity: 5 }, { barcode: "BBB2-1", quantity: 8 }],
+    },
+  });
+  assert.equal(result.totalQuantity, 13);
+  assert.equal(result.lines[0].unitPriceCny, 8);
+  assert.equal(result.lines[0].domesticChinaFreightCny, 5);
+  assert.equal(result.actualOrderPaidKrwAtInternalFx, 18_400);
 });
 
 test("forwarder close always uses a legal operation-ledger status even when downstream sync needs attention", () => {

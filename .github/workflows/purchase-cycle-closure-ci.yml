@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'src/lib/internalChinaReceipt*'
+      - 'src/lib/internalChinaActualPurchaseCostDraft.ts'
       - 'src/lib/internalChinaFreightBarcodeCompletion*'
       - 'src/lib/inventoryStockControl.ts'
       - 'src/lib/inventoryStocktakeBaselines.ts'
@@ -44,6 +45,7 @@ jobs:
           npx eslint src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
           src/lib/internalChinaReceiptFollowupCore.ts src/lib/internalChinaReceiptFollowupRepair.ts
           src/lib/internalChinaReceiptWorkspace.ts
+          src/lib/internalChinaActualPurchaseCostDraft.ts
           src/lib/inventoryStockControl.ts src/lib/inventoryStocktakeBaselines.ts
           src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
           src/lib/purchaseCycleHistoricalOrderClose.ts

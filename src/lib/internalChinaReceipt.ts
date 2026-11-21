@@ -9,7 +9,7 @@ import {
   loadChinaOrderLedger,
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
-import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
+import { buildInternalChinaActualPurchaseCostDraft } from "@/lib/internalChinaActualPurchaseCostDraft";
 import {
   loadInternalChinaFreightBarcodeCompletion,
   loadInternalChinaFreightBarcodeReceiptEvidence,
@@ -220,7 +220,11 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       sourcedByBarcode.set(code, sourced);
     }
   }
-  const draft = await loadInternalChinaDraftWithQuantityOverrides(baseDraft);
+  const draft = buildInternalChinaActualPurchaseCostDraft({
+    baseDraft,
+    purchase: purchase!,
+    barcodeEvidence: barcodeReceiptEvidence!,
+  });
   const draftByBarcode = new Map(draft.lines.map((line) => [line.barcode, line] as const));
   for (const code of byBarcode.keys()) {
     if (!draftByBarcode.has(code)) throw new Error(`CHINA_RECEIPT_DRAFT_LINE_MISSING:${code}`);

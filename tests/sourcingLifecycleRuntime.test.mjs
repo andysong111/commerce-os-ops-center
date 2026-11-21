@@ -179,6 +179,7 @@ async function receiptBackend(options={}) {
     CHINA_ORDER_EVENT_OPERATION_TYPE:'CHINA_ORDER_COMMITMENT_EVENT',
     loadChinaOrderLedger:async()=>({error:null,commitments:[commitment]}),
     normalizeChinaOrderCommitmentEvent:x=>x,
+    buildInternalChinaActualPurchaseCostDraft:({baseDraft})=>baseDraft,
     loadInternalChinaFreightBarcodeCompletion:async()=>({cycleMonth:'2026-09',itemCount:1,matchedItemCount:1}),
     loadInternalChinaFreightBarcodeReceiptEvidence:async value=>({...value,lines:[{barcode:'BBA8-1',quantity:5}]}),
     loadInternalChinaMonthlyPurchaseSummary:async()=>options.unordered?null:{cycleMonth:'2026-09'},

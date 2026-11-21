@@ -254,6 +254,12 @@ export default async function ChinaOrderManagerPage({
     effectiveReceiptOrderLines,
     (row) => row.openQuantity,
   );
+  const actualOrderDisplayQuantity = receiptOrderEvidence.ok
+    ? orderedQuantity
+    : displayedOrderQuantity;
+  const actualOrderDisplayLineCount = receiptOrderEvidence.ok
+    ? barcodeReceiptEvidence?.itemCount ?? effectiveReceiptOrderLines.length
+    : displayedOrderLineCount;
   const actualOrderBarcodes = new Set(
     effectiveReceiptOrderLines.map((row) => row.barcode),
   );
@@ -528,11 +534,11 @@ export default async function ChinaOrderManagerPage({
           />
           <SummaryCard
             label="1688 주문"
-            value={`${money.format(purchase?.orderCount ?? 0)}건 · ${money.format(displayedOrderQuantity)}개`}
+            value={`${money.format(purchase?.orderCount ?? 0)}건 · ${money.format(actualOrderDisplayQuantity)}개`}
             note={
               releasableQuantity > 0
-                ? `실주문 ${money.format(displayedOrderLineCount)}개 품목 줄 · 주문초안 예약 ${money.format(releasableQuantity)}개 (${money.format(releasableRows.length)}개 줄)`
-                : `${money.format(displayedOrderLineCount)}개 품목 줄`
+                ? `실주문 ${money.format(actualOrderDisplayLineCount)}개 품목 줄 · 주문초안 예약 ${money.format(releasableQuantity)}개 (${money.format(releasableRows.length)}개 줄)`
+                : `${money.format(actualOrderDisplayLineCount)}개 품목 줄`
             }
           />
           <SummaryCard

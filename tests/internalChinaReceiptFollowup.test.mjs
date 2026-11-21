@@ -140,6 +140,7 @@ test("actual receipt engine captures original cost durably before downstream fai
   const writes = []; let followups = 0;
   const engine = load("src/lib/internalChinaReceipt.ts", {
     "@/lib/chinaOrderLedger": { CHINA_ORDER_EVENT_OPERATION_TYPE: "CHINA_ORDER_COMMITMENT_EVENT", normalizeChinaOrderCommitmentEvent: (event) => event, loadChinaOrderLedger: async () => ({ error: null, commitments: [{ sourceSystem: "fast-purchase-mvp", sourceRunId: draftId, sourceLineId: "line-1", barcode, reservedAt: at, updatedAt: at, status: "ORDERED", openQuantity: 10, committedQuantity: 10, orderedQuantity: 10, cancelledQuantity: 0, receivedQuantity: 0 }] }) },
+    "@/lib/internalChinaActualPurchaseCostDraft": { buildInternalChinaActualPurchaseCostDraft: ({ baseDraft }) => baseDraft },
     "@/lib/internalChinaDraftQuantityOverride": { loadInternalChinaDraftWithQuantityOverrides: async (value) => value },
     "@/lib/internalChinaFreightBarcodeCompletion": {
       loadInternalChinaFreightBarcodeCompletion: async () => ({ cycleMonth: "2026-09", itemCount: 1, matchedItemCount: 1 }),
