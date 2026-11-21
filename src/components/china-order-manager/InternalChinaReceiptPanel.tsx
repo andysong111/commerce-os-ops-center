@@ -28,6 +28,10 @@ export type InternalChinaReceiptPanelLine = {
   ondolpassReceivedRowCount: number;
   ondolpassPendingRowCount: number;
   ondolpassDisposedRowCount: number;
+  ondolpassShortageRowCount: number;
+  ondolpassShortageQuantity: number;
+  ondolpassOverageRowCount: number;
+  ondolpassOverageQuantity: number;
   ondolpassMismatchCount: number;
   suggestedReceiptQuantity: number | null;
 };
@@ -39,6 +43,10 @@ type ReceiptObservationSummary = {
   receivedRowCount: number;
   pendingRowCount: number;
   disposedRowCount: number;
+  shortageRowCount: number;
+  shortageQuantity: number;
+  overageRowCount: number;
+  overageQuantity: number;
   mismatchCount: number;
   expectedQuantity: number;
   displayedQuantity: number;
@@ -47,6 +55,7 @@ type ReceiptObservationSummary = {
 };
 
 const number = new Intl.NumberFormat("ko-KR");
+const MAX_RECEIPT_QUANTITY = 999_999;
 
 function ProductThumbnail({
   imageUrl,
@@ -83,10 +92,10 @@ function monthLabel(month: string) {
   return matched ? `${Number(matched[1])}년 ${Number(matched[2])}월` : month;
 }
 
-function clamp(value: unknown, maximum: number) {
+function receiptQuantity(value: unknown) {
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed)) return 0;
-  return Math.min(maximum, Math.max(0, parsed));
+  return Math.min(MAX_RECEIPT_QUANTITY, Math.max(0, parsed));
 }
 
 function won(value: unknown) {
@@ -139,7 +148,7 @@ export function InternalChinaReceiptPanel({
   const selected = openLines
     .map((line) => ({
       barcode: line.barcode,
-      quantity: clamp(quantities[line.barcode], line.openQuantity),
+      quantity: receiptQuantity(quantities[line.barcode]),
     }))
     .filter((line) => line.quantity > 0);
   const selectedQuantity = selected.reduce((sum, line) => sum + line.quantity, 0);
@@ -177,7 +186,7 @@ export function InternalChinaReceiptPanel({
         ]),
       ),
     );
-    setNotice("최근 온돌패스 확인값 중 완료 근거와 일치한 수량만 채웠습니다.");
+    setNotice("최근 온돌패스에서 감지한 실제 입고수량을 채웠습니다. 부족·초과 입고도 그대로 표시됩니다.");
   }
 
   function pendingReceiptRequest(linesToReceive: { barcode: string; quantity: number }[]) {
@@ -279,12 +288,28 @@ export function InternalChinaReceiptPanel({
     }
   }
 
-  async function confirmReceipt() {
-    if (!selected.length || selectedQuantity <= 0) {
+  async function confirmReceipt(
+    linesToReceive: { barcode: string; quantity: number }[] = selected,
+  ) {
+    const quantityToReceive = linesToReceive.reduce(
+      (sum, line) => sum + line.quantity,
+      0,
+    );
+    if (!linesToReceive.length || quantityToReceive <= 0) {
       setNotice("이번에 실제 입고된 품목의 수량을 1개 이상 입력하세요.");
       return;
     }
-    const fullReceipt = selectedQuantity === remainingTotal;
+    const quantityByBarcode = new Map(
+      linesToReceive.map((line) => [line.barcode, line.quantity] as const),
+    );
+    const fullReceipt = openLines.every(
+      (line) => (quantityByBarcode.get(line.barcode) ?? 0) >= line.openQuantity,
+    );
+    const overageQuantity = openLines.reduce(
+      (sum, line) =>
+        sum + Math.max(0, (quantityByBarcode.get(line.barcode) ?? 0) - line.openQuantity),
+      0,
+    );
     if (fullReceipt && actualForwarderCostKrw <= 0) {
       setNotice(
         "전량 입고 마감에는 배송대행지에서 실제 청구된 총비용 입력이 필요합니다.",
@@ -292,14 +317,14 @@ export function InternalChinaReceiptPanel({
       return;
     }
     const prompt = fullReceipt
-      ? `${monthLabel(cycleMonth)} 발주 건의 남은 ${number.format(remainingTotal)}개를 전량 입고확정하고 배송대행지 실제비용 ${number.format(actualForwarderCostKrw)}원으로 실제 원가배수까지 확정할까요?`
-      : `${monthLabel(cycleMonth)} 발주 건에서 ${number.format(selected.length)} SKU · ${number.format(selectedQuantity)}개를 부분입고로 확정할까요?`;
+      ? `${monthLabel(cycleMonth)} 발주 건의 ${number.format(linesToReceive.length)} SKU · 실제 ${number.format(quantityToReceive)}개를 전량 입고확정하고 배송대행지 실제비용 ${number.format(actualForwarderCostKrw)}원으로 실제 원가배수까지 확정할까요?${overageQuantity > 0 ? `\n\n주문보다 많이 입고된 ${number.format(overageQuantity)}개도 실제 재고에 포함됩니다.` : ""}`
+      : `${monthLabel(cycleMonth)} 발주 건에서 ${number.format(linesToReceive.length)} SKU · ${number.format(quantityToReceive)}개를 부분입고로 확정할까요?${overageQuantity > 0 ? `\n\n주문보다 많이 입고된 ${number.format(overageQuantity)}개도 실제 재고에 포함됩니다.` : ""}`;
     const detail = fullReceipt
       ? "입고수량을 원장과 Product Master에 반영한 뒤 실제 원가배수를 계산합니다. 정확재고가 1개 이상이고 Shopling 매핑이 정상인 입고 품목은 곧바로 판매중 자동전환까지 이어집니다. SKU 최종 매입원가는 결제수수료를 포함한 주문원가에 실제 도착 원가배수를 적용해 확정되고 이후 가격조정 판단의 원가로 이어집니다."
       : "확정 즉시 중국 발주·입고 원장의 미입고 수량이 차감됩니다. 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품목은 판매중 자동전환까지 이어집니다. 실제 원가배수는 최종 전량 입고 시 배송대행 비용으로 확정합니다.";
     if (!window.confirm(`${prompt}\n\n${detail}`)) return;
 
-    const receiptRequest = pendingReceiptRequest(selected);
+    const receiptRequest = pendingReceiptRequest(linesToReceive);
     setSaving(true);
     setNotice("");
     try {
@@ -315,7 +340,7 @@ export function InternalChinaReceiptPanel({
           requestId: receiptRequest.requestId,
           draftId,
           cycleMonth,
-          lines: selected,
+          lines: linesToReceive,
         }),
       });
       const body = (await response.json().catch(() => ({}))) as {
@@ -331,7 +356,7 @@ export function InternalChinaReceiptPanel({
       let onSaleMessage = "";
       try {
         const onSale = await runInboundReceiptOnSaleSync(
-          selected.map((line) => line.barcode),
+          linesToReceive.map((line) => line.barcode),
           setNotice,
         );
         onSaleMessage = onSale.message;
@@ -375,6 +400,19 @@ export function InternalChinaReceiptPanel({
     }
   }
 
+  async function confirmAllNormalReceipt() {
+    const normalReceipt = openLines.map((line) => ({
+      barcode: line.barcode,
+      quantity: line.openQuantity,
+    }));
+    setQuantities(
+      Object.fromEntries(
+        normalReceipt.map((line) => [line.barcode, line.quantity]),
+      ),
+    );
+    await confirmReceipt(normalReceipt);
+  }
+
   return (
     <section className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -410,15 +448,21 @@ export function InternalChinaReceiptPanel({
             <p className="mt-2 text-xs leading-5 text-cyan-800">
               최근 자동확인 · {new Date(observation.observedAt).toLocaleString("ko-KR", {
                 timeZone: "Asia/Seoul",
-              })} · 입고 {number.format(observation.observedReceivedQuantity)} / 근거 {number.format(observation.expectedQuantity)}개
+              })} · 실제 입고 {number.format(observation.observedReceivedQuantity)} / 주문 {number.format(observation.expectedQuantity)}개
               {observation.pendingRowCount
                 ? ` · 대기 ${number.format(observation.pendingRowCount)}행`
                 : ""}
               {observation.disposedRowCount
                 ? ` · 폐기 ${number.format(observation.disposedRowCount)}행`
                 : ""}
+              {observation.shortageRowCount
+                ? ` · 부족 입고 ${number.format(observation.shortageRowCount)}행(-${number.format(observation.shortageQuantity)}개)`
+                : ""}
+              {observation.overageRowCount
+                ? ` · 주문보다 많이 입고 ${number.format(observation.overageRowCount)}행(+${number.format(observation.overageQuantity)}개)`
+                : ""}
               {observation.mismatchCount
-                ? ` · 근거 불일치 ${number.format(observation.mismatchCount)}행`
+                ? ` · 주문 매칭 실패 ${number.format(observation.mismatchCount)}행`
                 : ""}
             </p>
           ) : (
@@ -559,6 +603,14 @@ export function InternalChinaReceiptPanel({
                 </button>
                 <button
                   type="button"
+                  disabled={saving || !openLines.length}
+                  onClick={() => void confirmAllNormalReceipt()}
+                  className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {saving ? "처리 중…" : "전체 정상입고 처리"}
+                </button>
+                <button
+                  type="button"
                   onClick={clearAll}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
                 >
@@ -631,9 +683,27 @@ export function InternalChinaReceiptPanel({
                                   ? ` · 폐기 ${line.ondolpassDisposedRowCount}`
                                   : ""}
                                 {line.ondolpassMismatchCount
-                                  ? ` · 불일치 ${line.ondolpassMismatchCount}`
+                                  ? ` · 주문 매칭 실패 ${line.ondolpassMismatchCount}`
                                   : ""}
                               </span>
+                              {line.ondolpassShortageQuantity > 0 ? (
+                                <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 font-black text-amber-800">
+                                  부족 입고 -{number.format(line.ondolpassShortageQuantity)}개
+                                </span>
+                              ) : null}
+                              {line.ondolpassOverageQuantity > 0 ? (
+                                <span className="mt-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 font-black text-violet-800">
+                                  주문보다 많이 입고 +{number.format(line.ondolpassOverageQuantity)}개
+                                </span>
+                              ) : null}
+                              {line.ondolpassReceivedRowCount > 0 &&
+                              line.ondolpassShortageQuantity <= 0 &&
+                              line.ondolpassOverageQuantity <= 0 &&
+                              line.ondolpassMismatchCount <= 0 ? (
+                                <span className="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 font-black text-emerald-800">
+                                  정상 입고
+                                </span>
+                              ) : null}
                             </>
                           )}
                         </td>
@@ -641,20 +711,44 @@ export function InternalChinaReceiptPanel({
                           <input
                             type="number"
                             min={0}
-                            max={line.openQuantity}
+                            max={MAX_RECEIPT_QUANTITY}
                             step={1}
                             value={quantities[line.barcode] ?? 0}
                             onChange={(event) =>
                               setQuantities((current) => ({
                                 ...current,
-                                [line.barcode]: clamp(
-                                  event.target.value,
-                                  line.openQuantity,
-                                ),
+                                [line.barcode]: receiptQuantity(event.target.value),
                               }))
                             }
                             className="w-28 rounded-lg border border-slate-300 px-2.5 py-2 text-right font-black outline-none focus:border-emerald-500"
                           />
+                          {receiptQuantity(quantities[line.barcode]) >
+                          line.openQuantity ? (
+                            <span className="mt-1 block font-black text-violet-700">
+                              초과 입고 +
+                              {number.format(
+                                receiptQuantity(quantities[line.barcode]) -
+                                  line.openQuantity,
+                              )}
+                              개
+                            </span>
+                          ) : receiptQuantity(quantities[line.barcode]) > 0 &&
+                            receiptQuantity(quantities[line.barcode]) <
+                              line.openQuantity ? (
+                            <span className="mt-1 block font-black text-amber-700">
+                              부족 입고 -
+                              {number.format(
+                                line.openQuantity -
+                                  receiptQuantity(quantities[line.barcode]),
+                              )}
+                              개
+                            </span>
+                          ) : receiptQuantity(quantities[line.barcode]) ===
+                            line.openQuantity ? (
+                            <span className="mt-1 block font-black text-emerald-700">
+                              정상 입고
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -664,7 +758,7 @@ export function InternalChinaReceiptPanel({
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-xs leading-5 text-emerald-950">
-                  일부만 입력하면 PARTIALLY_RECEIVED, 남은 수량까지 모두 입고되면 RECEIVED로 자동 전환합니다. 입고확정 직후 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품절상품은 판매중으로 자동 전환합니다. 차단·불확실 건은 억지로 재시도하지 않고 재고상태 예외 큐에 남깁니다. 전량 입고 시 결제수수료를 포함한 주문원가에 배송대행지 실제비용을 반영해 최종 SKU 매입원가를 Product Master에 연결합니다.
+                  주문보다 적게 입력하면 부족 입고, 많이 입력하면 초과 입고로 실제 수량을 그대로 기록합니다. 일부만 입력하면 PARTIALLY_RECEIVED, 남은 주문수량 이상을 입고하면 RECEIVED로 자동 전환합니다. 입고확정 직후 정확재고가 1개 이상이고 Shopling 매핑이 정상인 품절상품은 판매중으로 자동 전환합니다. 차단·불확실 건은 억지로 재시도하지 않고 재고상태 예외 큐에 남깁니다. 전량 입고 시 결제수수료를 포함한 주문원가에 배송대행지 실제비용을 반영해 최종 SKU 매입원가를 Product Master에 연결합니다.
                 </p>
                 <button
                   type="button"

@@ -296,7 +296,8 @@ export function reduceChinaOrderCommitmentEvents(
       );
     }
 
-    receivedQuantity = Math.min(committedQuantity, receivedQuantity);
+    // 실제 도착수량은 주문수량보다 적거나 많을 수 있다. 주문수량은 그대로
+    // 보존하고, 초과 입고분도 재고에 반영할 수 있도록 실제 수량을 자르지 않는다.
     cancelledQuantity = Math.min(
       Math.max(0, committedQuantity - receivedQuantity),
       cancelledQuantity,

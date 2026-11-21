@@ -17,6 +17,10 @@ export type InternalChinaReceiptWorkspaceLine = {
   ondolpassReceivedRowCount: number;
   ondolpassPendingRowCount: number;
   ondolpassDisposedRowCount: number;
+  ondolpassShortageRowCount: number;
+  ondolpassShortageQuantity: number;
+  ondolpassOverageRowCount: number;
+  ondolpassOverageQuantity: number;
   ondolpassMismatchCount: number;
   suggestedReceiptQuantity: number | null;
 };
@@ -82,6 +86,10 @@ type ReceiptObservation = {
     receivedRowCount: number;
     pendingRowCount: number;
     disposedRowCount: number;
+    shortageRowCount: number;
+    shortageQuantity: number;
+    overageRowCount: number;
+    overageQuantity: number;
     mismatchCount: number;
   }>;
 };
@@ -251,7 +259,7 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
   const lines: InternalChinaReceiptOrderLine[] = [];
   for (const [code, paidQuantity] of purchaseQuantityByBarcode) {
     const commitment = commitmentByBarcode.get(code);
-    if (!commitment || commitment.receivedQuantity > paidQuantity) {
+    if (!commitment) {
       return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
     }
     const ledgerOrderedQuantity = Math.max(
@@ -263,10 +271,7 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
       commitment.cancelledQuantity,
       ledgerOrderedQuantity - paidQuantity,
     );
-    if (
-      commitment.receivedQuantity + ledgerCancelledQuantity >
-      ledgerOrderedQuantity
-    ) {
+    if (ledgerCancelledQuantity > ledgerOrderedQuantity) {
       return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
     }
     const recoveredFromPurchaseEvidence = commitment.orderedQuantity <= 0;
@@ -347,10 +352,7 @@ export function buildInternalChinaReceiptWorkspaceLines(
     const suggestedReceiptQuantity = observed
       ? Math.max(
           0,
-          Math.min(
-            row.openQuantity,
-            observed.observedReceivedQuantity - row.receivedQuantity,
-          ),
+          observed.observedReceivedQuantity - row.receivedQuantity,
         )
       : null;
     return {
@@ -371,6 +373,10 @@ export function buildInternalChinaReceiptWorkspaceLines(
       ondolpassReceivedRowCount: observed?.receivedRowCount ?? 0,
       ondolpassPendingRowCount: observed?.pendingRowCount ?? 0,
       ondolpassDisposedRowCount: observed?.disposedRowCount ?? 0,
+      ondolpassShortageRowCount: observed?.shortageRowCount ?? 0,
+      ondolpassShortageQuantity: observed?.shortageQuantity ?? 0,
+      ondolpassOverageRowCount: observed?.overageRowCount ?? 0,
+      ondolpassOverageQuantity: observed?.overageQuantity ?? 0,
       ondolpassMismatchCount: observed?.mismatchCount ?? 0,
       suggestedReceiptQuantity,
     };

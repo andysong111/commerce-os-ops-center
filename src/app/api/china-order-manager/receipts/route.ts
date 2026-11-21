@@ -28,9 +28,9 @@ function errorResponse(error: unknown) {
     message = "해당 발주 Draft의 원장을 찾지 못했습니다.";
   } else if (code === "CHINA_RECEIPT_ALREADY_CLOSED") {
     message = `이미 입고 완료된 품목입니다: ${raw.split(":")[1] ?? ""}`;
-  } else if (code === "CHINA_RECEIPT_QUANTITY_EXCEEDED") {
-    const [, barcode, requested, remaining] = raw.split(":");
-    message = `${barcode}의 이번 입고수량 ${requested}개가 남은 미입고 ${remaining}개를 초과합니다.`;
+  } else if (code === "CHINA_RECEIPT_QUANTITY_LIMIT_EXCEEDED") {
+    const [, barcode, requested, maximum] = raw.split(":");
+    message = `${barcode}의 이번 입고수량 ${requested}개가 1회 입력 안전한도 ${maximum}개를 초과합니다.`;
   } else if (code === "CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT") {
     message = `현재 발주 Draft에 없는 B-code입니다: ${raw.split(":")[1] ?? ""}`;
   } else if (code === "CHINA_RECEIPT_CYCLE_MONTH_CONFLICT") {

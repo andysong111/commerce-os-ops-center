@@ -136,7 +136,7 @@ test("actual follow-up API authenticates first, rejects quantity input, and only
   assert.equal((await route.POST(request({ receiptId }))).status, 200);
   assert.equal(calls, 1); assert.equal(route.GET, undefined);
 });
-test("actual receipt engine captures original cost durably before downstream failure and preserves open-quantity guard", async () => {
+test("actual receipt engine captures original cost durably and accepts a manual over-receipt", async () => {
   const writes = []; let followups = 0;
   const engine = load("src/lib/internalChinaReceipt.ts", {
     "@/lib/chinaOrderLedger": { CHINA_ORDER_EVENT_OPERATION_TYPE: "CHINA_ORDER_COMMITMENT_EVENT", normalizeChinaOrderCommitmentEvent: (event) => event, loadChinaOrderLedger: async () => ({ error: null, commitments: [{ sourceSystem: "fast-purchase-mvp", sourceRunId: draftId, sourceLineId: "line-1", barcode, reservedAt: at, updatedAt: at, status: "ORDERED", openQuantity: 10, committedQuantity: 10, orderedQuantity: 10, cancelledQuantity: 0, receivedQuantity: 0 }] }) },
@@ -150,13 +150,15 @@ test("actual receipt engine captures original cost durably before downstream fai
     "@/lib/internalChinaPurchaseDraft": { loadInternalChinaPurchaseDraft: async () => ({ exchangeRateKrwPerCny: 230, lines: [{ barcode, modelNo: "AAA123", saleOption: "단품", quantity: 10, freightGroupId: "group-1", unitPriceCny: 2, domesticChinaFreightCny: 10 }] }) },
     "@/lib/internalChinaReceiptWorkspace": { resolveInternalChinaReceiptOrderEvidence: ({ commitments }) => ({ ok: true, error: null, recoveredLegacyLineCount: 0, cancelledReservationBarcodes: [], lines: commitments.map((row) => ({ ...row, recoveredFromPurchaseEvidence: false })) }) },
     "@/lib/monthlyPurchasePolicy": { koreanMonthLabel: (value) => value, seoulCalendarMonth: () => "2026-09" },
-    "@/lib/internalChinaReceiptFollowup": { retryInternalChinaReceiptFollowup: async () => { assert.equal(writes.length, 1); assert.equal(writes[0][0].result_snapshot.receiptCost.unitCostKrw, 690); followups++; throw new Error("RECEIPT_FOLLOWUP_READBACK_MISSING"); } },
+    "@/lib/internalChinaReceiptFollowup": { retryInternalChinaReceiptFollowup: async () => { assert.equal(writes.length, followups + 1); assert.equal(writes.at(-1)[0].result_snapshot.receiptCost.unitCostKrw, 690); followups++; throw new Error("RECEIPT_FOLLOWUP_READBACK_MISSING"); } },
     "@/lib/supabase/admin": { createSupabaseAdminHeaders: () => ({}) },
   }, { process: { env: { NEXT_PUBLIC_SUPABASE_URL: "https://db.example", SUPABASE_SECRET_KEY: "fixture-only" } }, fetch: async (url, options) => { assert.match(url, /commerce_operation_runs/); if (!options.method || options.method === "GET") { assert.match(url, /receiptId/); assert.equal(options.body, undefined); return Response.json([]); } assert.equal(options.method, "POST"); writes.push(JSON.parse(options.body)); return Response.json([{ source_event_id: "stored" }]); } });
   const result = await engine.recordInternalChinaReceipt({ draftId, cycleMonth: "2026-09", lines: [{ barcode, quantity: 7 }] });
   assert.equal(result.receivedNow, 7); assert.equal(result.productMasterSynced, false);
   assert.equal(result.productMasterError, "RECEIPT_FOLLOWUP_READBACK_MISSING");
   assert.equal(writes[0][0].result_snapshot.receiptLineCount, 1);
-  await assert.rejects(engine.recordInternalChinaReceipt({ draftId, cycleMonth: "2026-09", lines: [{ barcode, quantity: 11 }] }), /QUANTITY_EXCEEDED/);
-  assert.equal(writes.length, 1); assert.equal(followups, 1);
+  const overage = await engine.recordInternalChinaReceipt({ draftId, cycleMonth: "2026-09", lines: [{ barcode, quantity: 11 }] });
+  assert.equal(overage.receivedNow, 11);
+  assert.equal(writes.at(-1)[0].result_snapshot.overageQuantity, 1);
+  assert.equal(writes.length, 2); assert.equal(followups, 2);
 });

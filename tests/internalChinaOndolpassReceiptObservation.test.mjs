@@ -69,6 +69,10 @@ test("신청번호+행번호가 일치한 입고 표식만 B-code별 누적수�
       receivedRowCount: 1,
       pendingRowCount: 1,
       disposedRowCount: 0,
+      shortageRowCount: 0,
+      shortageQuantity: 0,
+      overageRowCount: 0,
+      overageQuantity: 0,
       mismatchCount: 0,
     },
     {
@@ -79,29 +83,56 @@ test("신청번호+행번호가 일치한 입고 표식만 B-code별 누적수�
       receivedRowCount: 1,
       pendingRowCount: 0,
       disposedRowCount: 0,
+      shortageRowCount: 0,
+      shortageQuantity: 0,
+      overageRowCount: 0,
+      overageQuantity: 0,
       mismatchCount: 0,
     },
   ]);
 });
 
-test("표시수량 불일치는 저장 근거에 남기되 입고 제안수량에서 제외한다", () => {
-  const mismatch = input({
+test("주문보다 많이 입고된 수량은 매칭 실패가 아니라 초과 입고로 분류한다", () => {
+  const overage = input({
     applications: input().applications.map((application) =>
       application.applicationNo === "673842"
         ? {
             ...application,
             rows: application.rows.map((row) =>
-              row.rowNo === 1 ? { ...row, quantity: 11 } : row,
+              row.rowNo === 1 ? { ...row, quantity: 15 } : row,
             ),
           }
         : application,
     ),
   });
-  const result = buildInternalChinaOndolpassReceiptObservation(mismatch, evidence);
-  assert.equal(result.mismatchCount, 1);
-  assert.equal(result.observedReceivedQuantity, 8);
-  assert.match(result.issues.join("\n"), /QUANTITY_MISMATCH:673842:1:10:11/);
+  const result = buildInternalChinaOndolpassReceiptObservation(overage, evidence);
+  assert.equal(result.mismatchCount, 0);
+  assert.equal(result.overageRowCount, 1);
+  assert.equal(result.overageQuantity, 5);
+  assert.equal(result.observedReceivedQuantity, 23);
+  assert.match(result.issues.join("\n"), /RECEIPT_OVERAGE:673842:1:10:15/);
   assert.equal(result.complete, false);
+});
+
+test("주문보다 적게 입고된 수량도 실제 수량으로 보존하고 부족 입고로 분류한다", () => {
+  const shortage = input({
+    applications: input().applications.map((application) =>
+      application.applicationNo === "673842"
+        ? {
+            ...application,
+            rows: application.rows.map((row) =>
+              row.rowNo === 1 ? { ...row, quantity: 7 } : row,
+            ),
+          }
+        : application,
+    ),
+  });
+  const result = buildInternalChinaOndolpassReceiptObservation(shortage, evidence);
+  assert.equal(result.mismatchCount, 0);
+  assert.equal(result.shortageRowCount, 1);
+  assert.equal(result.shortageQuantity, 3);
+  assert.equal(result.observedReceivedQuantity, 15);
+  assert.match(result.issues.join("\n"), /RECEIPT_SHORTAGE:673842:1:10:7/);
 });
 
 test("바코드 근거에 주문번호가 있으면 온돌패스 주문번호 누락도 입고 제안에서 제외한다", () => {
@@ -163,6 +194,43 @@ test("같은 화면 상태는 확인시각이 달라도 같은 멱등 해시를 
   );
 });
 
+test("기존 저장본의 수량 불일치도 다시 읽을 때 부족·초과 입고로 복구한다", () => {
+  const current = buildInternalChinaOndolpassReceiptObservation(
+    input({
+      applications: input().applications.map((application) =>
+        application.applicationNo === "673842"
+          ? {
+              ...application,
+              rows: application.rows.map((row) =>
+                row.rowNo === 1 ? { ...row, quantity: 15 } : row,
+              ),
+            }
+          : application,
+      ),
+    }),
+    evidence,
+  );
+  const legacy = structuredClone(current);
+  const legacyRow = legacy.rows.find(
+    (row) => row.applicationNo === "673842" && row.rowNo === 1,
+  );
+  legacyRow.quantityMatches = false;
+  legacyRow.eligible = false;
+  legacyRow.receivedQuantity = 0;
+  legacy.mismatchCount = 1;
+  legacy.observedReceivedQuantity = 8;
+  legacy.issues = ["QUANTITY_MISMATCH:673842:1:10:15"];
+
+  const restored = parseStoredInternalChinaOndolpassReceiptObservation(draftId, {
+    result_snapshot: legacy,
+  });
+  assert.equal(restored.mismatchCount, 0);
+  assert.equal(restored.overageRowCount, 1);
+  assert.equal(restored.overageQuantity, 5);
+  assert.equal(restored.observedReceivedQuantity, 23);
+  assert.match(restored.issues.join("\n"), /RECEIPT_OVERAGE:673842:1:10:15/);
+});
+
 test("4단계는 온돌패스 누계에서 이미 원장 반영된 수량을 빼고 이번 입력을 준비한다", () => {
   const observation = buildInternalChinaOndolpassReceiptObservation(input(), evidence);
   const lines = buildInternalChinaReceiptWorkspaceLines(
@@ -178,6 +246,26 @@ test("4단계는 온돌패스 누계에서 이미 원장 반영된 수량을 빼
     lines.map((line) => [line.barcode, line.suggestedReceiptQuantity]),
     [["BBA1-1", 6], ["BBB2-1", 8]],
   );
+});
+
+test("4단계는 주문수량보다 많이 입고된 실제 수량도 자르지 않고 제안한다", () => {
+  const lines = buildInternalChinaReceiptWorkspaceLines(
+    [
+      { barcode: "BBA1-1", orderedQuantity: 10, receivedQuantity: 0, cancelledQuantity: 0, openQuantity: 10, status: "ORDERED", recoveredFromPurchaseEvidence: false, ledgerOrderedQuantity: 10, ledgerCancelledQuantity: 0, modelNo: "A", modelName: "A", saleOption: "", imageUrl: "" },
+    ],
+    [],
+    {},
+    {
+      byBarcode: [{
+        barcode: "BBA1-1", expectedQuantity: 10, observedReceivedQuantity: 15,
+        rowCount: 1, receivedRowCount: 1, pendingRowCount: 0, disposedRowCount: 0,
+        shortageRowCount: 0, shortageQuantity: 0, overageRowCount: 1,
+        overageQuantity: 5, mismatchCount: 0,
+      }],
+    },
+  );
+  assert.equal(lines[0].suggestedReceiptQuantity, 15);
+  assert.equal(lines[0].ondolpassOverageQuantity, 5);
 });
 
 test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", async () => {

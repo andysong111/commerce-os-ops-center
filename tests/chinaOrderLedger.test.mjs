@@ -289,6 +289,29 @@ test("final receipt closes the open commitment without double-counting", () => {
   assert.equal(snapshot.recommendationOpenQuantity, 0);
 });
 
+test("seller over-delivery keeps the ordered quantity and records every physical unit", () => {
+  const snapshot = reduceChinaOrderCommitmentEvents([
+    event({ requestedQuantity: 10 }),
+    event({
+      sourceEventId: "event-2",
+      status: "ORDERED",
+      orderedQuantity: 10,
+      occurredAt: "2026-08-05T02:00:00.000Z",
+    }),
+    event({
+      sourceEventId: "event-3",
+      status: "RECEIVED",
+      receivedQuantity: 15,
+      occurredAt: "2026-08-05T03:00:00.000Z",
+    }),
+  ]);
+
+  assert.equal(snapshot.orderedQuantity, 10);
+  assert.equal(snapshot.receivedQuantity, 15);
+  assert.equal(snapshot.openQuantity, 0);
+  assert.equal(snapshot.status, "RECEIVED");
+});
+
 test("completed prior-month receipts can cover the next purchase recommendation", () => {
   const received = reduceChinaOrderCommitmentEvents([
     event({ occurredAt: "2026-09-02T01:00:00.000Z" }),

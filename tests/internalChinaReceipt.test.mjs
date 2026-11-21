@@ -97,6 +97,10 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
         ondolpassReceivedRowCount: 0,
         ondolpassPendingRowCount: 0,
         ondolpassDisposedRowCount: 0,
+        ondolpassShortageRowCount: 0,
+        ondolpassShortageQuantity: 0,
+        ondolpassOverageRowCount: 0,
+        ondolpassOverageQuantity: 0,
         ondolpassMismatchCount: 0,
         suggestedReceiptQuantity: null,
       },
@@ -148,7 +152,7 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
     [8, 0],
   ]);
   assert.deepEqual(result.cancelledReservationBarcodes, ["BBC3-1"]);
-  const mismatch = resolveInternalChinaReceiptOrderEvidence({
+  const overReceived = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: "2026-11",
     commitments: [{ ...commitments[0], receivedQuantity: 6 }],
     purchase: { ...purchase, lineCount: 1, assignedLineCount: 1, lines: [purchase.lines[0]], actualOrderPaidCny: 10 },
@@ -159,8 +163,9 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
       lines: [completion.lines[0]],
     },
   });
-  assert.equal(mismatch.ok, false);
-  assert.equal(mismatch.error, "CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
+  assert.equal(overReceived.ok, true);
+  assert.equal(overReceived.lines[0].receivedQuantity, 6);
+  assert.equal(overReceived.lines[0].openQuantity, 0);
   const reservedOnly = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: "2026-11", commitments, purchase: null, barcodeCompletion: completion,
   });
@@ -182,15 +187,21 @@ test("active receipt and actual-cost steps link to the visible purchase-run inpu
   assert.ok(panel.includes("모델명 ·"));
   assert.equal(panel.includes("상품정보 확인 중"), false);
 });
-test("receipt engine never receives more than the current open quantity", () => {
-  assert.ok(engine.includes("receivedNow > effectiveOrder.openQuantity"));
-  assert.ok(engine.includes("CHINA_RECEIPT_QUANTITY_EXCEEDED"));
+test("receipt engine preserves manual shortage and overage while keeping a bounded input limit", () => {
+  assert.ok(engine.includes("const MAX_RECEIPT_LINES = 500"));
+  assert.equal(engine.includes("receivedNow > effectiveOrder.openQuantity"), false);
+  assert.ok(engine.includes("CHINA_RECEIPT_QUANTITY_LIMIT_EXCEEDED"));
+  assert.ok(engine.includes("overageQuantity"));
   assert.ok(engine.includes("effectiveOrder.receivedQuantity + receivedNow"));
   assert.ok(engine.includes("orderedQuantity: effectiveOrder.ledgerOrderedQuantity"));
   assert.ok(engine.includes("cancelledQuantity: effectiveOrder.ledgerCancelledQuantity"));
   assert.ok(engine.includes("orderEvidence.cancelledReservationBarcodes"));
   assert.ok(engine.includes("actualOrderEvidenceReconciled: true"));
   assert.ok(engine.includes("const storedOperations = [...reconciliationOperations, ...operations]"));
+  assert.ok(panel.includes("부족 입고"));
+  assert.ok(panel.includes("주문보다 많이 입고"));
+  assert.ok(panel.includes("전체 정상입고 처리"));
+  assert.ok(panel.includes("MAX_RECEIPT_QUANTITY"));
 });
 test("receipt engine writes ledger status and product purchase cost without the 1.45 forwarder estimate", () => {
   assert.ok(engine.includes('status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED"'));

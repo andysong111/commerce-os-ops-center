@@ -41,6 +41,10 @@ export type OndolpassReceiptObservationBarcode = {
   receivedRowCount: number;
   pendingRowCount: number;
   disposedRowCount: number;
+  shortageRowCount: number;
+  shortageQuantity: number;
+  overageRowCount: number;
+  overageQuantity: number;
   mismatchCount: number;
 };
 
@@ -55,6 +59,10 @@ export type InternalChinaOndolpassReceiptObservation = {
   receivedRowCount: number;
   pendingRowCount: number;
   disposedRowCount: number;
+  shortageRowCount: number;
+  shortageQuantity: number;
+  overageRowCount: number;
+  overageQuantity: number;
   mismatchCount: number;
   expectedQuantity: number;
   displayedQuantity: number;
@@ -121,6 +129,135 @@ function status(value: unknown): OndolpassReceiptRowStatus | "" {
     normalized === "DISPOSED"
     ? normalized
     : "";
+}
+
+function normalizedObservationRow(
+  value: unknown,
+): OndolpassReceiptObservationRow | null {
+  const row = object(value);
+  const applicationNo = text(row.applicationNo);
+  const rowNo = positiveInteger(row.rowNo);
+  const expectedQuantity = positiveInteger(row.expectedQuantity);
+  const displayedQuantity = positiveInteger(row.displayedQuantity);
+  const rowStatus = status(row.status);
+  const orderNoMatches = row.orderNoMatches === true;
+  if (
+    !/^\d+$/.test(applicationNo) ||
+    rowNo <= 0 ||
+    expectedQuantity <= 0 ||
+    displayedQuantity <= 0 ||
+    !rowStatus
+  ) {
+    return null;
+  }
+  return {
+    applicationNo,
+    rowNo,
+    sourceItemId: text(row.sourceItemId),
+    barcode: text(row.barcode),
+    orderNo: text(row.orderNo),
+    itemName: text(row.itemName).slice(0, 300),
+    expectedQuantity,
+    displayedQuantity,
+    status: rowStatus,
+    quantityMatches: expectedQuantity === displayedQuantity,
+    orderNoMatches,
+    eligible: orderNoMatches,
+    receivedQuantity:
+      orderNoMatches && rowStatus === "RECEIVED" ? displayedQuantity : 0,
+  };
+}
+
+function observationIssues(rows: OndolpassReceiptObservationRow[]) {
+  const issues: string[] = [];
+  for (const row of rows) {
+    const key = sourceKey(row.applicationNo, row.rowNo);
+    if (row.status === "RECEIVED" && row.displayedQuantity < row.expectedQuantity) {
+      issues.push(
+        `RECEIPT_SHORTAGE:${key}:${row.expectedQuantity}:${row.displayedQuantity}`,
+      );
+    }
+    if (row.status === "RECEIVED" && row.displayedQuantity > row.expectedQuantity) {
+      issues.push(
+        `RECEIPT_OVERAGE:${key}:${row.expectedQuantity}:${row.displayedQuantity}`,
+      );
+    }
+    if (!row.orderNoMatches) issues.push(`ORDER_NO_MISMATCH:${key}`);
+    if (row.status === "DISPOSED") issues.push(`DISPOSED:${key}`);
+  }
+  return [...new Set(issues)].sort();
+}
+
+function observationSummary(rows: OndolpassReceiptObservationRow[]) {
+  const byBarcodeMap = new Map<string, OndolpassReceiptObservationBarcode>();
+  for (const row of rows) {
+    const received = row.status === "RECEIVED" && row.eligible;
+    const shortageQuantity = received
+      ? Math.max(0, row.expectedQuantity - row.displayedQuantity)
+      : 0;
+    const overageQuantity = received
+      ? Math.max(0, row.displayedQuantity - row.expectedQuantity)
+      : 0;
+    const current = byBarcodeMap.get(row.barcode) ?? {
+      barcode: row.barcode,
+      expectedQuantity: 0,
+      observedReceivedQuantity: 0,
+      rowCount: 0,
+      receivedRowCount: 0,
+      pendingRowCount: 0,
+      disposedRowCount: 0,
+      shortageRowCount: 0,
+      shortageQuantity: 0,
+      overageRowCount: 0,
+      overageQuantity: 0,
+      mismatchCount: 0,
+    };
+    current.expectedQuantity += row.expectedQuantity;
+    current.observedReceivedQuantity += row.receivedQuantity;
+    current.rowCount += 1;
+    current.receivedRowCount += Number(received);
+    current.pendingRowCount += Number(row.status === "PENDING");
+    current.disposedRowCount += Number(row.status === "DISPOSED");
+    current.shortageRowCount += Number(shortageQuantity > 0);
+    current.shortageQuantity += shortageQuantity;
+    current.overageRowCount += Number(overageQuantity > 0);
+    current.overageQuantity += overageQuantity;
+    current.mismatchCount += Number(!row.orderNoMatches);
+    byBarcodeMap.set(row.barcode, current);
+  }
+  const byBarcode = [...byBarcodeMap.values()].sort((left, right) =>
+    left.barcode.localeCompare(right.barcode),
+  );
+  const receivedRows = rows.filter(
+    (row) => row.status === "RECEIVED" && row.eligible,
+  );
+  return {
+    byBarcode,
+    receivedRowCount: receivedRows.length,
+    pendingRowCount: rows.filter((row) => row.status === "PENDING").length,
+    disposedRowCount: rows.filter((row) => row.status === "DISPOSED").length,
+    shortageRowCount: receivedRows.filter(
+      (row) => row.displayedQuantity < row.expectedQuantity,
+    ).length,
+    shortageQuantity: receivedRows.reduce(
+      (sum, row) => sum + Math.max(0, row.expectedQuantity - row.displayedQuantity),
+      0,
+    ),
+    overageRowCount: receivedRows.filter(
+      (row) => row.displayedQuantity > row.expectedQuantity,
+    ).length,
+    overageQuantity: receivedRows.reduce(
+      (sum, row) => sum + Math.max(0, row.displayedQuantity - row.expectedQuantity),
+      0,
+    ),
+    mismatchCount: rows.filter((row) => !row.orderNoMatches).length,
+    expectedQuantity: rows.reduce((sum, row) => sum + row.expectedQuantity, 0),
+    displayedQuantity: rows.reduce((sum, row) => sum + row.displayedQuantity, 0),
+    observedReceivedQuantity: rows.reduce(
+      (sum, row) => sum + row.receivedQuantity,
+      0,
+    ),
+  };
 }
 
 export function buildInternalChinaOndolpassReceiptObservation(
@@ -211,7 +348,6 @@ export function buildInternalChinaOndolpassReceiptObservation(
     }
   }
 
-  const issues: string[] = [];
   const rows: OndolpassReceiptObservationRow[] = [];
   for (const [key, expected] of expectedByKey) {
     const observed = observedByKey.get(key);
@@ -220,16 +356,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
     const orderNoMatches =
       !expected.orderNo ||
       expected.orderNo === observed.orderNo;
-    if (!quantityMatches) {
-      issues.push(
-        `QUANTITY_MISMATCH:${key}:${expected.quantity}:${observed.displayedQuantity}`,
-      );
-    }
-    if (!orderNoMatches) {
-      issues.push(`ORDER_NO_MISMATCH:${key}`);
-    }
-    if (observed.status === "DISPOSED") issues.push(`DISPOSED:${key}`);
-    const eligible = quantityMatches && orderNoMatches;
+    const eligible = orderNoMatches;
     rows.push({
       applicationNo: observed.applicationNo,
       rowNo: observed.rowNo,
@@ -244,7 +371,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
       orderNoMatches,
       eligible,
       receivedQuantity:
-        eligible && observed.status === "RECEIVED" ? expected.quantity : 0,
+        eligible && observed.status === "RECEIVED"
+          ? observed.displayedQuantity
+          : 0,
     });
   }
   rows.sort(
@@ -277,36 +406,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
     }
   }
 
-  const byBarcodeMap = new Map<string, OndolpassReceiptObservationBarcode>();
-  for (const row of rows) {
-    const current = byBarcodeMap.get(row.barcode) ?? {
-      barcode: row.barcode,
-      expectedQuantity: 0,
-      observedReceivedQuantity: 0,
-      rowCount: 0,
-      receivedRowCount: 0,
-      pendingRowCount: 0,
-      disposedRowCount: 0,
-      mismatchCount: 0,
-    };
-    current.expectedQuantity += row.expectedQuantity;
-    current.observedReceivedQuantity += row.receivedQuantity;
-    current.rowCount += 1;
-    current.receivedRowCount += Number(row.status === "RECEIVED" && row.eligible);
-    current.pendingRowCount += Number(row.status === "PENDING");
-    current.disposedRowCount += Number(row.status === "DISPOSED");
-    current.mismatchCount += Number(!row.eligible);
-    byBarcodeMap.set(row.barcode, current);
-  }
-  const byBarcode = [...byBarcodeMap.values()].sort((left, right) =>
-    left.barcode.localeCompare(right.barcode),
-  );
-  const receivedRowCount = rows.filter(
-    (row) => row.status === "RECEIVED" && row.eligible,
-  ).length;
-  const pendingRowCount = rows.filter((row) => row.status === "PENDING").length;
-  const disposedRowCount = rows.filter((row) => row.status === "DISPOSED").length;
-  const mismatchCount = rows.filter((row) => !row.eligible).length;
+  const summary = observationSummary(rows);
   const canonicalState = {
     draftId,
     evidenceHash,
@@ -326,29 +426,13 @@ export function buildInternalChinaOndolpassReceiptObservation(
     observedAt,
     snapshotHash: hash(canonicalState),
     rowCount: rows.length,
-    receivedRowCount,
-    pendingRowCount,
-    disposedRowCount,
-    mismatchCount,
-    expectedQuantity: rows.reduce(
-      (sum, row) => sum + row.expectedQuantity,
-      0,
-    ),
-    displayedQuantity: rows.reduce(
-      (sum, row) => sum + row.displayedQuantity,
-      0,
-    ),
-    observedReceivedQuantity: rows.reduce(
-      (sum, row) => sum + row.receivedQuantity,
-      0,
-    ),
+    ...summary,
     complete:
-      receivedRowCount === rows.length &&
-      mismatchCount === 0 &&
-      disposedRowCount === 0,
-    issues: [...new Set(issues)].sort(),
+      summary.receivedRowCount === rows.length &&
+      summary.mismatchCount === 0 &&
+      summary.disposedRowCount === 0,
+    issues: observationIssues(rows),
     rows,
-    byBarcode,
   };
 }
 
@@ -370,5 +454,18 @@ export function parseStoredInternalChinaOndolpassReceiptObservation(
   ) {
     return null;
   }
-  return snapshot as InternalChinaOndolpassReceiptObservation;
+  const rows = (snapshot.rows as unknown[]).map(normalizedObservationRow);
+  if (rows.some((entry) => !entry)) return null;
+  const normalizedRows = rows as OndolpassReceiptObservationRow[];
+  const summary = observationSummary(normalizedRows);
+  return {
+    ...(snapshot as InternalChinaOndolpassReceiptObservation),
+    ...summary,
+    complete:
+      summary.receivedRowCount === normalizedRows.length &&
+      summary.mismatchCount === 0 &&
+      summary.disposedRowCount === 0,
+    issues: observationIssues(normalizedRows),
+    rows: normalizedRows,
+  };
 }

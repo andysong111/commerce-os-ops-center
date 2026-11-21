@@ -30,7 +30,8 @@ const SOURCE_SYSTEM = "fast-purchase-mvp";
 const RECEIPT_SOURCE = "ops-center-internal-china-receipt";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
-const MAX_RECEIPT_LINES = 100;
+const MAX_RECEIPT_LINES = 500;
+const MAX_RECEIPT_QUANTITY = 999_999;
 
 type ReceiptLineInput = { barcode?: unknown; quantity?: unknown };
 export type InternalChinaReceiptInput = {
@@ -128,6 +129,11 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const code = barcode(line.barcode);
     const receivedNow = quantity(line.quantity);
     if (!BARCODE.test(code) || receivedNow <= 0) continue;
+    if (receivedNow > MAX_RECEIPT_QUANTITY) {
+      throw new Error(
+        `CHINA_RECEIPT_QUANTITY_LIMIT_EXCEEDED:${code}:${receivedNow}:${MAX_RECEIPT_QUANTITY}`,
+      );
+    }
     if (byBarcode.has(code)) throw new Error("CHINA_RECEIPT_DUPLICATE_BARCODE");
     byBarcode.set(code, receivedNow);
   }
@@ -207,13 +213,12 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   );
   const commitmentByBarcode = new Map(commitments.map((row) => [row.barcode, row] as const));
   const sourcedByBarcode = new Map<string, NonNullable<ReturnType<typeof sourcingMetadataFromCommitmentPayload>>>();
-  for (const [code, receivedNow] of byBarcode) {
+  for (const code of byBarcode.keys()) {
     const commitment = commitmentByBarcode.get(code);
     if (!commitment) throw new Error(`CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT:${code}`);
     const effectiveOrder = effectiveOrderByBarcode.get(code);
     if (!effectiveOrder) throw new Error(`CHINA_RECEIPT_BARCODE_NOT_IN_DRAFT:${code}`);
     if (effectiveOrder.openQuantity <= 0) throw new Error(`CHINA_RECEIPT_ALREADY_CLOSED:${code}`);
-    if (receivedNow > effectiveOrder.openQuantity) throw new Error(`CHINA_RECEIPT_QUANTITY_EXCEEDED:${code}:${receivedNow}:${effectiveOrder.openQuantity}`);
     const sourced = sourcingMetadataFromCommitmentPayload(commitment.latestPayload);
     if (sourced) {
       if (effectiveOrder.orderedQuantity <= 0) throw new Error("SOURCING_RECEIPT_ORDER_EVIDENCE_REQUIRED");
@@ -311,6 +316,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       effectiveOrder.orderedQuantity - effectiveOrder.cancelledQuantity,
     );
     const finished = cumulativeReceived >= receivableTotal;
+    const overageQuantity = Math.max(0, cumulativeReceived - receivableTotal);
     if (finished) fullyReceivedCount += 1;
     else partiallyReceivedCount += 1;
     receivedNowTotal += receivedNow;
@@ -321,8 +327,9 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       orderedQuantity: effectiveOrder.ledgerOrderedQuantity,
       receivedQuantity: cumulativeReceived,
       cancelledQuantity: effectiveOrder.ledgerCancelledQuantity,
-      occurredAt: now, note: `${koreanMonthLabel(actualCycleMonth)} 입고확정 · 이번 ${receivedNow.toLocaleString("ko-KR")}개`,
+      occurredAt: now, note: `${koreanMonthLabel(actualCycleMonth)} 입고확정 · 이번 ${receivedNow.toLocaleString("ko-KR")}개${overageQuantity > 0 ? ` · 주문보다 ${overageQuantity.toLocaleString("ko-KR")}개 많이 입고` : ""}`,
       payload: { receiptId, draftId, cycleMonth: actualCycleMonth, receivedNow, cumulativeReceived,
+        orderedQuantity: receivableTotal, overageQuantity,
         ...(sourcing ? { sourcingConfirmed: true, sourcingIntakeId: sourcing.intakeId, sourcingOutboxId: sourcing.outboxId } : {}),
         externalOrderExecuted: false },
     });
@@ -347,7 +354,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       actor_type: "OPS_OPERATOR", input_snapshot: event,
       result_snapshot: {
         accepted: true, receiptId, draftId, cycleMonth: actualCycleMonth, barcode: code,
-        receivedNow, cumulativeReceived, fullyReceived: finished,
+        receivedNow, cumulativeReceived, fullyReceived: finished, overageQuantity,
         // Durable recovery source is written with the quantity event, BEFORE any
         // warehouse activation, launch creation or downstream cache/network write.
         followupVersion: 1, receiptLineCount: byBarcode.size, receiptCost,
