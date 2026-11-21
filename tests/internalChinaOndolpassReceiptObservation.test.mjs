@@ -124,7 +124,6 @@ test("모든 행에 일부 수량이라도 입고되면 부분입고 수량을 �
   assert.equal(result.complete, true);
   assert.equal(result.rows.every((row) => row.receivedQuantity > 0), true);
 });
-
 test("바코드 근거에 주문번호가 있으면 온돌패스 주문번호 누락도 입고 제안에서 제외한다", () => {
   const missingOrderNo = input({
     applications: input().applications.map((application) =>
