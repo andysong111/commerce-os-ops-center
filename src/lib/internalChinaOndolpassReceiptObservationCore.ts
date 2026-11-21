@@ -217,10 +217,13 @@ export function buildInternalChinaOndolpassReceiptObservation(
     const observed = observedByKey.get(key);
     if (!observed) throw new Error("ONDOLPASS_RECEIPT_ROW_SET_MISMATCH");
     const quantityMatches = expected.quantity === observed.displayedQuantity;
+    const quantityWithinExpected =
+      observed.displayedQuantity > 0 &&
+      observed.displayedQuantity <= expected.quantity;
     const orderNoMatches =
       !expected.orderNo ||
       expected.orderNo === observed.orderNo;
-    if (!quantityMatches) {
+    if (!quantityWithinExpected) {
       issues.push(
         `QUANTITY_MISMATCH:${key}:${expected.quantity}:${observed.displayedQuantity}`,
       );
@@ -229,7 +232,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
       issues.push(`ORDER_NO_MISMATCH:${key}`);
     }
     if (observed.status === "DISPOSED") issues.push(`DISPOSED:${key}`);
-    const eligible = quantityMatches && orderNoMatches;
+    const eligible = quantityWithinExpected && orderNoMatches;
     rows.push({
       applicationNo: observed.applicationNo,
       rowNo: observed.rowNo,
@@ -244,7 +247,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
       orderNoMatches,
       eligible,
       receivedQuantity:
-        eligible && observed.status === "RECEIVED" ? expected.quantity : 0,
+        eligible && observed.status === "RECEIVED"
+          ? observed.displayedQuantity
+          : 0,
     });
   }
   rows.sort(
@@ -270,7 +275,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
         (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))?.status !==
           "RECEIVED" ||
           !currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
-            ?.eligible)
+            ?.eligible ||
+          (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
+            ?.receivedQuantity ?? 0) < oldRow.receivedQuantity)
       ) {
         throw new Error("ONDOLPASS_RECEIPT_STATUS_REGRESSION");
       }
