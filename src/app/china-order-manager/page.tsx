@@ -44,6 +44,7 @@ import {
   hasActualOrderForReceiptWorkspace,
   resolveInternalChinaReceiptOrderEvidence,
 } from "@/lib/internalChinaReceiptWorkspace";
+import { loadLatestInternalChinaOndolpassReceiptObservation } from "@/lib/internalChinaOndolpassReceiptObservation";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -185,7 +186,12 @@ export default async function ChinaOrderManagerPage({
   const selectedDraftId = selectedRun?.draftId ?? "";
   const selectedMonth = selectedRun?.cycleStartDate.slice(0, 7) || currentCycleMonth;
   const purchaseByMonth = purchaseMap(purchaseSummaries);
-  const [budget, purchaseFallback, barcodeCompletionRead] = await Promise.all([
+  const [
+    budget,
+    purchaseFallback,
+    barcodeCompletionRead,
+    ondolpassObservationRead,
+  ] = await Promise.all([
     loadBudget(currentCycleMonth),
     purchaseByMonth.has(selectedMonth)
       ? Promise.resolve(null)
@@ -201,6 +207,17 @@ export default async function ChinaOrderManagerPage({
                 : "FREIGHT_BARCODE_COMPLETION_READ_FAILED",
           }))
       : Promise.resolve({ value: null, error: null }),
+    selectedDraftId
+      ? loadLatestInternalChinaOndolpassReceiptObservation(selectedDraftId)
+          .then((value) => ({ value, error: null as string | null }))
+          .catch((error: unknown) => ({
+            value: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "ONDOLPASS_RECEIPT_READ_FAILED",
+          }))
+      : Promise.resolve({ value: null, error: null }),
   ]);
   const monthlyPurchase = purchaseByMonth.get(selectedMonth) ?? purchaseFallback;
   const purchase = selectInternalChinaPurchaseSummaryForDraft(
@@ -212,6 +229,29 @@ export default async function ChinaOrderManagerPage({
     ? await loadInternalChinaFreightBarcodeReceiptEvidence(barcodeCompletion).catch(
         () => null,
       )
+    : null;
+  const ondolpassObservation =
+    ondolpassObservationRead.value &&
+    barcodeReceiptEvidence &&
+    ondolpassObservationRead.value.evidenceHash ===
+      barcodeReceiptEvidence.evidenceHash
+      ? ondolpassObservationRead.value
+      : null;
+  const ondolpassObservationSummary = ondolpassObservation
+    ? {
+        observedAt: ondolpassObservation.observedAt,
+        snapshotHash: ondolpassObservation.snapshotHash,
+        rowCount: ondolpassObservation.rowCount,
+        receivedRowCount: ondolpassObservation.receivedRowCount,
+        pendingRowCount: ondolpassObservation.pendingRowCount,
+        disposedRowCount: ondolpassObservation.disposedRowCount,
+        mismatchCount: ondolpassObservation.mismatchCount,
+        expectedQuantity: ondolpassObservation.expectedQuantity,
+        displayedQuantity: ondolpassObservation.displayedQuantity,
+        observedReceivedQuantity:
+          ondolpassObservation.observedReceivedQuantity,
+        complete: ondolpassObservation.complete,
+      }
     : null;
   if (monthlyPurchase && !purchaseByMonth.has(selectedMonth)) {
     purchaseByMonth.set(selectedMonth, monthlyPurchase);
@@ -296,6 +336,7 @@ export default async function ChinaOrderManagerPage({
     effectiveReceiptOrderLines,
     selectedDrafts.flatMap((draft) => draft.lines),
     metadata.byBarcode,
+    ondolpassObservation,
   );
   const costRows: CostRow[] = await Promise.all(
     selectedDrafts
@@ -414,6 +455,7 @@ export default async function ChinaOrderManagerPage({
     ledger.error,
     budget.error,
     barcodeCompletionRead.error,
+    ondolpassObservationRead.error,
     ...metadata.warnings,
   ].filter((value): value is string => Boolean(value));
 
@@ -644,11 +686,12 @@ export default async function ChinaOrderManagerPage({
               }
               return (
                 <InternalChinaReceiptPanel
-                  key={row.draftId}
+                  key={`${row.draftId}:${ondolpassObservation?.snapshotHash ?? "manual"}`}
                   draftId={row.draftId}
                   cycleMonth={selectedMonth}
                   forwarderCost={row.summary}
                   lines={receiptWorkspaceLines}
+                  observation={ondolpassObservationSummary}
                 />
               );
             })}

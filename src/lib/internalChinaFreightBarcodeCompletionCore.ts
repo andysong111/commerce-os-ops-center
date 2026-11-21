@@ -21,6 +21,10 @@ export type InternalChinaFreightBarcodeCompletion = {
 export type InternalChinaFreightBarcodeReceiptEvidence =
   InternalChinaFreightBarcodeCompletion & {
     lines: Array<{
+      sourceItemId: string;
+      applicationNo: string;
+      rowNo: number;
+      orderNo: string;
       barcode: string;
       quantity: number;
       modelNo: string;
@@ -153,6 +157,7 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
   }
 
   const seenItemIds = new Set<string>();
+  const seenSourceRows = new Set<string>();
   const lines = record.productMasterMatches.map((match) => {
     const itemId = text(match.itemId);
     const barcode = text(match.matchedBarcode)
@@ -160,15 +165,26 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
       .replace(/\s+/g, "");
     const item = itemById.get(itemId);
     const quantity = positiveInteger(item?.quantity);
+    const applicationNo = text(item?.applicationNo);
+    const rowNo = positiveInteger(item?.rowNo);
+    const sourceRowKey = `${applicationNo}:${rowNo}`;
     if (
       seenItemIds.has(itemId) ||
+      !/^\d+$/.test(applicationNo) ||
+      rowNo <= 0 ||
+      seenSourceRows.has(sourceRowKey) ||
       !/^[A-Z]{3}\d+-\d+$/.test(barcode) ||
       quantity <= 0
     ) {
       throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
     }
     seenItemIds.add(itemId);
+    seenSourceRows.add(sourceRowKey);
     return {
+      sourceItemId: itemId,
+      applicationNo,
+      rowNo,
+      orderNo: text(item?.orderNo),
       barcode,
       quantity,
       modelNo: text(match.matchedModelNo) || text(item?.modelNo),
