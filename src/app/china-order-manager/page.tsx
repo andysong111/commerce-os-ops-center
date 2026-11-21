@@ -36,6 +36,10 @@ import {
   selectPurchaseRun,
 } from "@/lib/purchaseRunHistory";
 import { loadInternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFreightBarcodeCompletion";
+import {
+  buildInternalChinaReceiptWorkspaceLines,
+  hasActualOrderForReceiptWorkspace,
+} from "@/lib/internalChinaReceiptWorkspace";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -234,9 +238,16 @@ export default async function ChinaOrderManagerPage({
   );
   const releasableQuantity = total(releasableRows, (row) => row.openQuantity);
 
-  const selectedBarcodes = selectedDrafts.flatMap((draft) =>
-    draft.lines.map((line) => line.barcode),
-  );
+  const selectedBarcodes = [
+    ...new Set([
+      ...selectedDrafts.flatMap((draft) =>
+        draft.lines.map((line) => line.barcode),
+      ),
+      ...selectedRows
+        .filter((row) => row.orderedQuantity > 0)
+        .map((row) => row.barcode),
+    ]),
+  ];
   const metadata: Awaited<
     ReturnType<typeof loadMonthlyDraftDisplayMetadata>
   > = selectedBarcodes.length
@@ -249,9 +260,15 @@ export default async function ChinaOrderManagerPage({
       })
     : { byBarcode: {}, warnings: [] };
 
+  const hasReceiptWorkspace = hasActualOrderForReceiptWorkspace(selectedRows);
+  const receiptWorkspaceLines = buildInternalChinaReceiptWorkspaceLines(
+    selectedRows,
+    selectedDrafts.flatMap((draft) => draft.lines),
+    metadata.byBarcode,
+  );
   const costRows: CostRow[] = await Promise.all(
     selectedDrafts
-      .filter((draft) => draft.orderedQuantity > 0)
+      .filter(() => hasReceiptWorkspace)
       .map(async (draft) => {
         const stored = forwarderCloses.find(
           (row) => row.draftId === draft.draftId,
@@ -349,6 +366,7 @@ export default async function ChinaOrderManagerPage({
   const actionNeeded =
     releasableQuantity > 0 ||
     (hasOrder && !barcodeStageDone) ||
+    (Boolean(barcodeCompletion) && hasOrder && !receiptDone) ||
     (receiptDone && !forwarderDone) ||
     (forwarderDone && !fundingDone);
   const warnings = [
@@ -546,7 +564,10 @@ export default async function ChinaOrderManagerPage({
             </Badge>
           </div>
 
-          <div className={`mt-4 space-y-4 ${styles.inputScope}`}>
+          <div
+            id="purchase-run-input-workspace"
+            className={`mt-4 scroll-mt-6 space-y-4 ${styles.inputScope}`}
+          >
             {costRows.map((row) => {
               const draft = selectedDrafts.find(
                 (candidate) => candidate.draftId === row.draftId,
@@ -578,19 +599,7 @@ export default async function ChinaOrderManagerPage({
                   draftId={row.draftId}
                   cycleMonth={selectedMonth}
                   forwarderCost={row.summary}
-                  lines={draft.lines.map((line) => {
-                    const display = metadata.byBarcode[line.barcode];
-                    return {
-                      barcode: line.barcode,
-                      modelNo: display?.modelNo ?? "",
-                      modelName: display?.modelName ?? "",
-                      saleOption: display?.saleOption ?? "",
-                      orderedQuantity: line.orderedQuantity,
-                      receivedQuantity: line.receivedQuantity,
-                      openQuantity: line.openQuantity,
-                      status: line.status,
-                    };
-                  })}
+                  lines={receiptWorkspaceLines}
                 />
               );
             })}
@@ -679,6 +688,14 @@ export default async function ChinaOrderManagerPage({
                   ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
                   : "입고 수량 입력 대기"
               }
+              href={
+                barcodeCompletion && hasOrder
+                  ? "#purchase-run-input-workspace"
+                  : undefined
+              }
+              actionLabel={
+                receiptDone ? "입고·원가 입력 보기" : "입고 처리로 이동"
+              }
             />
             <FlowStep
               number="5"
@@ -690,6 +707,12 @@ export default async function ChinaOrderManagerPage({
                   : receiptDone
                     ? "최종 청구액 직접 입력"
                     : "전량 입고 후 진행"
+              }
+              href={receiptDone ? "#purchase-run-input-workspace" : undefined}
+              actionLabel={
+                forwarderDone
+                  ? "실제비용·원가 내역 보기"
+                  : "실제비용·원가 입력"
               }
             />
             <MonthlyPricePanel month={selectedMonth} ready={receiptDone && forwarderDone} />

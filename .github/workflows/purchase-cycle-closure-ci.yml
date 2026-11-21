@@ -13,6 +13,7 @@ on:
       - 'src/app/china-order-manager/layout.tsx'
       - 'src/app/china-order-manager/page.tsx'
       - 'src/app/freight-barcode-request/page.tsx'
+      - 'src/components/china-order-manager/InternalChinaReceiptPanel.tsx'
       - 'src/components/china-order-manager/PurchaseCycleClosurePanel.tsx'
       - 'tests/internalChinaReceipt*.test.mjs'
       - 'tests/internalChinaFreightBarcodeCompletion.test.mjs'
@@ -42,6 +43,7 @@ jobs:
         run: >-
           npx eslint src/lib/internalChinaReceipt.ts src/lib/internalChinaReceiptFollowup.ts
           src/lib/internalChinaReceiptFollowupCore.ts src/lib/internalChinaReceiptFollowupRepair.ts
+          src/lib/internalChinaReceiptWorkspace.ts
           src/lib/inventoryStockControl.ts src/lib/inventoryStocktakeBaselines.ts
           src/lib/purchaseCycleClosure.ts src/lib/purchaseCycleClosureCore.ts
           src/lib/purchaseCycleHistoricalOrderClose.ts
@@ -57,6 +59,7 @@ jobs:
           src/app/api/china-order-manager/cycle-status/route.ts
           src/app/china-order-manager/layout.tsx src/app/china-order-manager/page.tsx
           src/app/freight-barcode-request/page.tsx
+          src/components/china-order-manager/InternalChinaReceiptPanel.tsx
           src/components/china-order-manager/PurchaseCycleClosurePanel.tsx
       - name: Permanent receipt persistence, retry, cycle and stock evidence regressions
         run: node --experimental-strip-types --test tests/internalChinaReceipt*.test.mjs tests/internalChinaFreightBarcodeCompletion.test.mjs tests/purchaseCycle*.test.mjs

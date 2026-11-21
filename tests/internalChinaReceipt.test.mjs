@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  buildInternalChinaReceiptWorkspaceLines,
+  hasActualOrderForReceiptWorkspace,
+} from "../src/lib/internalChinaReceiptWorkspace.ts";
 
 const [engine, route, panel, page, monthlyPolicy, followup] = await Promise.all([
   readFile("src/lib/internalChinaReceipt.ts", "utf8"),
@@ -18,6 +22,58 @@ test("China order manager exposes the on-demand purchase-run and receipt cycle",
 test("receipt UI supports full and partial receipt quantities on the existing China order route", () => {
   for (const value of ["입고 처리", "남은 수량 전부 채우기", "PARTIALLY_RECEIVED", "RECEIVED", "/api/china-order-manager/receipts"]) assert.ok(panel.includes(value));
   assert.ok(page.includes("InternalChinaReceiptPanel")); assert.ok(page.includes('title="입고"'));
+});
+test("stage 4 uses actual ledger order evidence even when the stored Draft snapshot is stale", () => {
+  const commitments = [
+    {
+      barcode: "BBA1-1",
+      orderedQuantity: 7,
+      receivedQuantity: 2,
+      openQuantity: 5,
+      status: "PARTIALLY_RECEIVED",
+    },
+    {
+      barcode: "BBA1-2",
+      orderedQuantity: 0,
+      receivedQuantity: 0,
+      openQuantity: 3,
+      status: "RESERVED",
+    },
+  ];
+  const staleDraftLines = [
+    {
+      barcode: "BBA1-1",
+      modelNo: "AAA001",
+      modelName: "원장 기준 상품",
+      saleOption: "검정",
+      orderedQuantity: 0,
+    },
+  ];
+  assert.equal(hasActualOrderForReceiptWorkspace(commitments), true);
+  assert.deepEqual(
+    buildInternalChinaReceiptWorkspaceLines(commitments, staleDraftLines, {}),
+    [
+      {
+        barcode: "BBA1-1",
+        modelNo: "AAA001",
+        modelName: "원장 기준 상품",
+        saleOption: "검정",
+        orderedQuantity: 7,
+        receivedQuantity: 2,
+        openQuantity: 5,
+        status: "PARTIALLY_RECEIVED",
+      },
+    ],
+  );
+});
+test("active receipt and actual-cost steps link to the visible purchase-run input workspace", () => {
+  assert.ok(page.includes('id="purchase-run-input-workspace"'));
+  assert.ok(page.includes('"#purchase-run-input-workspace"'));
+  assert.ok(page.includes('"입고 처리로 이동"'));
+  assert.ok(page.includes('"실제비용·원가 입력"'));
+  assert.ok(page.includes("hasActualOrderForReceiptWorkspace(selectedRows)"));
+  assert.equal(page.includes(".filter((draft) => draft.orderedQuantity > 0)"), false);
+  assert.ok(panel.includes("openLines.length > 0 || !forwarderCost.actualCostKrw"));
 });
 test("receipt engine never receives more than the current open quantity", () => {
   assert.ok(engine.includes("receivedNow > commitment.openQuantity"));

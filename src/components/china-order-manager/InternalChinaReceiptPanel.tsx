@@ -63,7 +63,7 @@ export function InternalChinaReceiptPanel({
     [lines],
   );
   const [expanded, setExpanded] = useState(
-    () => openLines.length === 0 && !forwarderCost.actualCostKrw,
+    () => openLines.length > 0 || !forwarderCost.actualCostKrw,
   );
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -310,7 +310,7 @@ export function InternalChinaReceiptPanel({
               {monthLabel(cycleMonth)} 사이클
             </span>
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-              월 1회 발주·입고
+              발주차시별 입고
             </span>
             {forwarderCost.actualCostKrw ? (
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-black text-blue-800">
