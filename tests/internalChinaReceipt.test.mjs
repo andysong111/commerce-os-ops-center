@@ -94,13 +94,18 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
       barcode: "BBB2-1", orderedQuantity: 0, receivedQuantity: 0,
       cancelledQuantity: 0, committedQuantity: 3, openQuantity: 3, status: "RESERVED",
     },
+    {
+      barcode: "BBC3-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 4, openQuantity: 4, status: "RESERVED",
+    },
   ];
   const purchase = {
-    cycleMonth: "2026-11", orderCount: 2, lineCount: 2,
-    actualOrderPaidCny: 42, assignedLineCount: 2, unassignedLineCount: 0,
+    cycleMonth: "2026-11", orderCount: 2, lineCount: 3,
+    actualOrderPaidCny: 42, assignedLineCount: 3, unassignedLineCount: 0,
     lines: [
       { barcode: "BBA1-1", quantity: 5, goodsPaidCny: 10, orderNumber: "673842", supplierLink: "https://detail.1688.com/offer/1.html", chinaOption: "검정", assigned: true },
-      { barcode: "BBB2-1", quantity: 8, goodsPaidCny: 32, orderNumber: "", supplierLink: "https://detail.1688.com/offer/2.html", chinaOption: "흰색", assigned: true },
+      { barcode: "BBB2-1", quantity: 8, goodsPaidCny: 32, orderNumber: "673626", supplierLink: "https://detail.1688.com/offer/2.html", chinaOption: "흰색", assigned: true },
+      { barcode: "BBC3-1", quantity: 4, goodsPaidCny: 0, orderNumber: "", supplierLink: "https://detail.1688.com/offer/3.html", chinaOption: "파랑", assigned: true },
     ],
   };
   const completion = { cycleMonth: "2026-11", itemCount: 2, matchedItemCount: 2 };
@@ -117,6 +122,7 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
     [10, 5],
     [8, 0],
   ]);
+  assert.deepEqual(result.cancelledReservationBarcodes, ["BBC3-1"]);
   const mismatch = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: "2026-11",
     commitments: [{ ...commitments[0], receivedQuantity: 6 }],
@@ -147,6 +153,9 @@ test("receipt engine never receives more than the current open quantity", () => 
   assert.ok(engine.includes("effectiveOrder.receivedQuantity + receivedNow"));
   assert.ok(engine.includes("orderedQuantity: effectiveOrder.ledgerOrderedQuantity"));
   assert.ok(engine.includes("cancelledQuantity: effectiveOrder.ledgerCancelledQuantity"));
+  assert.ok(engine.includes("orderEvidence.cancelledReservationBarcodes"));
+  assert.ok(engine.includes("actualOrderEvidenceReconciled: true"));
+  assert.ok(engine.includes("const storedOperations = [...reconciliationOperations, ...operations]"));
 });
 test("receipt engine writes ledger status and product purchase cost without the 1.45 forwarder estimate", () => {
   assert.ok(engine.includes('status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED"'));

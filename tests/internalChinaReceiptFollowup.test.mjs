@@ -144,7 +144,7 @@ test("actual receipt engine captures original cost durably before downstream fai
     "@/lib/internalChinaFreightBarcodeCompletion": { loadInternalChinaFreightBarcodeCompletion: async () => ({ cycleMonth: "2026-09", itemCount: 1, matchedItemCount: 1 }) },
     "@/lib/internalChinaMonthlyPurchaseSummary": { loadInternalChinaMonthlyPurchaseSummary: async () => ({}), selectInternalChinaPurchaseSummaryForDraft: () => ({}) },
     "@/lib/internalChinaPurchaseDraft": { loadInternalChinaPurchaseDraft: async () => ({ exchangeRateKrwPerCny: 230, lines: [{ barcode, modelNo: "AAA123", saleOption: "단품", quantity: 10, freightGroupId: "group-1", unitPriceCny: 2, domesticChinaFreightCny: 10 }] }) },
-    "@/lib/internalChinaReceiptWorkspace": { resolveInternalChinaReceiptOrderEvidence: ({ commitments }) => ({ ok: true, error: null, recoveredLegacyLineCount: 0, lines: commitments.map((row) => ({ ...row, recoveredFromPurchaseEvidence: false })) }) },
+    "@/lib/internalChinaReceiptWorkspace": { resolveInternalChinaReceiptOrderEvidence: ({ commitments }) => ({ ok: true, error: null, recoveredLegacyLineCount: 0, cancelledReservationBarcodes: [], lines: commitments.map((row) => ({ ...row, recoveredFromPurchaseEvidence: false })) }) },
     "@/lib/monthlyPurchasePolicy": { koreanMonthLabel: (value) => value, seoulCalendarMonth: () => "2026-09" },
     "@/lib/internalChinaReceiptFollowup": { retryInternalChinaReceiptFollowup: async () => { assert.equal(writes.length, 1); assert.equal(writes[0][0].result_snapshot.receiptCost.unitCostKrw, 690); followups++; throw new Error("RECEIPT_FOLLOWUP_READBACK_MISSING"); } },
     "@/lib/supabase/admin": { createSupabaseAdminHeaders: () => ({}) },

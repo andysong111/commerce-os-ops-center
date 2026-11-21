@@ -73,12 +73,14 @@ export type InternalChinaReceiptOrderEvidenceResult =
       ok: true;
       lines: InternalChinaReceiptOrderLine[];
       recoveredLegacyLineCount: number;
+      cancelledReservationBarcodes: string[];
       error: null;
     }
   | {
       ok: false;
       lines: [];
       recoveredLegacyLineCount: 0;
+      cancelledReservationBarcodes: [];
       error: string;
     };
 
@@ -120,6 +122,7 @@ function failure(error: string): InternalChinaReceiptOrderEvidenceResult {
     ok: false,
     lines: [],
     recoveredLegacyLineCount: 0,
+    cancelledReservationBarcodes: [],
     error,
   };
 }
@@ -151,16 +154,23 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
     purchase.cycleMonth !== cycleMonth ||
     purchase.orderCount <= 0 ||
     !positiveNumber(purchase.actualOrderPaidCny) ||
-    purchase.lineCount !== purchase.lines.length ||
-    purchase.assignedLineCount !== purchase.lines.length ||
-    purchase.unassignedLineCount !== 0 ||
-    barcodeCompletion.itemCount !== purchase.lines.length
+    purchase.lineCount !== purchase.lines.length
+  ) {
+    return failure("CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
+  }
+
+  const actualPurchaseLines = purchase.lines.filter(
+    (line) => text(line.orderNumber) && positiveNumber(line.goodsPaidCny),
+  );
+  if (
+    !actualPurchaseLines.length ||
+    barcodeCompletion.itemCount !== actualPurchaseLines.length
   ) {
     return failure("CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
   }
 
   const purchaseQuantityByBarcode = new Map<string, number>();
-  for (const line of purchase.lines) {
+  for (const line of actualPurchaseLines) {
     const code = barcode(line.barcode);
     const lineQuantity = positiveInteger(line.quantity);
     if (
@@ -187,15 +197,11 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
     }
     commitmentByBarcode.set(code, commitment);
   }
-  if (commitmentByBarcode.size !== purchaseQuantityByBarcode.size) {
-    return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
-  }
-
   let recoveredLegacyLineCount = 0;
   const lines: InternalChinaReceiptOrderLine[] = [];
-  for (const [code, commitment] of commitmentByBarcode) {
-    const paidQuantity = purchaseQuantityByBarcode.get(code);
-    if (!paidQuantity || commitment.receivedQuantity > paidQuantity) {
+  for (const [code, paidQuantity] of purchaseQuantityByBarcode) {
+    const commitment = commitmentByBarcode.get(code);
+    if (!commitment || commitment.receivedQuantity > paidQuantity) {
       return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
     }
     const ledgerOrderedQuantity = Math.max(
@@ -236,10 +242,22 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
     });
   }
 
+  const cancelledReservationBarcodes: string[] = [];
+  for (const [code, commitment] of commitmentByBarcode) {
+    if (purchaseQuantityByBarcode.has(code)) continue;
+    if (commitment.orderedQuantity > 0 || commitment.receivedQuantity > 0) {
+      return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
+    }
+    if (commitment.openQuantity > 0) {
+      cancelledReservationBarcodes.push(code);
+    }
+  }
+
   return {
     ok: true,
     lines: lines.sort((left, right) => left.barcode.localeCompare(right.barcode)),
     recoveredLegacyLineCount,
+    cancelledReservationBarcodes: cancelledReservationBarcodes.sort(),
     error: null,
   };
 }

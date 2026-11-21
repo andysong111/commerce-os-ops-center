@@ -104,6 +104,12 @@ async function readStoredReceiptReplay(
 }
 
 function lineReceiptEventId(receiptId: string, code: string) { return `receipt:${receiptId}:${code}`; }
+function orderReconciliationEventId(draftId: string, code: string) {
+  return `actual-order-reconcile:${createHash("sha256")
+    .update(`${draftId}:${code}:v1`)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
 function orderItemId(draftId: string, code: string) {
   return parseInt(createHash("sha256").update(`${draftId}:${code}`).digest("hex").slice(0, 7), 16);
 }
@@ -223,7 +229,63 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
   }
   const now = new Date().toISOString();
   const operations: Record<string, unknown>[] = [];
+  const reconciliationOperations: Record<string, unknown>[] = [];
   const receiptCosts: PriceAdjustmentReceipt[] = [];
+  const reconciliationBarcodes = new Set([
+    ...orderEvidence.lines
+      .filter((row) => !byBarcode.has(row.barcode))
+      .map((row) => row.barcode),
+    ...orderEvidence.cancelledReservationBarcodes,
+  ]);
+  for (const code of reconciliationBarcodes) {
+    const commitment = commitmentByBarcode.get(code)!;
+    const effectiveOrder = effectiveOrderByBarcode.get(code);
+    const cancelledReservation = !effectiveOrder;
+    const event = normalizeChinaOrderCommitmentEvent({
+      sourceSystem: commitment.sourceSystem,
+      sourceLineId: commitment.sourceLineId,
+      sourceRunId: draftId,
+      sourceEventId: orderReconciliationEventId(draftId, code),
+      barcode: code,
+      status: cancelledReservation ? "CANCELLED" : "ORDERED",
+      orderedQuantity: effectiveOrder?.ledgerOrderedQuantity,
+      cancelledQuantity: cancelledReservation
+        ? commitment.committedQuantity
+        : effectiveOrder?.ledgerCancelledQuantity,
+      occurredAt: now,
+      note: cancelledReservation
+        ? `${koreanMonthLabel(actualCycleMonth)} 실제 결제 제외 예약줄 종결`
+        : `${koreanMonthLabel(actualCycleMonth)} 실제 결제 주문수량 원장 대조`,
+      payload: {
+        draftId,
+        cycleMonth: actualCycleMonth,
+        actualOrderEvidenceReconciled: true,
+        externalOrderExecuted: false,
+      },
+    });
+    reconciliationOperations.push({
+      operation_type: CHINA_ORDER_EVENT_OPERATION_TYPE,
+      status: "SUCCEEDED",
+      source: RECEIPT_SOURCE,
+      source_event_id: `china-order:${encodeURIComponent(event.sourceSystem)}:${encodeURIComponent(event.sourceEventId)}`,
+      correlation_id: `china-order-line:${encodeURIComponent(event.sourceSystem)}:${encodeURIComponent(event.sourceLineId)}`,
+      actor_type: "OPS_OPERATOR",
+      input_snapshot: event,
+      result_snapshot: {
+        accepted: true,
+        actualOrderEvidenceReconciled: true,
+        draftId,
+        cycleMonth: actualCycleMonth,
+        barcode: code,
+        cancelledReservation,
+        externalOrderExecuted: false,
+      },
+      error_message: null,
+      started_at: now,
+      finished_at: now,
+      updated_at: now,
+    });
+  }
   let fullyReceivedCount = 0, partiallyReceivedCount = 0, receivedNowTotal = 0;
   for (const [code, receivedNow] of byBarcode) {
     const commitment = commitmentByBarcode.get(code)!;
@@ -285,11 +347,12 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     });
   }
   if (receiptCosts.length !== operations.length) throw new Error("CHINA_RECEIPT_COST_CAPTURE_INCOMPLETE");
+  const storedOperations = [...reconciliationOperations, ...operations];
   const { baseUrl, secret } = supabaseConnection();
   const response = await fetch(`${baseUrl}/rest/v1/commerce_operation_runs?on_conflict=source_event_id&select=source_event_id`, {
     method: "POST",
     headers: { ...createSupabaseAdminHeaders(secret), Prefer: "resolution=ignore-duplicates,return=representation" },
-    body: JSON.stringify(operations), cache: "no-store",
+    body: JSON.stringify(storedOperations), cache: "no-store",
   });
   const responseBody = await response.text();
   if (!response.ok) throw new Error(`CHINA_RECEIPT_STORE_FAILED:${response.status}:${responseBody.slice(0, 400)}`);
