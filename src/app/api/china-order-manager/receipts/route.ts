@@ -37,6 +37,8 @@ function errorResponse(error: unknown) {
     message = "화면의 발주월과 실제 발주 Draft의 월이 다릅니다. 새로고침 후 다시 시도하세요.";
   } else if (code === "CHINA_RECEIPT_BARCODE_COMPLETION_REQUIRED") {
     message = "배송대행지 바코드 업무 종결 근거를 먼저 확정해야 입고 처리할 수 있습니다.";
+  } else if (code === "CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID") {
+    message = "바코드 업무 종결에 사용한 서버 파일이 변경되었거나 품목 근거를 다시 확인할 수 없습니다. 입고확정을 중단했습니다.";
   } else if (
     code === "CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED" ||
     code === "CHINA_RECEIPT_ACTUAL_ORDER_LINE_INVALID" ||

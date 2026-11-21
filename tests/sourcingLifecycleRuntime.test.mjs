@@ -180,6 +180,7 @@ async function receiptBackend(options={}) {
     loadChinaOrderLedger:async()=>({error:null,commitments:[commitment]}),
     normalizeChinaOrderCommitmentEvent:x=>x,
     loadInternalChinaFreightBarcodeCompletion:async()=>({cycleMonth:'2026-09',itemCount:1,matchedItemCount:1}),
+    loadInternalChinaFreightBarcodeReceiptEvidence:async value=>({...value,lines:[{barcode:'BBA8-1',quantity:5}]}),
     loadInternalChinaMonthlyPurchaseSummary:async()=>options.unordered?null:{cycleMonth:'2026-09'},
     selectInternalChinaPurchaseSummaryForDraft:value=>value?{cycleMonth:'2026-09',orderCount:1,lineCount:1,actualOrderPaidCny:50,assignedLineCount:1,unassignedLineCount:0,lines:[{barcode:'BBA8-1',quantity:5,goodsPaidCny:50,orderNumber:'673842',supplierLink:'https://detail.1688.com/offer/1.html',chinaOption:'단품',assigned:true}]}:null,
     resolveInternalChinaReceiptOrderEvidence:({commitments,purchase})=>purchase?{ok:true,error:null,recoveredLegacyLineCount:commitments[0].orderedQuantity>0?0:1,cancelledReservationBarcodes:[],lines:commitments.map(row=>({...row,orderedQuantity:5,openQuantity:5,recoveredFromPurchaseEvidence:row.orderedQuantity<=0}))}:{ok:false,error:'CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED',lines:[],recoveredLegacyLineCount:0,cancelledReservationBarcodes:[]},

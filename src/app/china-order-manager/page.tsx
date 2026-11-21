@@ -35,7 +35,10 @@ import {
   filterVisiblePurchaseRunHistory,
   selectPurchaseRun,
 } from "@/lib/purchaseRunHistory";
-import { loadInternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFreightBarcodeCompletion";
+import {
+  loadInternalChinaFreightBarcodeCompletion,
+  loadInternalChinaFreightBarcodeReceiptEvidence,
+} from "@/lib/internalChinaFreightBarcodeCompletion";
 import {
   buildInternalChinaReceiptWorkspaceLines,
   hasActualOrderForReceiptWorkspace,
@@ -205,6 +208,11 @@ export default async function ChinaOrderManagerPage({
     selectedDraftId,
   );
   const barcodeCompletion = barcodeCompletionRead.value;
+  const barcodeReceiptEvidence = barcodeCompletion
+    ? await loadInternalChinaFreightBarcodeReceiptEvidence(barcodeCompletion).catch(
+        () => null,
+      )
+    : null;
   if (monthlyPurchase && !purchaseByMonth.has(selectedMonth)) {
     purchaseByMonth.set(selectedMonth, monthlyPurchase);
   }
@@ -231,7 +239,7 @@ export default async function ChinaOrderManagerPage({
     cycleMonth: selectedMonth,
     commitments: selectedRows,
     purchase,
-    barcodeCompletion,
+    barcodeCompletion: barcodeReceiptEvidence,
   });
   const effectiveReceiptOrderLines = receiptOrderEvidence.lines;
   const orderedQuantity = total(

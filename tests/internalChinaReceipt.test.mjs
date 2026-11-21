@@ -56,6 +56,7 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
       cycleMonth: "2026-11",
       itemCount: 1,
       matchedItemCount: 1,
+      lines: [{ barcode: "BBA1-1", quantity: 7 }],
     },
   });
   const staleDraftLines = [
@@ -108,7 +109,13 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
       { barcode: "BBC3-1", quantity: 4, goodsPaidCny: 0, orderNumber: "", supplierLink: "https://detail.1688.com/offer/3.html", chinaOption: "파랑", assigned: true },
     ],
   };
-  const completion = { cycleMonth: "2026-11", itemCount: 2, matchedItemCount: 2 };
+  const completion = {
+    cycleMonth: "2026-11", itemCount: 2, matchedItemCount: 2,
+    lines: [
+      { barcode: "BBA1-1", quantity: 5 },
+      { barcode: "BBB2-1", quantity: 8 },
+    ],
+  };
   const result = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: "2026-11", commitments, purchase, barcodeCompletion: completion,
   });
@@ -127,7 +134,12 @@ test("completed barcode evidence recovers the real legacy paid-order fixture wit
     cycleMonth: "2026-11",
     commitments: [{ ...commitments[0], receivedQuantity: 6 }],
     purchase: { ...purchase, lineCount: 1, assignedLineCount: 1, lines: [purchase.lines[0]], actualOrderPaidCny: 10 },
-    barcodeCompletion: { ...completion, itemCount: 1, matchedItemCount: 1 },
+    barcodeCompletion: {
+      ...completion,
+      itemCount: 1,
+      matchedItemCount: 1,
+      lines: [completion.lines[0]],
+    },
   });
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.error, "CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");

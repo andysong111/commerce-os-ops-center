@@ -10,7 +10,10 @@ import {
   normalizeChinaOrderCommitmentEvent,
 } from "@/lib/chinaOrderLedger";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
-import { loadInternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFreightBarcodeCompletion";
+import {
+  loadInternalChinaFreightBarcodeCompletion,
+  loadInternalChinaFreightBarcodeReceiptEvidence,
+} from "@/lib/internalChinaFreightBarcodeCompletion";
 import {
   loadInternalChinaMonthlyPurchaseSummary,
   selectInternalChinaPurchaseSummaryForDraft,
@@ -189,11 +192,14 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     monthlyPurchase,
     draftId,
   );
+  const barcodeReceiptEvidence = barcodeCompletion
+    ? await loadInternalChinaFreightBarcodeReceiptEvidence(barcodeCompletion)
+    : null;
   const orderEvidence = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: actualCycleMonth,
     commitments,
     purchase,
-    barcodeCompletion,
+    barcodeCompletion: barcodeReceiptEvidence,
   });
   if (!orderEvidence.ok) throw new Error(orderEvidence.error);
   const effectiveOrderByBarcode = new Map(

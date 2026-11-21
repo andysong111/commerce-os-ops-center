@@ -5,21 +5,25 @@ import {
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { getFreightBarcodeHistoryStorage } from "@/lib/freightBarcodeHistoryStorage";
 import {
+  buildInternalChinaFreightBarcodeReceiptEvidence,
   completeInternalChinaFreightBarcodeWithDependencies,
   parseStoredInternalChinaFreightBarcodeCompletion,
   type CompleteInternalChinaFreightBarcodeDependencies,
   type InternalChinaFreightBarcodeCompletion,
+  type InternalChinaFreightBarcodeReceiptEvidence,
   type InternalChinaFreightBarcodeCompletionRow,
 } from "./internalChinaFreightBarcodeCompletionCore";
 
 export {
   buildInternalChinaFreightBarcodeCompletion,
+  buildInternalChinaFreightBarcodeReceiptEvidence,
   freightBarcodeHistoryEvidenceHash,
   parseStoredInternalChinaFreightBarcodeCompletion,
 } from "./internalChinaFreightBarcodeCompletionCore";
 export type {
   CompleteInternalChinaFreightBarcodeDependencies,
   InternalChinaFreightBarcodeCompletion,
+  InternalChinaFreightBarcodeReceiptEvidence,
 } from "./internalChinaFreightBarcodeCompletionCore";
 
 export const INTERNAL_CHINA_FREIGHT_BARCODE_COMPLETION_OPERATION_TYPE =
@@ -98,6 +102,13 @@ export async function loadInternalChinaFreightBarcodeCompletion(
   }
   const rows = (await response.json().catch(() => [])) as CompletionRow[];
   return parseStoredInternalChinaFreightBarcodeCompletion(draftId, rows[0]);
+}
+
+export async function loadInternalChinaFreightBarcodeReceiptEvidence(
+  completion: InternalChinaFreightBarcodeCompletion,
+): Promise<InternalChinaFreightBarcodeReceiptEvidence> {
+  const record = await defaultLoadHistoryRecord(completion.historyRecordId);
+  return buildInternalChinaFreightBarcodeReceiptEvidence(completion, record);
 }
 
 async function storeInternalChinaFreightBarcodeCompletion(

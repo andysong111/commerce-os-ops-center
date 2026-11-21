@@ -54,6 +54,7 @@ type ReceiptBarcodeCompletionEvidence = {
   cycleMonth: string;
   itemCount: number;
   matchedItemCount: number;
+  lines: Array<{ barcode: string; quantity: number }>;
 };
 
 export type InternalChinaReceiptOrderLine = {
@@ -159,27 +160,32 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
     return failure("CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
   }
 
-  const actualPurchaseLines = purchase.lines.filter(
-    (line) => text(line.orderNumber) && positiveNumber(line.goodsPaidCny),
+  const validPurchaseBarcodes = new Set(
+    purchase.lines.flatMap((line) => {
+      const code = barcode(line.barcode);
+      return line.assigned &&
+        BARCODE.test(code) &&
+        text(line.chinaOption) &&
+        validHttpUrl(line.supplierLink)
+        ? [code]
+        : [];
+    }),
   );
   if (
-    !actualPurchaseLines.length ||
-    barcodeCompletion.itemCount !== actualPurchaseLines.length
+    barcodeCompletion.lines.length !== barcodeCompletion.itemCount ||
+    !validPurchaseBarcodes.size
   ) {
     return failure("CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
   }
 
   const purchaseQuantityByBarcode = new Map<string, number>();
-  for (const line of actualPurchaseLines) {
+  for (const line of barcodeCompletion.lines) {
     const code = barcode(line.barcode);
     const lineQuantity = positiveInteger(line.quantity);
     if (
-      !line.assigned ||
       !BARCODE.test(code) ||
       lineQuantity <= 0 ||
-      !positiveNumber(line.goodsPaidCny) ||
-      !text(line.chinaOption) ||
-      !validHttpUrl(line.supplierLink)
+      !validPurchaseBarcodes.has(code)
     ) {
       return failure("CHINA_RECEIPT_ACTUAL_ORDER_LINE_INVALID");
     }
