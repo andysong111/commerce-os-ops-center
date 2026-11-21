@@ -176,7 +176,7 @@ test("active receipt and actual-cost steps link to the visible purchase-run inpu
   assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
   assert.equal(page.includes(".filter((draft) => draft.orderedQuantity > 0)"), false);
   assert.ok(panel.includes("openLines.length > 0 || !forwarderCost.actualCostKrw"));
-  assert.ok(panel.includes("상품 이미지 / B-code / 모델정보"));
+  assert.ok(panel.includes("상품 · 옵션"));
   assert.ok(panel.includes("toFreightImageProxyUrl"));
   assert.ok(panel.includes("모델번호 ·"));
   assert.ok(panel.includes("모델명 ·"));

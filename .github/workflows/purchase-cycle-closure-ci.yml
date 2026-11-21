@@ -24,6 +24,7 @@ on:
       - 'tests/helpers/purchaseCycleHarness.mjs'
       - 'scripts/verify-purchase-cycle-browser.mjs'
       - 'scripts/verify-freight-barcode-completion-browser.mjs'
+      - 'scripts/verify-ondolpass-receipt-ui-browser.mjs'
       - '.github/workflows/purchase-cycle-closure-ci.yml'
   workflow_dispatch:
 permissions:
@@ -81,6 +82,8 @@ jobs:
         run: node scripts/verify-purchase-cycle-browser.mjs
       - name: Verify freight barcode completion in Chromium with no external writes
         run: node scripts/verify-freight-barcode-completion-browser.mjs
+      - name: Verify compact Ondolpass receipt groups in Chromium with no external writes
+        run: node scripts/verify-ondolpass-receipt-ui-browser.mjs
       - name: Retain browser proof
         if: always()
         uses: actions/upload-artifact@v4
@@ -89,4 +92,5 @@ jobs:
           path: |
             artifacts/purchase-cycle-browser
             artifacts/freight-barcode-completion-browser
+            artifacts/ondolpass-receipt-ui-browser
           if-no-files-found: ignore
