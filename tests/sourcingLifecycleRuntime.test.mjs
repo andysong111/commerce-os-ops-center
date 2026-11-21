@@ -179,6 +179,10 @@ async function receiptBackend(options={}) {
     CHINA_ORDER_EVENT_OPERATION_TYPE:'CHINA_ORDER_COMMITMENT_EVENT',
     loadChinaOrderLedger:async()=>({error:null,commitments:[commitment]}),
     normalizeChinaOrderCommitmentEvent:x=>x,
+    loadInternalChinaFreightBarcodeCompletion:async()=>({cycleMonth:'2026-09',itemCount:1,matchedItemCount:1}),
+    loadInternalChinaMonthlyPurchaseSummary:async()=>options.unordered?null:{cycleMonth:'2026-09'},
+    selectInternalChinaPurchaseSummaryForDraft:value=>value?{cycleMonth:'2026-09',orderCount:1,lineCount:1,actualOrderPaidCny:50,assignedLineCount:1,unassignedLineCount:0,lines:[{barcode:'BBA8-1',quantity:5,goodsPaidCny:50,orderNumber:'673842',supplierLink:'https://detail.1688.com/offer/1.html',chinaOption:'단품',assigned:true}]}:null,
+    resolveInternalChinaReceiptOrderEvidence:({commitments,purchase})=>purchase?{ok:true,error:null,recoveredLegacyLineCount:commitments[0].orderedQuantity>0?0:1,lines:commitments.map(row=>({...row,orderedQuantity:5,openQuantity:5,recoveredFromPurchaseEvidence:row.orderedQuantity<=0}))}:{ok:false,error:'CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED',lines:[],recoveredLegacyLineCount:0},
     loadInternalChinaPurchaseDraft:async()=>({exchangeRateKrwPerCny:230,lines:[{barcode:'BBA8-1',modelNo:meta.modelNumber,saleOption:meta.saleOption,unitPriceCny:10,quantity:5,freightGroupId:'',domesticChinaFreightCny:5}]}),
     loadInternalChinaDraftWithQuantityOverrides:async x=>x,
     koreanMonthLabel:x=>x,seoulCalendarMonth:x=>x.slice(0,7),
@@ -219,8 +223,8 @@ test('actual receipt function reports pending after artifact failure but does no
   assert.equal(result.productMasterSynced,false);assert.equal(result.launchMaterializationError,'SOURCING_LAUNCH_NORMALIZED_PENDING');
   assert.equal(b.stored.length,1);assert.deepEqual(b.calls,['store','followup']);
 });
-test('actual receipt function rejects a sourced item without actual order evidence before any write',async()=>{
-  const b=await receiptBackend({unordered:true});await assert.rejects(b.run(b.input),/ORDER_EVIDENCE_REQUIRED/);assert.deepEqual(b.calls,[]);
+test('actual receipt function rejects a sourced item without exact paid-order evidence before any write',async()=>{
+  const b=await receiptBackend({unordered:true});await assert.rejects(b.run(b.input),/ACTUAL_ORDER_EVIDENCE_REQUIRED/);assert.deepEqual(b.calls,[]);
 });
 test('actual ordinary replenishment keeps original receipt accounting and has no launch creation',async()=>{
   const b=await receiptBackend({ordinary:true});const result=await b.run(b.input);assert.equal(result.launchMaterializedCount,0);assert.equal(b.stored[0].result_snapshot.sourcing,null);assert.equal(result.receivedNow,2);

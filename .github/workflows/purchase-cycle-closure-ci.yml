@@ -55,6 +55,7 @@ jobs:
           src/lib/internalChinaFreightBarcodeCompletion.ts
           src/lib/internalChinaFreightBarcodeCompletionCore.ts
           src/app/api/china-order-manager/freight-barcode-completion/route.ts
+          src/app/api/china-order-manager/receipts/route.ts
           src/app/api/china-order-manager/receipts/followup/route.ts
           src/app/api/china-order-manager/cycle-status/route.ts
           src/app/china-order-manager/layout.tsx src/app/china-order-manager/page.tsx

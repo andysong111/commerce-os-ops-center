@@ -66,7 +66,7 @@ test("receipt close requires the exact forwarder amount only for the final recei
 });
 
 test("completed monthly drafts remain visible until actual landed cost is closed", () => {
-  assert.ok(page.includes("hasActualOrderForReceiptWorkspace(selectedRows)"));
+  assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
   assert.ok(page.includes(".filter(() => hasReceiptWorkspace)"));
   assert.ok(page.includes("selectedDrafts"));
   assert.ok(page.includes("loadInternalChinaForwarderCostSummary"));

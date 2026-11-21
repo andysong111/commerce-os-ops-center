@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildInternalChinaReceiptWorkspaceLines,
   hasActualOrderForReceiptWorkspace,
+  resolveInternalChinaReceiptOrderEvidence,
 } from "../src/lib/internalChinaReceiptWorkspace.ts";
 
 const [engine, route, panel, page, monthlyPolicy, followup] = await Promise.all([
@@ -29,17 +30,34 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
       barcode: "BBA1-1",
       orderedQuantity: 7,
       receivedQuantity: 2,
+      cancelledQuantity: 0,
+      committedQuantity: 7,
       openQuantity: 5,
       status: "PARTIALLY_RECEIVED",
     },
-    {
-      barcode: "BBA1-2",
-      orderedQuantity: 0,
-      receivedQuantity: 0,
-      openQuantity: 3,
-      status: "RESERVED",
-    },
   ];
+  const evidence = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11",
+    commitments,
+    purchase: {
+      cycleMonth: "2026-11",
+      orderCount: 1,
+      lineCount: 1,
+      actualOrderPaidCny: 14,
+      assignedLineCount: 1,
+      unassignedLineCount: 0,
+      lines: [{
+        barcode: "BBA1-1", quantity: 7, goodsPaidCny: 14,
+        orderNumber: "673842", supplierLink: "https://detail.1688.com/offer/1.html",
+        chinaOption: "검정", assigned: true,
+      }],
+    },
+    barcodeCompletion: {
+      cycleMonth: "2026-11",
+      itemCount: 1,
+      matchedItemCount: 1,
+    },
+  });
   const staleDraftLines = [
     {
       barcode: "BBA1-1",
@@ -49,9 +67,9 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
       orderedQuantity: 0,
     },
   ];
-  assert.equal(hasActualOrderForReceiptWorkspace(commitments), true);
+  assert.equal(hasActualOrderForReceiptWorkspace(evidence), true);
   assert.deepEqual(
-    buildInternalChinaReceiptWorkspaceLines(commitments, staleDraftLines, {}),
+    buildInternalChinaReceiptWorkspaceLines(evidence.lines, staleDraftLines, {}),
     [
       {
         barcode: "BBA1-1",
@@ -66,19 +84,69 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
     ],
   );
 });
+test("completed barcode evidence recovers the real legacy paid-order fixture without trusting RESERVED alone", () => {
+  const commitments = [
+    {
+      barcode: "BBA1-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 10, openQuantity: 10, status: "RESERVED",
+    },
+    {
+      barcode: "BBB2-1", orderedQuantity: 0, receivedQuantity: 0,
+      cancelledQuantity: 0, committedQuantity: 3, openQuantity: 3, status: "RESERVED",
+    },
+  ];
+  const purchase = {
+    cycleMonth: "2026-11", orderCount: 2, lineCount: 2,
+    actualOrderPaidCny: 42, assignedLineCount: 2, unassignedLineCount: 0,
+    lines: [
+      { barcode: "BBA1-1", quantity: 5, goodsPaidCny: 10, orderNumber: "673842", supplierLink: "https://detail.1688.com/offer/1.html", chinaOption: "검정", assigned: true },
+      { barcode: "BBB2-1", quantity: 8, goodsPaidCny: 32, orderNumber: "", supplierLink: "https://detail.1688.com/offer/2.html", chinaOption: "흰색", assigned: true },
+    ],
+  };
+  const completion = { cycleMonth: "2026-11", itemCount: 2, matchedItemCount: 2 };
+  const result = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11", commitments, purchase, barcodeCompletion: completion,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.recoveredLegacyLineCount, 2);
+  assert.deepEqual(result.lines.map((line) => [line.barcode, line.orderedQuantity, line.openQuantity]), [
+    ["BBA1-1", 5, 5],
+    ["BBB2-1", 8, 8],
+  ]);
+  assert.deepEqual(result.lines.map((line) => [line.ledgerOrderedQuantity, line.ledgerCancelledQuantity]), [
+    [10, 5],
+    [8, 0],
+  ]);
+  const mismatch = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11",
+    commitments: [{ ...commitments[0], receivedQuantity: 6 }],
+    purchase: { ...purchase, lineCount: 1, assignedLineCount: 1, lines: [purchase.lines[0]], actualOrderPaidCny: 10 },
+    barcodeCompletion: { ...completion, itemCount: 1, matchedItemCount: 1 },
+  });
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.error, "CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
+  const reservedOnly = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: "2026-11", commitments, purchase: null, barcodeCompletion: completion,
+  });
+  assert.equal(reservedOnly.ok, false);
+  assert.equal(reservedOnly.error, "CHINA_RECEIPT_ACTUAL_ORDER_EVIDENCE_REQUIRED");
+});
 test("active receipt and actual-cost steps link to the visible purchase-run input workspace", () => {
   assert.ok(page.includes('id="purchase-run-input-workspace"'));
   assert.ok(page.includes('"#purchase-run-input-workspace"'));
   assert.ok(page.includes('"입고 처리로 이동"'));
   assert.ok(page.includes('"실제비용·원가 입력"'));
-  assert.ok(page.includes("hasActualOrderForReceiptWorkspace(selectedRows)"));
+  assert.ok(page.includes("resolveInternalChinaReceiptOrderEvidence"));
+  assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
   assert.equal(page.includes(".filter((draft) => draft.orderedQuantity > 0)"), false);
   assert.ok(panel.includes("openLines.length > 0 || !forwarderCost.actualCostKrw"));
 });
 test("receipt engine never receives more than the current open quantity", () => {
-  assert.ok(engine.includes("receivedNow > commitment.openQuantity"));
+  assert.ok(engine.includes("receivedNow > effectiveOrder.openQuantity"));
   assert.ok(engine.includes("CHINA_RECEIPT_QUANTITY_EXCEEDED"));
-  assert.ok(engine.includes("commitment.receivedQuantity + receivedNow"));
+  assert.ok(engine.includes("effectiveOrder.receivedQuantity + receivedNow"));
+  assert.ok(engine.includes("orderedQuantity: effectiveOrder.ledgerOrderedQuantity"));
+  assert.ok(engine.includes("cancelledQuantity: effectiveOrder.ledgerCancelledQuantity"));
 });
 test("receipt engine writes ledger status and product purchase cost without the 1.45 forwarder estimate", () => {
   assert.ok(engine.includes('status: finished ? "RECEIVED" : "PARTIALLY_RECEIVED"'));

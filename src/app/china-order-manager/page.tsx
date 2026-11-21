@@ -39,6 +39,7 @@ import { loadInternalChinaFreightBarcodeCompletion } from "@/lib/internalChinaFr
 import {
   buildInternalChinaReceiptWorkspaceLines,
   hasActualOrderForReceiptWorkspace,
+  resolveInternalChinaReceiptOrderEvidence,
 } from "@/lib/internalChinaReceiptWorkspace";
 import styles from "./monthly-workspace.module.css";
 
@@ -222,18 +223,39 @@ export default async function ChinaOrderManagerPage({
     (draft) => draft.draftId === selectedDraftId,
   );
   const {
-    orderedQuantity,
-    receivedQuantity,
-    inboundOpenQuantity,
     displayedOrderQuantity,
     displayedOrderLineCount,
     hasOrder,
   } = summarizeMonthlyPurchaseProgress(selectedRows, purchase);
+  const receiptOrderEvidence = resolveInternalChinaReceiptOrderEvidence({
+    cycleMonth: selectedMonth,
+    commitments: selectedRows,
+    purchase,
+    barcodeCompletion,
+  });
+  const effectiveReceiptOrderLines = receiptOrderEvidence.lines;
+  const orderedQuantity = total(
+    effectiveReceiptOrderLines,
+    (row) => row.orderedQuantity,
+  );
+  const receivedQuantity = total(
+    effectiveReceiptOrderLines,
+    (row) => row.receivedQuantity,
+  );
+  const inboundOpenQuantity = total(
+    effectiveReceiptOrderLines,
+    (row) => row.openQuantity,
+  );
+  const actualOrderBarcodes = new Set(
+    effectiveReceiptOrderLines.map((row) => row.barcode),
+  );
   const releasableRows = selectedRows.filter(
     (row) =>
+      !hasOrder &&
       row.openQuantity > 0 &&
       row.orderedQuantity === 0 &&
       row.receivedQuantity === 0 &&
+      !actualOrderBarcodes.has(row.barcode) &&
       (row.status === "RESERVED" || row.status === "EXPORTED"),
   );
   const releasableQuantity = total(releasableRows, (row) => row.openQuantity);
@@ -246,6 +268,9 @@ export default async function ChinaOrderManagerPage({
       ...selectedRows
         .filter((row) => row.orderedQuantity > 0)
         .map((row) => row.barcode),
+      ...(purchase?.lines
+        .filter((line) => line.assigned)
+        .map((line) => line.barcode) ?? []),
     ]),
   ];
   const metadata: Awaited<
@@ -260,9 +285,11 @@ export default async function ChinaOrderManagerPage({
       })
     : { byBarcode: {}, warnings: [] };
 
-  const hasReceiptWorkspace = hasActualOrderForReceiptWorkspace(selectedRows);
+  const hasReceiptWorkspace = hasActualOrderForReceiptWorkspace(
+    receiptOrderEvidence,
+  );
   const receiptWorkspaceLines = buildInternalChinaReceiptWorkspaceLines(
-    selectedRows,
+    effectiveReceiptOrderLines,
     selectedDrafts.flatMap((draft) => draft.lines),
     metadata.byBarcode,
   );
@@ -545,6 +572,15 @@ export default async function ChinaOrderManagerPage({
         </section>
       ) : null}
 
+      {barcodeCompletion && hasOrder && !receiptOrderEvidence.ok ? (
+        <section className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+          <strong>입고 원장 대조가 필요합니다.</strong> 실제 1688 결제 품목·수량, B-code 및 배송대행지 바코드 완료 근거가 정확히 일치하지 않아 입고 입력을 안전하게 차단했습니다. 주문 원가 상세의 미연결·수량을 확인한 뒤 새로고침하세요.
+          <span className="ml-2 font-mono text-[11px] text-amber-700">
+            {receiptOrderEvidence.error}
+          </span>
+        </section>
+      ) : null}
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.7fr)]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -684,12 +720,14 @@ export default async function ChinaOrderManagerPage({
                   ? "추적 품목 입고 완료"
                   : !barcodeCompletion
                     ? "바코드 업무 종결 후 진행"
+                    : !receiptOrderEvidence.ok
+                      ? "실주문·B-code·수량 원장 대조 필요"
                     : inboundOpenQuantity
                   ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
                   : "입고 수량 입력 대기"
               }
               href={
-                barcodeCompletion && hasOrder
+                barcodeCompletion && hasOrder && hasReceiptWorkspace
                   ? "#purchase-run-input-workspace"
                   : undefined
               }
