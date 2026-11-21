@@ -49,7 +49,10 @@ test("final quantities are operator-controlled but bounded and limited to barcod
 
 test("monthly consolidation keeps B-code identity metadata available for legacy repair", () => {
   assert.match(page, /loadMonthlyDraftDisplayMetadata/);
-  assert.match(page, /metadata\.byBarcode\[line\.barcode\]/);
+  assert.match(
+    page,
+    /buildInternalChinaReceiptWorkspaceLines[\s\S]*metadata\.byBarcode/,
+  );
   assert.match(metadata, /loadProductLaunchPurchaseMetadataByBarcode/);
   assert.match(metadata, /loadShoplingCurrentModelSnapshot/);
   assert.match(metadata, /modelNo:/);
