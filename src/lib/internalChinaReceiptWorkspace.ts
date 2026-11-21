@@ -6,6 +6,7 @@ export type InternalChinaReceiptWorkspaceLine = {
   modelNo: string;
   modelName: string;
   saleOption: string;
+  imageUrl: string;
   orderedQuantity: number;
   receivedQuantity: number;
   openQuantity: number;
@@ -54,7 +55,14 @@ type ReceiptBarcodeCompletionEvidence = {
   cycleMonth: string;
   itemCount: number;
   matchedItemCount: number;
-  lines: Array<{ barcode: string; quantity: number }>;
+  lines: Array<{
+    barcode: string;
+    quantity: number;
+    modelNo?: string;
+    modelName?: string;
+    saleOption?: string;
+    imageUrl?: string;
+  }>;
 };
 
 export type InternalChinaReceiptOrderLine = {
@@ -67,6 +75,10 @@ export type InternalChinaReceiptOrderLine = {
   recoveredFromPurchaseEvidence: boolean;
   ledgerOrderedQuantity: number;
   ledgerCancelledQuantity: number;
+  modelNo: string;
+  modelName: string;
+  saleOption: string;
+  imageUrl: string;
 };
 
 export type InternalChinaReceiptOrderEvidenceResult =
@@ -179,6 +191,10 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
   }
 
   const purchaseQuantityByBarcode = new Map<string, number>();
+  const completedDisplayByBarcode = new Map<
+    string,
+    { modelNo: string; modelName: string; saleOption: string; imageUrl: string }
+  >();
   for (const line of barcodeCompletion.lines) {
     const code = barcode(line.barcode);
     const lineQuantity = positiveInteger(line.quantity);
@@ -193,6 +209,13 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
       code,
       (purchaseQuantityByBarcode.get(code) ?? 0) + lineQuantity,
     );
+    const current = completedDisplayByBarcode.get(code);
+    completedDisplayByBarcode.set(code, {
+      modelNo: current?.modelNo || text(line.modelNo),
+      modelName: current?.modelName || text(line.modelName),
+      saleOption: current?.saleOption || text(line.saleOption),
+      imageUrl: current?.imageUrl || text(line.imageUrl),
+    });
   }
 
   const commitmentByBarcode = new Map<string, ReceiptCommitment>();
@@ -226,6 +249,7 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
       return failure("CHINA_RECEIPT_ACTUAL_ORDER_COMMITMENT_MISMATCH");
     }
     const recoveredFromPurchaseEvidence = commitment.orderedQuantity <= 0;
+    const completedDisplay = completedDisplayByBarcode.get(code);
     if (recoveredFromPurchaseEvidence) recoveredLegacyLineCount += 1;
     lines.push({
       barcode: code,
@@ -245,6 +269,10 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
       recoveredFromPurchaseEvidence,
       ledgerOrderedQuantity,
       ledgerCancelledQuantity,
+      modelNo: completedDisplay?.modelNo ?? "",
+      modelName: completedDisplay?.modelName ?? "",
+      saleOption: completedDisplay?.saleOption ?? "",
+      imageUrl: completedDisplay?.imageUrl ?? "",
     });
   }
 
@@ -289,9 +317,11 @@ export function buildInternalChinaReceiptWorkspaceLines(
     const display = displayByBarcode[code];
     return {
       barcode: code,
-      modelNo: display?.modelNo || draftLine?.modelNo || "",
-      modelName: display?.modelName || draftLine?.modelName || "",
-      saleOption: display?.saleOption || draftLine?.saleOption || "",
+      modelNo: row.modelNo || display?.modelNo || draftLine?.modelNo || "",
+      modelName: row.modelName || display?.modelName || draftLine?.modelName || "",
+      saleOption:
+        row.saleOption || display?.saleOption || draftLine?.saleOption || "",
+      imageUrl: row.imageUrl || display?.imageUrl || "",
       orderedQuantity: row.orderedQuantity,
       receivedQuantity: row.receivedQuantity,
       openQuantity: row.openQuantity,

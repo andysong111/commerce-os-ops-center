@@ -56,7 +56,16 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
       cycleMonth: "2026-11",
       itemCount: 1,
       matchedItemCount: 1,
-      lines: [{ barcode: "BBA1-1", quantity: 7 }],
+      lines: [
+        {
+          barcode: "BBA1-1",
+          quantity: 7,
+          modelNo: "AAA999",
+          modelName: "완료 파일 상품",
+          saleOption: "완료 옵션",
+          imageUrl: "https://cbu01.alicdn.com/final.jpg",
+        },
+      ],
     },
   });
   const staleDraftLines = [
@@ -74,9 +83,10 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
     [
       {
         barcode: "BBA1-1",
-        modelNo: "AAA001",
-        modelName: "원장 기준 상품",
-        saleOption: "검정",
+        modelNo: "AAA999",
+        modelName: "완료 파일 상품",
+        saleOption: "완료 옵션",
+        imageUrl: "https://cbu01.alicdn.com/final.jpg",
         orderedQuantity: 7,
         receivedQuantity: 2,
         openQuantity: 5,
@@ -158,6 +168,11 @@ test("active receipt and actual-cost steps link to the visible purchase-run inpu
   assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
   assert.equal(page.includes(".filter((draft) => draft.orderedQuantity > 0)"), false);
   assert.ok(panel.includes("openLines.length > 0 || !forwarderCost.actualCostKrw"));
+  assert.ok(panel.includes("상품 이미지 / B-code / 모델정보"));
+  assert.ok(panel.includes("toFreightImageProxyUrl"));
+  assert.ok(panel.includes("모델번호 ·"));
+  assert.ok(panel.includes("모델명 ·"));
+  assert.equal(panel.includes("상품정보 확인 중"), false);
 });
 test("receipt engine never receives more than the current open quantity", () => {
   assert.ok(engine.includes("receivedNow > effectiveOrder.openQuantity"));

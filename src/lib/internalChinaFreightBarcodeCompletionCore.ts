@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalizeFreightImageUpstreamUrl } from "./freightImageProxy.ts";
 import type { FreightBarcodeHistoryRecord } from "../types/freightBarcodeRequest.ts";
 
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -19,7 +20,14 @@ export type InternalChinaFreightBarcodeCompletion = {
 
 export type InternalChinaFreightBarcodeReceiptEvidence =
   InternalChinaFreightBarcodeCompletion & {
-    lines: Array<{ barcode: string; quantity: number }>;
+    lines: Array<{
+      barcode: string;
+      quantity: number;
+      modelNo: string;
+      modelName: string;
+      saleOption: string;
+      imageUrl: string;
+    }>;
   };
 
 export type InternalChinaFreightBarcodePurchaseContext = {
@@ -64,6 +72,14 @@ function object(value: unknown): Record<string, unknown> {
 function positiveInteger(value: unknown) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function firstFreightImageUrl(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeFreightImageUpstreamUrl(value);
+    if (normalized) return normalized;
+  }
+  return "";
 }
 
 function iso(value: unknown) {
@@ -126,14 +142,14 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
     throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
   }
 
-  const quantityByItemId = new Map<string, number>();
+  const itemById = new Map<string, (typeof record.parsedItems)[number]>();
   for (const item of record.parsedItems) {
     const itemId = text(item.id);
     const quantity = positiveInteger(item.quantity);
-    if (!itemId || quantityByItemId.has(itemId) || quantity <= 0) {
+    if (!itemId || itemById.has(itemId) || quantity <= 0) {
       throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
     }
-    quantityByItemId.set(itemId, quantity);
+    itemById.set(itemId, item);
   }
 
   const seenItemIds = new Set<string>();
@@ -142,7 +158,8 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
     const barcode = text(match.matchedBarcode)
       .toUpperCase()
       .replace(/\s+/g, "");
-    const quantity = quantityByItemId.get(itemId) ?? 0;
+    const item = itemById.get(itemId);
+    const quantity = positiveInteger(item?.quantity);
     if (
       seenItemIds.has(itemId) ||
       !/^[A-Z]{3}\d+-\d+$/.test(barcode) ||
@@ -151,9 +168,26 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
       throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
     }
     seenItemIds.add(itemId);
-    return { barcode, quantity };
+    return {
+      barcode,
+      quantity,
+      modelNo: text(match.matchedModelNo) || text(item?.modelNo),
+      modelName:
+        text(match.matchedModelName) ||
+        text(match.matchedProductNameKo) ||
+        text(item?.modelName) ||
+        text(item?.itemName),
+      saleOption: text(item?.optionName) || text(item?.optionText),
+      imageUrl: firstFreightImageUrl(
+        match.matchedImageUrl,
+        item?.matchedImageUrl,
+        item?.selectedImageCandidateUrl,
+        item?.pastedImageUrl,
+        item?.imageUrl,
+      ),
+    };
   });
-  if (seenItemIds.size !== quantityByItemId.size) {
+  if (seenItemIds.size !== itemById.size) {
     throw new Error("CHINA_RECEIPT_BARCODE_COMPLETION_EVIDENCE_INVALID");
   }
   return { ...completion, lines };

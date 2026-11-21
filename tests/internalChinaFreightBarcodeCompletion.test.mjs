@@ -15,12 +15,42 @@ const cycleMonth = "2026-11";
 
 function historyRecord(overrides = {}) {
   const parsedItems = [
-    { id: "item-1", rowNo: 1, itemName: "상품 1", optionText: "검정", quantity: 2 },
-    { id: "item-2", rowNo: 2, itemName: "상품 2", optionText: "흰색", quantity: 1 },
+    {
+      id: "item-1",
+      rowNo: 1,
+      itemName: "상품 1",
+      optionText: "검정",
+      modelNo: "A1",
+      modelName: "모델 1",
+      optionName: "검정 옵션",
+      pastedImageUrl: "https://cbu01.alicdn.com/a1.jpg",
+      quantity: 2,
+    },
+    {
+      id: "item-2",
+      rowNo: 2,
+      itemName: "상품 2",
+      optionText: "흰색",
+      modelNo: "A2",
+      modelName: "모델 2",
+      optionName: "흰색 옵션",
+      pastedImageUrl: "https://cbu01.alicdn.com/a2.jpg",
+      quantity: 1,
+    },
   ];
   const productMasterMatches = [
-    { itemId: "item-1", matchedModelNo: "A1", matchedBarcode: "BBA1-1" },
-    { itemId: "item-2", matchedModelNo: "A2", matchedBarcode: "BBB2-1" },
+    {
+      itemId: "item-1",
+      matchedModelNo: "A1",
+      matchedModelName: "모델 1",
+      matchedBarcode: "BBA1-1",
+    },
+    {
+      itemId: "item-2",
+      matchedModelNo: "A2",
+      matchedModelName: "모델 2",
+      matchedBarcode: "BBB2-1",
+    },
   ];
   return {
     id: "history-final-1",
@@ -71,6 +101,10 @@ test("완료 근거는 발주차시와 완전 매칭된 서버 파일을 불변 
 
   const reordered = historyRecord({
     parsedItems: record.parsedItems.map((item) => ({
+      pastedImageUrl: item.pastedImageUrl,
+      optionName: item.optionName,
+      modelName: item.modelName,
+      modelNo: item.modelNo,
       quantity: item.quantity,
       optionText: item.optionText,
       itemName: item.itemName,
@@ -103,8 +137,22 @@ test("완료 파일의 불변 품목·B-code·수량이 4단계 입고 근거가
     record,
   );
   assert.deepEqual(evidence.lines, [
-    { barcode: "BBA1-1", quantity: 2 },
-    { barcode: "BBB2-1", quantity: 1 },
+    {
+      barcode: "BBA1-1",
+      quantity: 2,
+      modelNo: "A1",
+      modelName: "모델 1",
+      saleOption: "검정 옵션",
+      imageUrl: "https://cbu01.alicdn.com/a1.jpg",
+    },
+    {
+      barcode: "BBB2-1",
+      quantity: 1,
+      modelNo: "A2",
+      modelName: "모델 2",
+      saleOption: "흰색 옵션",
+      imageUrl: "https://cbu01.alicdn.com/a2.jpg",
+    },
   ]);
   assert.throws(
     () =>
