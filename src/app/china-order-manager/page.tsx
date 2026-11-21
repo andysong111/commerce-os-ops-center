@@ -381,7 +381,16 @@ export default async function ChinaOrderManagerPage({
           (row) => row.actualTotalOutflowKrw ?? 0,
         )
       : 0;
-  const actual1688Krw = purchase?.actualOrderPaidKrwAtInternalFx ?? 0;
+  const scopedActual1688Krw = total(costRows, (row) =>
+    row.summary
+      ? row.summary.productPurchaseCostKrw +
+        row.summary.domesticChinaFreightKrw
+      : 0,
+  );
+  const actual1688Krw =
+    scopedActual1688Krw > 0
+      ? scopedActual1688Krw
+      : purchase?.actualOrderPaidKrwAtInternalFx ?? 0;
   const remainingBeforeFinalCost = budget.availableCashKrw;
   const budgetUsage =
     budget.accruedGrossBudgetKrw > 0
@@ -794,7 +803,7 @@ export default async function ChinaOrderManagerPage({
               ACTUAL 1688 COST
             </span>
             <h2 className="mt-1 text-lg font-black text-slate-950">
-              1688 주문 원가 기록
+              1688 전체 주문 원가 원본 기록
             </h2>
           </div>
           <div className="flex items-center gap-3">
@@ -819,7 +828,7 @@ export default async function ChinaOrderManagerPage({
                 <MiniCard label={`내부환율 ${cny.format(purchase.exchangeRateKrwPerCny)}원`} value={`${money.format(purchase.actualOrderPaidKrwAtInternalFx)}원`} tone="blue" />
               </div>
               <p className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold leading-5 text-blue-950">
-                상품대금·중국 내륙운임·1688 서비스비는 분리 저장됩니다. 국제운송·관세·부가세·라벨 작업 등 배송대행지 최종 청구액은 위 사용자 입력 단계에서 별도 마감합니다.
+                이 영역은 1688 전체 결제 스냅샷을 보존하는 감사용 원본입니다. 4·5단계의 입고수량과 배부 원가는 완료 처리한 최종 바코드 파일에 포함된 B-code만 사용합니다. 국제운송·관세·부가세·라벨 작업 등 배송대행지 최종 청구액은 위 사용자 입력 단계에서 별도 마감합니다.
               </p>
               <div className="mt-4 max-h-[520px] overflow-auto rounded-xl border border-slate-200">
                 <table className="min-w-[1180px] text-left text-xs">

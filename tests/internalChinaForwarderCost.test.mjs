@@ -74,15 +74,16 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
     ],
   };
   const purchase = {
-    cycleMonth: "2026-11", draftCount: 1, orderCount: 2, lineCount: 2,
-    skuCount: 2, totalQuantity: 140, goodsPaidCny: 72,
-    domesticChinaFreightCny: 8, serviceFeeCny: 0, actualOrderPaidCny: 80,
-    actualOrderPaidKrwAtInternalFx: 18_400, exchangeRateKrwPerCny: 230,
-    assignedLineCount: 2, unassignedLineCount: 0, importedFromActualOrder: false,
+    cycleMonth: "2026-11", draftCount: 1, orderCount: 3, lineCount: 3,
+    skuCount: 3, totalQuantity: 141, goodsPaidCny: 92,
+    domesticChinaFreightCny: 8, serviceFeeCny: 0, actualOrderPaidCny: 100,
+    actualOrderPaidKrwAtInternalFx: 23_000, exchangeRateKrwPerCny: 230,
+    assignedLineCount: 3, unassignedLineCount: 0, importedFromActualOrder: false,
     cashFlowEarlyClose: false, latestRecordedAt: null,
     lines: [
       { draftId: baseDraft.draftId, barcode: "BBA1-1", modelNo: "AAA001", modelName: "상품", saleOption: "단품", chinaOption: "黑色", orderNumber: "1", supplierLink: baseLine.supplierLink, quantity: 5, goodsPaidCny: 40, domesticChinaFreightCny: 5, serviceFeeCny: 0, actualLinePaidCny: 45, actualLinePaidKrwAtInternalFx: 10_350, assigned: true },
       { draftId: baseDraft.draftId, barcode: "BBB2-1", modelNo: "AAA002", modelName: "상품2", saleOption: "흰색", chinaOption: "白色", orderNumber: "2", supplierLink: baseLine.supplierLink, quantity: 8, goodsPaidCny: 32, domesticChinaFreightCny: 3, serviceFeeCny: 0, actualLinePaidCny: 35, actualLinePaidKrwAtInternalFx: 8_050, assigned: true },
+      { draftId: baseDraft.draftId, barcode: "BCC3-1", modelNo: "AAA003", modelName: "제외상품", saleOption: "단품", chinaOption: "红色", orderNumber: "3", supplierLink: baseLine.supplierLink, quantity: 1, goodsPaidCny: 20, domesticChinaFreightCny: 0, serviceFeeCny: 0, actualLinePaidCny: 20, actualLinePaidKrwAtInternalFx: 4_600, assigned: true },
     ],
   };
   const result = buildInternalChinaActualPurchaseCostDraft({
@@ -99,6 +100,7 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
   assert.equal(result.totalQuantity, 13);
   assert.equal(result.lines[0].unitPriceCny, 8);
   assert.equal(result.lines[0].domesticChinaFreightCny, 5);
+  assert.equal(result.lines.some((line) => line.barcode === "BCC3-1"), false);
   assert.equal(result.actualOrderPaidKrwAtInternalFx, 18_400);
 });
 

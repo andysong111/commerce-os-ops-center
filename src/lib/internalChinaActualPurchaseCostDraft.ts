@@ -104,10 +104,6 @@ export function buildInternalChinaActualPurchaseCostDraft(input: {
       line.domesticChinaFreightCny,
     0,
   );
-  if (Math.abs(selectedPaidCny - purchase.actualOrderPaidCny) > 0.02) {
-    throw new Error("INTERNAL_CHINA_ACTUAL_COST_TOTAL_MISMATCH");
-  }
-
   return {
     ...baseDraft,
     status: "ORDERED",
