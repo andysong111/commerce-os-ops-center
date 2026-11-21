@@ -21,12 +21,30 @@ const fixtureSource = `
   import { createRoot } from "react-dom/client";
   import { InternalChinaReceiptPanel } from "./src/components/china-order-manager/InternalChinaReceiptPanel.tsx";
 
+  window.__receiptRefreshCount = 0;
+  window.__latestReceiptObservation = {
+    snapshotHash: "fixture",
+    observedAt: "2026-11-21T12:00:00.000Z",
+  };
+  window.fetch = async (input) => {
+    const url = new URL(String(input), window.location.origin);
+    if (url.pathname === "/api/china-order-manager/ondolpass-receipt-observation") {
+      return new Response(JSON.stringify({
+        ok: true,
+        context: { observation: window.__latestReceiptObservation },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error("UNEXPECTED_FIXTURE_FETCH:" + url.href);
+  };
+
   const base = {
     modelNo: "MODEL-01", modelName: "테스트 모델", saleOption: "단품", imageUrl: "",
     orderedQuantity: 10, receivedQuantity: 0, openQuantity: 10, status: "ORDERED",
     ondolpassExpectedQuantity: 10, ondolpassReceivedQuantity: 0,
     ondolpassRowCount: 1, ondolpassReceivedRowCount: 0, ondolpassPendingRowCount: 1,
-    ondolpassDisposedRowCount: 0, ondolpassMismatchCount: 0, suggestedReceiptQuantity: 0,
+    ondolpassDisposedRowCount: 0, ondolpassShortageRowCount: 0, ondolpassShortageQuantity: 0,
+    ondolpassOverageRowCount: 0, ondolpassOverageQuantity: 0, ondolpassMismatchCount: 0,
+    ondolpassTrackingNumbers: [], ondolpassOrderMismatches: [], suggestedReceiptQuantity: 0,
   };
   const mixed = [
     { ...base, barcode: "DONE-1", ondolpassReceivedQuantity: 10, ondolpassReceivedRowCount: 1, ondolpassPendingRowCount: 0, suggestedReceiptQuantity: 10 },
@@ -44,6 +62,7 @@ const fixtureSource = `
   const mixedObservation = {
     observedAt: "2026-11-21T12:00:00.000Z", snapshotHash: "fixture", rowCount: 6,
     receivedRowCount: 3, pendingRowCount: 2, disposedRowCount: 0, mismatchCount: 1,
+    shortageRowCount: 0, shortageQuantity: 0, overageRowCount: 0, overageQuantity: 0,
     expectedQuantity: 50, displayedQuantity: 50, observedReceivedQuantity: 21, complete: false,
     issues: ["ORDER_NO_MISMATCH:673842:5"],
   };
@@ -81,7 +100,7 @@ const bundled = await build({
         resolveDir: process.cwd(),
         contents: path === "next/image"
           ? 'import React from "react"; export default function Image(props) { return <img {...props} />; }'
-          : 'export function useRouter() { return { refresh() {} }; }',
+          : 'export function useRouter() { return { refresh() { window.__receiptRefreshCount += 1; } }; }',
       }));
     },
   }],
@@ -116,7 +135,18 @@ try {
   await page.goto(origin);
   await page.getByRole("heading", { name: /확인이 필요한 품목 · 3개/ }).waitFor();
   await page.getByRole("heading", { name: /입고 감지완료 품목 · 2개/ }).waitFor();
-  await page.getByText("근거 불일치란?", { exact: true }).waitFor();
+  await page.getByText("주문 매칭 실패란?", { exact: true }).waitFor();
+  await page.getByText(/11-2 자동반영 · 최근 적용/).waitFor();
+  assert.equal(await page.getByRole("button", { name: /최근 11-2 확인수량 입력칸에 적용/ }).count(), 0);
+  assert.equal(await page.evaluate(() => window.__receiptRefreshCount), 0);
+  await page.evaluate(() => {
+    window.__latestReceiptObservation = {
+      snapshotHash: "fixture-next",
+      observedAt: "2026-11-21T13:00:00.000Z",
+    };
+    window.dispatchEvent(new Event("focus"));
+  });
+  await page.waitForFunction(() => window.__receiptRefreshCount === 1);
   const nestedScroll = await page.locator("#app *").evaluateAll((elements) => elements.filter((element) => {
     const style = getComputedStyle(element);
     const vertical = ["auto", "scroll"].includes(style.overflowY) && element.scrollHeight > element.clientHeight + 1;
@@ -139,12 +169,18 @@ try {
   assert.deepEqual(errors, []);
   await writeFile("artifacts/ondolpass-receipt-ui-browser/result.json", JSON.stringify({
     ok: true,
-    scenarios: ["mixed", "unobserved", "complete"],
+    scenarios: ["mixed", "automatic-11-2-refresh", "unobserved", "complete"],
     nestedScrollbars: nestedScroll,
     externalRequests: 0,
     pageErrors: errors,
   }, null, 2));
   console.log("PASS browser: compact receipt groups render three states without nested scrollbars");
+} catch (error) {
+  console.error(JSON.stringify({
+    pageErrors: errors,
+    bodyText: (await page.locator("body").innerText().catch(() => "")).slice(0, 2_000),
+  }, null, 2));
+  throw error;
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

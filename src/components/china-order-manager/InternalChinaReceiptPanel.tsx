@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   receiptRequestFingerprint,
@@ -72,6 +72,7 @@ type ReceiptObservationSummary = {
 
 const number = new Intl.NumberFormat("ko-KR");
 const MAX_RECEIPT_QUANTITY = 999_999;
+const ONDOLPASS_AUTO_REFRESH_INTERVAL_MS = 15_000;
 
 function ProductThumbnail({
   imageUrl,
@@ -375,6 +376,16 @@ type ForwarderCostResponse = {
   result?: InternalChinaForwarderCostSummary;
 };
 
+type ReceiptObservationPollResponse = {
+  ok?: boolean;
+  context?: {
+    observation?: {
+      snapshotHash?: string;
+      observedAt?: string;
+    } | null;
+  };
+};
+
 export function InternalChinaReceiptPanel({
   draftId,
   cycleMonth,
@@ -442,7 +453,68 @@ export function InternalChinaReceiptPanel({
   const [correctedOrderNo, setCorrectedOrderNo] = useState("");
   const [orderCorrectionPending, setOrderCorrectionPending] = useState(false);
   const [orderCorrectionError, setOrderCorrectionError] = useState("");
-  const [observedAppliedAt, setObservedAppliedAt] = useState<string | null>(null);
+  const observationIdentity = observation
+    ? `${observation.snapshotHash}:${observation.observedAt}`
+    : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    let checking = false;
+    let refreshRequestedIdentity = "";
+
+    async function refreshWhenObservationChanges() {
+      if (cancelled || checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const response = await fetch(
+          `/api/china-order-manager/ondolpass-receipt-observation?draftId=${encodeURIComponent(draftId)}`,
+          {
+            method: "GET",
+            headers: { accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store",
+          },
+        );
+        if (!response.ok) return;
+        const body = (await response.json().catch(() => ({}))) as ReceiptObservationPollResponse;
+        const latest = body.context?.observation;
+        const latestIdentity = latest?.snapshotHash && latest.observedAt
+          ? `${latest.snapshotHash}:${latest.observedAt}`
+          : "";
+        if (
+          !cancelled &&
+          latestIdentity &&
+          latestIdentity !== observationIdentity &&
+          latestIdentity !== refreshRequestedIdentity
+        ) {
+          refreshRequestedIdentity = latestIdentity;
+          router.refresh();
+        }
+      } finally {
+        checking = false;
+      }
+    }
+
+    const intervalId = window.setInterval(
+      () => void refreshWhenObservationChanges(),
+      ONDOLPASS_AUTO_REFRESH_INTERVAL_MS,
+    );
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshWhenObservationChanges();
+      }
+    };
+    window.addEventListener("focus", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
+    void refreshWhenObservationChanges();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, [draftId, observationIdentity, router]);
 
   const selected = openLines
     .map((line) => ({
@@ -544,22 +616,6 @@ export function InternalChinaReceiptPanel({
   function clearAll() {
     setQuantities(Object.fromEntries(openLines.map((line) => [line.barcode, 0])));
     setNotice("이번 입고수량을 모두 0으로 초기화했습니다.");
-  }
-
-  function fillObserved() {
-    const nextQuantities = Object.fromEntries(
-      openLines.map((line) => [
-        line.barcode,
-        line.suggestedReceiptQuantity ?? 0,
-      ]),
-    );
-    const appliedAt = new Date().toISOString();
-    const applied = receiptInputSummary(openLines, nextQuantities);
-    setQuantities(nextQuantities);
-    setObservedAppliedAt(appliedAt);
-    setNotice(
-      `11-2 확인수량 적용됨 · ${koreaDateTime(appliedAt)} · ${number.format(applied.lineCount)}개 품목 · ${number.format(applied.quantity)}개`,
-    );
   }
 
   function pendingReceiptRequest(linesToReceive: { barcode: string; quantity: number }[]) {
@@ -820,7 +876,7 @@ export function InternalChinaReceiptPanel({
           {observation ? (
             <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs leading-5 text-cyan-950">
               <p>
-                최근 자동확인 · {koreaDateTime(observation.observedAt)} · 입고 감지 {number.format(observation.receivedRowCount)}/{number.format(observation.rowCount)}행 · {number.format(observation.observedReceivedQuantity)}/{number.format(observation.expectedQuantity)}개
+                11-2 자동 적용 완료 · {koreaDateTime(observation.observedAt)} · 입고 감지 {number.format(observation.receivedRowCount)}/{number.format(observation.rowCount)}행 · {number.format(observation.observedReceivedQuantity)}/{number.format(observation.expectedQuantity)}개
               </p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-black text-emerald-800">
@@ -848,7 +904,7 @@ export function InternalChinaReceiptPanel({
             </div>
           ) : (
             <p className="mt-2 text-xs leading-5 text-slate-500">
-              업무센터의 11-2 입고현황 확인을 실행하면 온돌패스에서 확인된 수량이 이 입력칸에 준비됩니다.
+              업무센터의 11-2 입고현황 확인을 실행하면 별도 적용 버튼 없이 확인수량이 이 입력칸에 자동 반영됩니다.
             </p>
           )}
           {observation?.mismatchCount ? (
@@ -981,25 +1037,12 @@ export function InternalChinaReceiptPanel({
             <>
               <div className="flex flex-wrap gap-2">
                 {observation ? (
-                  <div className="flex flex-col items-start gap-1">
-                    <button
-                      type="button"
-                      onClick={fillObserved}
-                      title="새로 조회하지 않고 업무센터 11-2가 마지막으로 저장한 수량을 입력칸에 적용합니다."
-                      className={`rounded-lg border px-3 py-2 text-xs font-black ${
-                        observedAppliedAt
-                          ? "border-emerald-400 bg-emerald-100 text-emerald-900"
-                          : "border-cyan-300 bg-cyan-50 text-cyan-800"
-                      }`}
-                    >
-                      {observedAppliedAt
-                        ? `적용됨 · ${koreaDateTime(observedAppliedAt)}`
-                        : "최근 11-2 확인수량 입력칸에 적용"}
-                    </button>
-                    <span className="text-[10px] font-bold text-cyan-800">
-                      {observedAppliedAt
-                        ? `현재 입력 ${number.format(selected.length)}개 품목 · ${number.format(selectedQuantity)}개`
-                        : "새 조회 아님 · 업무센터 11-2의 최근 저장결과 사용"}
+                  <div className="flex flex-col items-start gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2">
+                    <span className="text-xs font-black text-emerald-900">
+                      11-2 자동반영 · 최근 적용 {koreaDateTime(observation.observedAt)}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-800">
+                      업무센터 즉시·예약 결과가 바뀌면 열린 화면도 15초 이내 갱신 · 현재 입력 {number.format(selected.length)}개 품목 · {number.format(selectedQuantity)}개
                     </span>
                   </div>
                 ) : null}

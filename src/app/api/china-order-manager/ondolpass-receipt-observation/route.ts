@@ -130,10 +130,10 @@ export async function POST(request: Request) {
         ok: true,
         ...result,
         message: result.alreadyRecorded
-          ? "같은 온돌패스 입고현황이라 기존 관찰 근거를 유지했습니다."
+          ? "같은 온돌패스 입고현황을 확인했습니다. Ops Center 4단계 입력칸은 최신 확인수량을 유지합니다."
           : result.observation.complete
-            ? "모든 완료 근거 품목의 입고를 확인했습니다. 반복 예약을 자동 종료할 수 있습니다."
-            : `온돌패스 입고현황을 저장했습니다. ${result.observation.receivedRowCount}/${result.observation.rowCount}행 입고 확인.`,
+            ? "모든 완료 근거 품목의 입고를 확인해 Ops Center 4단계 입력칸에 자동 반영했습니다. 반복 예약을 자동 종료할 수 있습니다."
+            : `온돌패스 입고현황을 저장하고 Ops Center 4단계 입력칸에 자동 반영했습니다. ${result.observation.receivedRowCount}/${result.observation.rowCount}행 입고 확인.`,
       },
       {
         status: result.alreadyRecorded ? 200 : 201,
