@@ -11,6 +11,14 @@ export type InternalChinaReceiptWorkspaceLine = {
   receivedQuantity: number;
   openQuantity: number;
   status: string;
+  ondolpassExpectedQuantity: number | null;
+  ondolpassReceivedQuantity: number | null;
+  ondolpassRowCount: number;
+  ondolpassReceivedRowCount: number;
+  ondolpassPendingRowCount: number;
+  ondolpassDisposedRowCount: number;
+  ondolpassMismatchCount: number;
+  suggestedReceiptQuantity: number | null;
 };
 
 type ReceiptCommitment = Pick<
@@ -62,6 +70,19 @@ type ReceiptBarcodeCompletionEvidence = {
     modelName?: string;
     saleOption?: string;
     imageUrl?: string;
+  }>;
+};
+
+type ReceiptObservation = {
+  byBarcode: Array<{
+    barcode: string;
+    expectedQuantity: number;
+    observedReceivedQuantity: number;
+    rowCount: number;
+    receivedRowCount: number;
+    pendingRowCount: number;
+    disposedRowCount: number;
+    mismatchCount: number;
   }>;
 };
 
@@ -306,15 +327,32 @@ export function buildInternalChinaReceiptWorkspaceLines(
   orderLines: InternalChinaReceiptOrderLine[],
   draftLines: ReceiptDraftLine[],
   displayByBarcode: Record<string, MonthlyDraftDisplayMetadata>,
+  observation: ReceiptObservation | null = null,
 ): InternalChinaReceiptWorkspaceLine[] {
   const draftByBarcode = new Map(
     draftLines.map((line) => [barcode(line.barcode), line] as const),
+  );
+  const observedByBarcode = new Map(
+    (observation?.byBarcode ?? []).map((line) => [
+      barcode(line.barcode),
+      line,
+    ] as const),
   );
 
   return orderLines.map((row) => {
     const code = barcode(row.barcode);
     const draftLine = draftByBarcode.get(code);
     const display = displayByBarcode[code];
+    const observed = observedByBarcode.get(code);
+    const suggestedReceiptQuantity = observed
+      ? Math.max(
+          0,
+          Math.min(
+            row.openQuantity,
+            observed.observedReceivedQuantity - row.receivedQuantity,
+          ),
+        )
+      : null;
     return {
       barcode: code,
       modelNo: row.modelNo || display?.modelNo || draftLine?.modelNo || "",
@@ -326,6 +364,15 @@ export function buildInternalChinaReceiptWorkspaceLines(
       receivedQuantity: row.receivedQuantity,
       openQuantity: row.openQuantity,
       status: row.status,
+      ondolpassExpectedQuantity: observed?.expectedQuantity ?? null,
+      ondolpassReceivedQuantity:
+        observed?.observedReceivedQuantity ?? null,
+      ondolpassRowCount: observed?.rowCount ?? 0,
+      ondolpassReceivedRowCount: observed?.receivedRowCount ?? 0,
+      ondolpassPendingRowCount: observed?.pendingRowCount ?? 0,
+      ondolpassDisposedRowCount: observed?.disposedRowCount ?? 0,
+      ondolpassMismatchCount: observed?.mismatchCount ?? 0,
+      suggestedReceiptQuantity,
     };
   });
 }

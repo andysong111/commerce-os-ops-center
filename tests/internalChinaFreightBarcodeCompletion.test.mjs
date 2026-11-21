@@ -17,6 +17,7 @@ function historyRecord(overrides = {}) {
   const parsedItems = [
     {
       id: "item-1",
+      applicationNo: "673842",
       rowNo: 1,
       itemName: "상품 1",
       optionText: "검정",
@@ -25,9 +26,11 @@ function historyRecord(overrides = {}) {
       optionName: "검정 옵션",
       pastedImageUrl: "https://cbu01.alicdn.com/a1.jpg",
       quantity: 2,
+      orderNo: "3316598510069009453",
     },
     {
       id: "item-2",
+      applicationNo: "673626",
       rowNo: 2,
       itemName: "상품 2",
       optionText: "흰색",
@@ -36,6 +39,7 @@ function historyRecord(overrides = {}) {
       optionName: "흰색 옵션",
       pastedImageUrl: "https://cbu01.alicdn.com/a2.jpg",
       quantity: 1,
+      orderNo: "3317018629199027099",
     },
   ];
   const productMasterMatches = [
@@ -102,6 +106,7 @@ test("완료 근거는 발주차시와 완전 매칭된 서버 파일을 불변 
   const reordered = historyRecord({
     parsedItems: record.parsedItems.map((item) => ({
       pastedImageUrl: item.pastedImageUrl,
+      orderNo: item.orderNo,
       optionName: item.optionName,
       modelName: item.modelName,
       modelNo: item.modelNo,
@@ -109,6 +114,7 @@ test("완료 근거는 발주차시와 완전 매칭된 서버 파일을 불변 
       optionText: item.optionText,
       itemName: item.itemName,
       rowNo: item.rowNo,
+      applicationNo: item.applicationNo,
       id: item.id,
     })),
   });
@@ -138,6 +144,10 @@ test("완료 파일의 불변 품목·B-code·수량이 4단계 입고 근거가
   );
   assert.deepEqual(evidence.lines, [
     {
+      sourceItemId: "item-1",
+      applicationNo: "673842",
+      rowNo: 1,
+      orderNo: "3316598510069009453",
       barcode: "BBA1-1",
       quantity: 2,
       modelNo: "A1",
@@ -146,6 +156,10 @@ test("완료 파일의 불변 품목·B-code·수량이 4단계 입고 근거가
       imageUrl: "https://cbu01.alicdn.com/a1.jpg",
     },
     {
+      sourceItemId: "item-2",
+      applicationNo: "673626",
+      rowNo: 2,
+      orderNo: "3317018629199027099",
       barcode: "BBB2-1",
       quantity: 1,
       modelNo: "A2",
