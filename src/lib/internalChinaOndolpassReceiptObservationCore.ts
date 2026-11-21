@@ -4,6 +4,8 @@ import type { InternalChinaFreightBarcodeReceiptEvidence } from "./internalChina
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 const EVIDENCE_HASH = /^sha256:[a-f0-9]{64}$/;
 const SNAPSHOT_HASH = /^sha256:[a-f0-9]{64}$/;
+const ORDER_NO = /^\d{19}$/;
+const TRACKING_NO = /^(?=.*\d)[A-Z0-9-]{8,32}$/;
 
 export type OndolpassReceiptRowStatus =
   | "RECEIVED"
@@ -22,7 +24,9 @@ export type OndolpassReceiptObservationRow = {
   rowNo: number;
   sourceItemId: string;
   barcode: string;
+  expectedOrderNo: string;
   orderNo: string;
+  trackingNumbers: string[];
   itemName: string;
   expectedQuantity: number;
   displayedQuantity: number;
@@ -31,6 +35,13 @@ export type OndolpassReceiptObservationRow = {
   orderNoMatches: boolean;
   eligible: boolean;
   receivedQuantity: number;
+};
+
+export type OndolpassOrderNumberMismatch = {
+  applicationNo: string;
+  rowNo: number;
+  expectedOrderNo: string;
+  observedOrderNo: string;
 };
 
 export type OndolpassReceiptObservationBarcode = {
@@ -46,6 +57,17 @@ export type OndolpassReceiptObservationBarcode = {
   overageRowCount: number;
   overageQuantity: number;
   mismatchCount: number;
+  trackingNumbers: string[];
+  orderMismatches: OndolpassOrderNumberMismatch[];
+};
+
+export type InternalChinaOndolpassOrderNumberCorrection = {
+  draftId: string;
+  applicationNo: string;
+  rowNo: number;
+  previousOrderNo: string;
+  correctedOrderNo: string;
+  correctedAt: string;
 };
 
 export type InternalChinaOndolpassReceiptObservation = {
@@ -122,6 +144,87 @@ function sourceKey(applicationNo: string, rowNo: number) {
   return `${applicationNo}:${rowNo}`;
 }
 
+export function normalizeOndolpassTrackingNumbers(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map((entry) => text(entry).toUpperCase().replace(/\s+/g, ""))
+    .filter((entry) => TRACKING_NO.test(entry)))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
+export function applyInternalChinaOndolpassOrderNumberCorrections(
+  evidence: InternalChinaFreightBarcodeReceiptEvidence,
+  corrections: readonly InternalChinaOndolpassOrderNumberCorrection[],
+) {
+  const correctionByKey = new Map<string, InternalChinaOndolpassOrderNumberCorrection>();
+  for (const correction of corrections) {
+    if (correction.draftId !== evidence.draftId) continue;
+    const key = sourceKey(correction.applicationNo, correction.rowNo);
+    if (!correctionByKey.has(key) && ORDER_NO.test(correction.correctedOrderNo)) {
+      correctionByKey.set(key, correction);
+    }
+  }
+  return {
+    ...evidence,
+    lines: evidence.lines.map((line) => ({
+      ...line,
+      orderNo: correctionByKey.get(sourceKey(line.applicationNo, line.rowNo))
+        ?.correctedOrderNo ?? line.orderNo,
+    })),
+  };
+}
+
+export function buildInternalChinaOndolpassOrderNumberCorrection(
+  input: {
+    draftId?: unknown;
+    applicationNo?: unknown;
+    rowNo?: unknown;
+    correctedOrderNo?: unknown;
+  },
+  evidence: InternalChinaFreightBarcodeReceiptEvidence,
+  observation: InternalChinaOndolpassReceiptObservation | null,
+  correctedAtInput: unknown = new Date().toISOString(),
+): InternalChinaOndolpassOrderNumberCorrection {
+  const draftId = text(input.draftId);
+  const applicationNo = text(input.applicationNo);
+  const rowNo = positiveInteger(input.rowNo);
+  const correctedOrderNo = text(input.correctedOrderNo).replace(/\D/g, "");
+  const correctedAt = iso(correctedAtInput);
+  if (draftId !== evidence.draftId || !DRAFT_ID.test(draftId)) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_DRAFT_INVALID");
+  }
+  if (!/^\d+$/.test(applicationNo) || rowNo <= 0) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_ROW_INVALID");
+  }
+  if (!ORDER_NO.test(correctedOrderNo)) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_ORDER_NO_INVALID");
+  }
+  if (!correctedAt) throw new Error("ONDOLPASS_ORDER_CORRECTION_TIME_INVALID");
+  const expected = evidence.lines.find(
+    (line) => line.applicationNo === applicationNo && line.rowNo === rowNo,
+  );
+  const observed = observation?.rows.find(
+    (row) => row.applicationNo === applicationNo && row.rowNo === rowNo,
+  );
+  if (!expected || !observed) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_ROW_NOT_FOUND");
+  }
+  if (observed.orderNo !== correctedOrderNo) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_OBSERVED_ORDER_CONFLICT");
+  }
+  if (expected.orderNo === correctedOrderNo && observed.orderNoMatches) {
+    throw new Error("ONDOLPASS_ORDER_CORRECTION_ALREADY_MATCHED");
+  }
+  return {
+    draftId,
+    applicationNo,
+    rowNo,
+    previousOrderNo: expected.orderNo,
+    correctedOrderNo,
+    correctedAt,
+  };
+}
+
 function status(value: unknown): OndolpassReceiptRowStatus | "" {
   const normalized = text(value).toUpperCase();
   return normalized === "RECEIVED" ||
@@ -141,6 +244,8 @@ function normalizedObservationRow(
   const displayedQuantity = positiveInteger(row.displayedQuantity);
   const rowStatus = status(row.status);
   const orderNoMatches = row.orderNoMatches === true;
+  const orderNo = text(row.orderNo);
+  const expectedOrderNo = text(row.expectedOrderNo) || (orderNoMatches ? orderNo : "");
   if (
     !/^\d+$/.test(applicationNo) ||
     rowNo <= 0 ||
@@ -155,7 +260,9 @@ function normalizedObservationRow(
     rowNo,
     sourceItemId: text(row.sourceItemId),
     barcode: text(row.barcode),
-    orderNo: text(row.orderNo),
+    expectedOrderNo,
+    orderNo,
+    trackingNumbers: normalizeOndolpassTrackingNumbers(row.trackingNumbers),
     itemName: text(row.itemName).slice(0, 300),
     expectedQuantity,
     displayedQuantity,
@@ -211,6 +318,8 @@ function observationSummary(rows: OndolpassReceiptObservationRow[]) {
       overageRowCount: 0,
       overageQuantity: 0,
       mismatchCount: 0,
+      trackingNumbers: [],
+      orderMismatches: [],
     };
     current.expectedQuantity += row.expectedQuantity;
     current.observedReceivedQuantity += row.receivedQuantity;
@@ -223,6 +332,18 @@ function observationSummary(rows: OndolpassReceiptObservationRow[]) {
     current.overageRowCount += Number(overageQuantity > 0);
     current.overageQuantity += overageQuantity;
     current.mismatchCount += Number(!row.orderNoMatches);
+    current.trackingNumbers = [...new Set([
+      ...current.trackingNumbers,
+      ...row.trackingNumbers,
+    ])].sort((left, right) => left.localeCompare(right));
+    if (!row.orderNoMatches) {
+      current.orderMismatches.push({
+        applicationNo: row.applicationNo,
+        rowNo: row.rowNo,
+        expectedOrderNo: row.expectedOrderNo,
+        observedOrderNo: row.orderNo,
+      });
+    }
     byBarcodeMap.set(row.barcode, current);
   }
   const byBarcode = [...byBarcodeMap.values()].sort((left, right) =>
@@ -299,6 +420,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
       status: OndolpassReceiptRowStatus;
       orderNo: string;
       itemName: string;
+      trackingNumbers: string[];
     }
   >();
   const seenApplications = new Set<string>();
@@ -336,6 +458,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
         status: rowStatus,
         orderNo: text(row.orderNo),
         itemName: text(row.itemName).slice(0, 300),
+        trackingNumbers: normalizeOndolpassTrackingNumbers(row.trackingNumbers),
       });
     }
   }
@@ -362,7 +485,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
       rowNo: observed.rowNo,
       sourceItemId: expected.sourceItemId,
       barcode: expected.barcode,
+      expectedOrderNo: expected.orderNo,
       orderNo: observed.orderNo,
+      trackingNumbers: observed.trackingNumbers,
       itemName: observed.itemName,
       expectedQuantity: expected.quantity,
       displayedQuantity: observed.displayedQuantity,
@@ -410,6 +535,7 @@ export function buildInternalChinaOndolpassReceiptObservation(
 
   const summary = observationSummary(rows);
   const canonicalState = {
+    schemaVersion: 2,
     draftId,
     evidenceHash,
     rows: rows.map((row) => ({
@@ -417,7 +543,9 @@ export function buildInternalChinaOndolpassReceiptObservation(
       rowNo: row.rowNo,
       displayedQuantity: row.displayedQuantity,
       status: row.status,
+      expectedOrderNo: row.expectedOrderNo,
       orderNo: row.orderNo,
+      trackingNumbers: row.trackingNumbers,
     })),
   };
   return {

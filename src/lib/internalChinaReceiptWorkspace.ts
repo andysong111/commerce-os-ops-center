@@ -22,6 +22,13 @@ export type InternalChinaReceiptWorkspaceLine = {
   ondolpassOverageRowCount: number;
   ondolpassOverageQuantity: number;
   ondolpassMismatchCount: number;
+  ondolpassTrackingNumbers: string[];
+  ondolpassOrderMismatches: Array<{
+    applicationNo: string;
+    rowNo: number;
+    expectedOrderNo: string;
+    observedOrderNo: string;
+  }>;
   suggestedReceiptQuantity: number | null;
 };
 
@@ -91,6 +98,13 @@ type ReceiptObservation = {
     overageRowCount: number;
     overageQuantity: number;
     mismatchCount: number;
+    trackingNumbers: string[];
+    orderMismatches: Array<{
+      applicationNo: string;
+      rowNo: number;
+      expectedOrderNo: string;
+      observedOrderNo: string;
+    }>;
   }>;
 };
 
@@ -378,6 +392,8 @@ export function buildInternalChinaReceiptWorkspaceLines(
       ondolpassOverageRowCount: observed?.overageRowCount ?? 0,
       ondolpassOverageQuantity: observed?.overageQuantity ?? 0,
       ondolpassMismatchCount: observed?.mismatchCount ?? 0,
+      ondolpassTrackingNumbers: observed?.trackingNumbers ?? [],
+      ondolpassOrderMismatches: observed?.orderMismatches ?? [],
       suggestedReceiptQuantity,
     };
   });

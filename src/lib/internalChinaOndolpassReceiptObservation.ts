@@ -1,18 +1,24 @@
+import { randomUUID } from "node:crypto";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   loadInternalChinaFreightBarcodeCompletion,
   loadInternalChinaFreightBarcodeReceiptEvidence,
 } from "@/lib/internalChinaFreightBarcodeCompletion";
 import {
+  applyInternalChinaOndolpassOrderNumberCorrections,
+  buildInternalChinaOndolpassOrderNumberCorrection,
   buildInternalChinaOndolpassReceiptObservation,
   parseStoredInternalChinaOndolpassReceiptObservation,
   type InternalChinaOndolpassReceiptObservation,
   type InternalChinaOndolpassReceiptObservationRow,
+  type InternalChinaOndolpassOrderNumberCorrection,
   type OndolpassReceiptObservationInput,
 } from "@/lib/internalChinaOndolpassReceiptObservationCore";
 
 export const INTERNAL_CHINA_ONDOLPASS_RECEIPT_OBSERVATION_OPERATION_TYPE =
   "INTERNAL_CHINA_ONDOLPASS_RECEIPT_OBSERVATION";
+export const INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION_OPERATION_TYPE =
+  "INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION";
 
 const SOURCE = "local-agent-ondolpass-receipt-status";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -48,7 +54,9 @@ function sourceEventId(draftId: string, snapshotHash: string) {
   return `ondolpass-receipt:${draftId}:${snapshotHash.replace(/^sha256:/, "")}`;
 }
 
-async function readRows(query: URLSearchParams) {
+async function readRows<T = InternalChinaOndolpassReceiptObservationRow>(
+  query: URLSearchParams,
+) {
   const { baseUrl, secret } = supabaseConnection();
   const response = await fetch(
     `${baseUrl}/rest/v1/commerce_operation_runs?${query.toString()}`,
@@ -61,10 +69,10 @@ async function readRows(query: URLSearchParams) {
   if (!response.ok) {
     throw new Error(`ONDOLPASS_RECEIPT_READ_FAILED:${response.status}`);
   }
-  return (await response.json().catch(() => [])) as InternalChinaOndolpassReceiptObservationRow[];
+  return (await response.json().catch(() => [])) as T[];
 }
 
-export async function loadLatestInternalChinaOndolpassReceiptObservation(
+async function loadRawLatestInternalChinaOndolpassReceiptObservation(
   draftIdInput: unknown,
 ): Promise<InternalChinaOndolpassReceiptObservation | null> {
   const draftId = validDraftId(draftIdInput);
@@ -78,6 +86,126 @@ export async function loadLatestInternalChinaOndolpassReceiptObservation(
   });
   const rows = await readRows(query);
   return parseStoredInternalChinaOndolpassReceiptObservation(draftId, rows[0]);
+}
+
+function correctionFromRow(
+  draftId: string,
+  row: InternalChinaOndolpassReceiptObservationRow | undefined,
+): InternalChinaOndolpassOrderNumberCorrection | null {
+  const snapshot = row?.result_snapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  const value = snapshot as Record<string, unknown>;
+  const applicationNo = text(value.applicationNo);
+  const rowNo = Number(value.rowNo);
+  const previousOrderNo = text(value.previousOrderNo);
+  const correctedOrderNo = text(value.correctedOrderNo);
+  const correctedAt = text(value.correctedAt);
+  if (
+    text(value.draftId) !== draftId ||
+    !/^\d+$/.test(applicationNo) ||
+    !Number.isInteger(rowNo) ||
+    rowNo <= 0 ||
+    !/^\d{19}$/.test(previousOrderNo) ||
+    !/^\d{19}$/.test(correctedOrderNo) ||
+    !Number.isFinite(Date.parse(correctedAt))
+  ) {
+    return null;
+  }
+  return {
+    draftId,
+    applicationNo,
+    rowNo,
+    previousOrderNo,
+    correctedOrderNo,
+    correctedAt: new Date(correctedAt).toISOString(),
+  };
+}
+
+async function loadInternalChinaOndolpassOrderNumberCorrections(
+  draftIdInput: unknown,
+) {
+  const draftId = validDraftId(draftIdInput);
+  const query = new URLSearchParams({
+    operation_type: `eq.${INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION_OPERATION_TYPE}`,
+    correlation_id: `eq.${correlationId(draftId)}`,
+    status: "eq.SUCCEEDED",
+    select: "result_snapshot,started_at,updated_at",
+    order: "started_at.desc",
+    limit: "500",
+  });
+  const rows = await readRows(query);
+  return rows.flatMap((row) => {
+    const correction = correctionFromRow(draftId, row);
+    return correction ? [correction] : [];
+  });
+}
+
+function observationInputFromStored(
+  observation: InternalChinaOndolpassReceiptObservation,
+  observedAt = observation.observedAt,
+): OndolpassReceiptObservationInput {
+  const rowsByApplication = new Map<
+    string,
+    Array<{
+      rowNo: number;
+      quantity: number;
+      status: string;
+      orderNo: string;
+      itemName: string;
+      trackingNumbers: string[];
+    }>
+  >();
+  for (const row of observation.rows) {
+    const rows = rowsByApplication.get(row.applicationNo) ?? [];
+    rows.push({
+      rowNo: row.rowNo,
+      quantity: row.displayedQuantity,
+      status: row.status,
+      orderNo: row.orderNo,
+      itemName: row.itemName,
+      trackingNumbers: row.trackingNumbers,
+    });
+    rowsByApplication.set(row.applicationNo, rows);
+  }
+  return {
+    draftId: observation.draftId,
+    evidenceHash: observation.evidenceHash,
+    observedAt,
+    applications: [...rowsByApplication.entries()].map(([applicationNo, rows]) => ({
+      applicationNo,
+      state: "",
+      rows: rows.sort((left, right) => left.rowNo - right.rowNo),
+    })),
+  };
+}
+
+function resolveObservationAgainstCorrections(
+  raw: InternalChinaOndolpassReceiptObservation | null,
+  evidence: Awaited<ReturnType<typeof loadInternalChinaFreightBarcodeReceiptEvidence>>,
+  corrections: readonly InternalChinaOndolpassOrderNumberCorrection[],
+) {
+  if (!raw) return null;
+  return buildInternalChinaOndolpassReceiptObservation(
+    observationInputFromStored(raw),
+    applyInternalChinaOndolpassOrderNumberCorrections(evidence, corrections),
+    null,
+  );
+}
+
+export async function loadLatestInternalChinaOndolpassReceiptObservation(
+  draftIdInput: unknown,
+): Promise<InternalChinaOndolpassReceiptObservation | null> {
+  const draftId = validDraftId(draftIdInput);
+  const completion = await loadInternalChinaFreightBarcodeCompletion(draftId);
+  if (!completion) return null;
+  const [raw, evidence, corrections] = await Promise.all([
+    loadRawLatestInternalChinaOndolpassReceiptObservation(draftId),
+    loadInternalChinaFreightBarcodeReceiptEvidence(completion),
+    loadInternalChinaOndolpassOrderNumberCorrections(draftId),
+  ]);
+  return resolveObservationAgainstCorrections(raw, evidence, corrections);
 }
 
 async function loadObservationBySourceEvent(
@@ -101,10 +229,20 @@ export async function loadInternalChinaOndolpassReceiptContext(
   const draftId = validDraftId(draftIdInput);
   const completion = await loadInternalChinaFreightBarcodeCompletion(draftId);
   if (!completion) throw new Error("ONDOLPASS_RECEIPT_BARCODE_COMPLETION_REQUIRED");
-  const [evidence, observation] = await Promise.all([
+  const [baseEvidence, rawObservation, corrections] = await Promise.all([
     loadInternalChinaFreightBarcodeReceiptEvidence(completion),
-    loadLatestInternalChinaOndolpassReceiptObservation(draftId),
+    loadRawLatestInternalChinaOndolpassReceiptObservation(draftId),
+    loadInternalChinaOndolpassOrderNumberCorrections(draftId),
   ]);
+  const evidence = applyInternalChinaOndolpassOrderNumberCorrections(
+    baseEvidence,
+    corrections,
+  );
+  const observation = resolveObservationAgainstCorrections(
+    rawObservation,
+    baseEvidence,
+    corrections,
+  );
   const applications = [...new Set(evidence.lines.map((line) => line.applicationNo))]
     .sort((left, right) => left.localeCompare(right));
   return {
@@ -122,6 +260,58 @@ export async function loadInternalChinaOndolpassReceiptContext(
     observation,
     evidence,
   };
+}
+
+async function storeOrderNumberCorrection(
+  correction: InternalChinaOndolpassOrderNumberCorrection,
+) {
+  const { baseUrl, secret } = supabaseConnection();
+  const eventId = [
+    "ondolpass-order-correction",
+    correction.draftId,
+    correction.applicationNo,
+    correction.rowNo,
+    randomUUID(),
+  ].join(":");
+  const response = await fetch(
+    `${baseUrl}/rest/v1/commerce_operation_runs?select=source_event_id`,
+    {
+      method: "POST",
+      headers: {
+        ...createSupabaseAdminHeaders(secret),
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify([
+        {
+          operation_type:
+            INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION_OPERATION_TYPE,
+          status: "SUCCEEDED",
+          source: "ops-center-ondolpass-order-correction",
+          source_event_id: eventId,
+          correlation_id: correlationId(correction.draftId),
+          actor_type: "OPS_OPERATOR",
+          input_snapshot: {
+            draftId: correction.draftId,
+            applicationNo: correction.applicationNo,
+            rowNo: correction.rowNo,
+            previousOrderNo: correction.previousOrderNo,
+          },
+          result_snapshot: correction,
+          started_at: correction.correctedAt,
+          finished_at: correction.correctedAt,
+          updated_at: correction.correctedAt,
+        },
+      ]),
+      cache: "no-store",
+      signal: AbortSignal.timeout(WRITE_TIMEOUT_MS),
+    },
+  );
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `ONDOLPASS_ORDER_CORRECTION_STORE_FAILED:${response.status}:${body.slice(0, 300)}`,
+    );
+  }
 }
 
 async function storeObservation(
@@ -200,4 +390,50 @@ export async function recordInternalChinaOndolpassReceiptObservation(
   }
   const stored = await storeObservation(observation);
   return { observation: stored, alreadyRecorded: false };
+}
+
+export async function saveInternalChinaOndolpassOrderNumberCorrection(input: {
+  draftId?: unknown;
+  applicationNo?: unknown;
+  rowNo?: unknown;
+  correctedOrderNo?: unknown;
+}) {
+  const draftId = validDraftId(input.draftId);
+  const completion = await loadInternalChinaFreightBarcodeCompletion(draftId);
+  if (!completion) throw new Error("ONDOLPASS_RECEIPT_BARCODE_COMPLETION_REQUIRED");
+  const [baseEvidence, rawObservation, currentCorrections] = await Promise.all([
+    loadInternalChinaFreightBarcodeReceiptEvidence(completion),
+    loadRawLatestInternalChinaOndolpassReceiptObservation(draftId),
+    loadInternalChinaOndolpassOrderNumberCorrections(draftId),
+  ]);
+  const currentEvidence = applyInternalChinaOndolpassOrderNumberCorrections(
+    baseEvidence,
+    currentCorrections,
+  );
+  const currentObservation = resolveObservationAgainstCorrections(
+    rawObservation,
+    baseEvidence,
+    currentCorrections,
+  );
+  const correction = buildInternalChinaOndolpassOrderNumberCorrection(
+    input,
+    currentEvidence,
+    currentObservation,
+  );
+  await storeOrderNumberCorrection(correction);
+
+  const nextObservation = currentObservation
+    ? buildInternalChinaOndolpassReceiptObservation(
+        observationInputFromStored(currentObservation, correction.correctedAt),
+        applyInternalChinaOndolpassOrderNumberCorrections(baseEvidence, [
+          correction,
+          ...currentCorrections,
+        ]),
+        currentObservation,
+      )
+    : null;
+  const observation = nextObservation
+    ? await storeObservation(nextObservation)
+    : null;
+  return { correction, observation };
 }

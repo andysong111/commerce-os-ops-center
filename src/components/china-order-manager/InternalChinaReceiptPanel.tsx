@@ -33,7 +33,22 @@ export type InternalChinaReceiptPanelLine = {
   ondolpassOverageRowCount: number;
   ondolpassOverageQuantity: number;
   ondolpassMismatchCount: number;
+  ondolpassTrackingNumbers: string[];
+  ondolpassOrderMismatches: Array<{
+    applicationNo: string;
+    rowNo: number;
+    expectedOrderNo: string;
+    observedOrderNo: string;
+  }>;
   suggestedReceiptQuantity: number | null;
+};
+
+type OrderNumberEditTarget = {
+  barcode: string;
+  applicationNo: string;
+  rowNo: number;
+  expectedOrderNo: string;
+  observedOrderNo: string;
 };
 
 type ReceiptObservationSummary = {
@@ -128,11 +143,13 @@ function ReceiptLineTable({
   lines,
   quantities,
   onQuantityChange,
+  onEditOrderNumber,
   tone,
 }: {
   lines: InternalChinaReceiptPanelLine[];
   quantities: Record<string, number>;
   onQuantityChange: (barcode: string, quantity: number) => void;
+  onEditOrderNumber: (target: OrderNumberEditTarget) => void;
   tone: "attention" | "complete";
 }) {
   if (!lines.length) return null;
@@ -215,6 +232,28 @@ function ReceiptLineTable({
                       <span className="block truncate text-[11px] text-slate-500">
                         옵션 · {line.saleOption || "-"}
                       </span>
+                      <span className={`mt-1 block break-all text-[11px] font-bold ${
+                        line.ondolpassTrackingNumbers.length
+                          ? "text-cyan-800"
+                          : "text-slate-400"
+                      }`}>
+                        트레킹번호 · {line.ondolpassTrackingNumbers.length
+                          ? line.ondolpassTrackingNumbers.join(" · ")
+                          : "아직 확인되지 않음"}
+                      </span>
+                      {line.ondolpassOrderMismatches.map((mismatch) => (
+                        <button
+                          key={`${mismatch.applicationNo}:${mismatch.rowNo}`}
+                          type="button"
+                          onClick={() => onEditOrderNumber({
+                            barcode: line.barcode,
+                            ...mismatch,
+                          })}
+                          className="mt-1.5 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-800 hover:bg-rose-100"
+                        >
+                          신청 {mismatch.applicationNo} · {mismatch.rowNo}행 주문번호 수정
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </td>
@@ -373,6 +412,11 @@ export function InternalChinaReceiptPanel({
   const [forwarderCostInput, setForwarderCostInput] = useState(
     forwarderCost.actualCostKrw ? String(forwarderCost.actualCostKrw) : "",
   );
+  const [orderNumberEdit, setOrderNumberEdit] =
+    useState<OrderNumberEditTarget | null>(null);
+  const [correctedOrderNo, setCorrectedOrderNo] = useState("");
+  const [orderCorrectionPending, setOrderCorrectionPending] = useState(false);
+  const [orderCorrectionError, setOrderCorrectionError] = useState("");
 
   const selected = openLines
     .map((line) => ({
@@ -393,6 +437,68 @@ export function InternalChinaReceiptPanel({
     actualForwarderCostKrw > 0
       ? forwarderCost.orderPaymentCostKrw + actualForwarderCostKrw
       : null;
+
+  function openOrderNumberEdit(target: OrderNumberEditTarget) {
+    setOrderNumberEdit(target);
+    setCorrectedOrderNo(target.observedOrderNo);
+    setOrderCorrectionError("");
+  }
+
+  function closeOrderNumberEdit() {
+    if (orderCorrectionPending) return;
+    setOrderNumberEdit(null);
+    setCorrectedOrderNo("");
+    setOrderCorrectionError("");
+  }
+
+  async function saveCorrectedOrderNumber() {
+    if (!orderNumberEdit) return;
+    if (!/^\d{19}$/.test(correctedOrderNo)) {
+      setOrderCorrectionError("1688 주문번호 19자리를 입력하세요.");
+      return;
+    }
+    setOrderCorrectionPending(true);
+    setOrderCorrectionError("");
+    try {
+      const response = await fetch(
+        "/api/china-order-manager/ondolpass-receipt-observation",
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({
+            draftId,
+            applicationNo: orderNumberEdit.applicationNo,
+            rowNo: orderNumberEdit.rowNo,
+            correctedOrderNo,
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+      };
+      if (!response.ok || body.ok !== true) {
+        throw new Error(body.message || `주문번호 수정 실패 (${response.status})`);
+      }
+      setNotice(body.message || "주문번호를 수정하고 입고현황을 다시 매칭했습니다.");
+      setOrderNumberEdit(null);
+      setCorrectedOrderNo("");
+      router.refresh();
+    } catch (error) {
+      setOrderCorrectionError(
+        error instanceof Error
+          ? error.message
+          : "주문번호를 수정하지 못했습니다.",
+      );
+    } finally {
+      setOrderCorrectionPending(false);
+    }
+  }
 
   function fillAll() {
     setQuantities(
@@ -894,6 +1000,7 @@ export function InternalChinaReceiptPanel({
                         ...current,
                         [barcode]: quantity,
                       }))}
+                      onEditOrderNumber={openOrderNumberEdit}
                       tone="attention"
                     />
                   </section>
@@ -916,6 +1023,7 @@ export function InternalChinaReceiptPanel({
                         ...current,
                         [barcode]: quantity,
                       }))}
+                      onEditOrderNumber={openOrderNumberEdit}
                       tone="complete"
                     />
                   </section>
@@ -944,6 +1052,84 @@ export function InternalChinaReceiptPanel({
               </div>
             </>
           ) : null}
+        </div>
+      ) : null}
+
+      {orderNumberEdit ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ondolpass-order-number-edit-title"
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4"
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveCorrectedOrderNumber();
+            }}
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+          >
+            <h3
+              id="ondolpass-order-number-edit-title"
+              className="text-lg font-black text-slate-950"
+            >
+              주문번호 수정
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              {orderNumberEdit.barcode} · 신청 {orderNumberEdit.applicationNo} · {orderNumberEdit.rowNo}행의
+              주문번호를 온돌패스에서 현재 확인된 번호로 맞춥니다. 저장 후 11-2 업무와 이 입고화면이 같은 번호를 사용합니다.
+            </p>
+            <dl className="mt-4 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs sm:grid-cols-2">
+              <div>
+                <dt className="font-bold text-slate-500">기존 OPS 주문번호</dt>
+                <dd className="mt-1 break-all font-mono font-black text-slate-800">
+                  {orderNumberEdit.expectedOrderNo || "없음"}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-bold text-slate-500">온돌패스 감지 주문번호</dt>
+                <dd className="mt-1 break-all font-mono font-black text-cyan-800">
+                  {orderNumberEdit.observedOrderNo || "없음"}
+                </dd>
+              </div>
+            </dl>
+            <label className="mt-4 block text-xs font-black text-slate-700">
+              수정할 1688 주문번호
+              <input
+                autoFocus
+                inputMode="numeric"
+                maxLength={19}
+                value={correctedOrderNo}
+                onChange={(event) => setCorrectedOrderNo(
+                  event.target.value.replace(/\D/g, "").slice(0, 19),
+                )}
+                placeholder="19자리 주문번호"
+                className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-mono text-sm font-black outline-none focus:border-cyan-600"
+              />
+            </label>
+            {orderCorrectionError ? (
+              <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
+                {orderCorrectionError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={orderCorrectionPending}
+                onClick={closeOrderNumberEdit}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 disabled:opacity-40"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={orderCorrectionPending || correctedOrderNo.length !== 19}
+                className="rounded-xl bg-cyan-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {orderCorrectionPending ? "수정 중…" : "수정하고 다시 매칭"}
+              </button>
+            </div>
+          </form>
         </div>
       ) : null}
 

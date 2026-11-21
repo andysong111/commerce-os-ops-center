@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  applyInternalChinaOndolpassOrderNumberCorrections,
+  buildInternalChinaOndolpassOrderNumberCorrection,
   buildInternalChinaOndolpassReceiptObservation,
   parseStoredInternalChinaOndolpassReceiptObservation,
 } from "../src/lib/internalChinaOndolpassReceiptObservationCore.ts";
@@ -36,7 +38,7 @@ function input(overrides = {}) {
         applicationNo: "673842",
         state: "부분입고",
         rows: [
-          { rowNo: 1, quantity: 10, status: "RECEIVED", orderNo: "3316598510069009453", itemName: "A1" },
+          { rowNo: 1, quantity: 10, status: "RECEIVED", orderNo: "3316598510069009453", itemName: "A1", trackingNumbers: ["760256617306"] },
           { rowNo: 2, quantity: 5, status: "PENDING", orderNo: "3316598510069009454", itemName: "A2" },
         ],
       },
@@ -74,6 +76,8 @@ test("신청번호+행번호가 일치한 입고 표식만 B-code별 누적수�
       overageRowCount: 0,
       overageQuantity: 0,
       mismatchCount: 0,
+      trackingNumbers: ["760256617306"],
+      orderMismatches: [],
     },
     {
       barcode: "BBB2-1",
@@ -88,8 +92,56 @@ test("신청번호+행번호가 일치한 입고 표식만 B-code별 누적수�
       overageRowCount: 0,
       overageQuantity: 0,
       mismatchCount: 0,
+      trackingNumbers: [],
+      orderMismatches: [],
     },
   ]);
+});
+
+test("변경된 1688 주문번호를 행 단위로 정정하면 다음 11-2 매칭과 트레킹번호를 함께 복구한다", () => {
+  const changedOrderNo = "3317999999999009453";
+  const mismatched = buildInternalChinaOndolpassReceiptObservation(input({
+    applications: input().applications.map((application) => (
+      application.applicationNo === "673842"
+        ? {
+            ...application,
+            rows: application.rows.map((row) => row.rowNo === 1
+              ? { ...row, orderNo: changedOrderNo, trackingNumbers: ["SF5163733838175"] }
+              : row),
+          }
+        : application
+    )),
+  }), evidence);
+  assert.equal(mismatched.mismatchCount, 1);
+  assert.equal(mismatched.byBarcode[0].orderMismatches[0].observedOrderNo, changedOrderNo);
+
+  const correction = buildInternalChinaOndolpassOrderNumberCorrection({
+    draftId,
+    applicationNo: "673842",
+    rowNo: 1,
+    correctedOrderNo: changedOrderNo,
+  }, evidence, mismatched, "2026-11-21T03:30:00.000Z");
+  const correctedEvidence = applyInternalChinaOndolpassOrderNumberCorrections(
+    evidence,
+    [correction],
+  );
+  const corrected = buildInternalChinaOndolpassReceiptObservation(input({
+    observedAt: "2026-11-21T03:30:00.000Z",
+    applications: input().applications.map((application) => (
+      application.applicationNo === "673842"
+        ? {
+            ...application,
+            rows: application.rows.map((row) => row.rowNo === 1
+              ? { ...row, orderNo: changedOrderNo, trackingNumbers: ["SF5163733838175"] }
+              : row),
+          }
+        : application
+    )),
+  }), correctedEvidence, mismatched);
+  assert.equal(corrected.mismatchCount, 0);
+  assert.equal(corrected.rows.find((row) => row.applicationNo === "673842" && row.rowNo === 1)?.expectedOrderNo, changedOrderNo);
+  assert.deepEqual(corrected.byBarcode[0].trackingNumbers, ["SF5163733838175"]);
+  assert.notEqual(corrected.snapshotHash, mismatched.snapshotHash);
 });
 
 test("주문보다 많이 입고된 수량은 매칭 실패가 아니라 초과 입고로 분류한다", () => {
@@ -302,12 +354,14 @@ test("4단계는 주문수량보다 많이 입고된 실제 수량도 자르지 
         barcode: "BBA1-1", expectedQuantity: 10, observedReceivedQuantity: 15,
         rowCount: 1, receivedRowCount: 1, pendingRowCount: 0, disposedRowCount: 0,
         shortageRowCount: 0, shortageQuantity: 0, overageRowCount: 1,
-        overageQuantity: 5, mismatchCount: 0,
+        overageQuantity: 5, mismatchCount: 0, trackingNumbers: ["760256617306"],
+        orderMismatches: [],
       }],
     },
   );
   assert.equal(lines[0].suggestedReceiptQuantity, 15);
   assert.equal(lines[0].ondolpassOverageQuantity, 5);
+  assert.deepEqual(lines[0].ondolpassTrackingNumbers, ["760256617306"]);
 });
 
 test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", async () => {
@@ -318,8 +372,12 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
     readFile("src/app/china-order-manager/page.tsx", "utf8"),
   ]);
   assert.match(route, /isSameOriginOpsRequest/);
+  assert.match(route, /export async function PATCH/);
+  assert.match(route, /saveInternalChinaOndolpassOrderNumberCorrection/);
   assert.match(service, /resolution=ignore-duplicates/);
   assert.match(service, /snapshotHash/);
+  assert.match(service, /INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION/);
+  assert.match(service, /applyInternalChinaOndolpassOrderNumberCorrections/);
   assert.match(panel, /온돌패스 확인수량 채우기/);
   assert.match(panel, /확인이 필요한 품목/);
   assert.match(panel, /입고 감지완료 품목/);
@@ -330,6 +388,9 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
   assert.match(panel, /부족입고 \{number\.format\(observation\.shortageRowCount\)\}행/);
   assert.match(panel, /초과입고 \{number\.format\(observation\.overageRowCount\)\}행/);
   assert.match(panel, /주문 매칭 실패 \{number\.format\(observation\.mismatchCount\)\}행/);
+  assert.match(panel, /주문번호 수정/);
+  assert.match(panel, /수정하고 다시 매칭/);
+  assert.match(panel, /트레킹번호 ·/);
   assert.match(panel, /w-full table-fixed/);
   assert.doesNotMatch(panel, /max-h-\[560px\] overflow-auto/);
   assert.doesNotMatch(panel, /min-w-\[1280px\]/);
