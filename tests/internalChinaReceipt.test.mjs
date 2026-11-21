@@ -21,7 +21,7 @@ test("China order manager exposes the on-demand purchase-run and receipt cycle",
   assert.ok(page.includes("selectedRun.receiptConfirmedDate")); assert.ok(page.includes('title="1688 주문"'));
 });
 test("receipt UI supports full and partial receipt quantities on the existing China order route", () => {
-  for (const value of ["입고 처리", "남은 수량 전부 채우기", "PARTIALLY_RECEIVED", "RECEIVED", "/api/china-order-manager/receipts"]) assert.ok(panel.includes(value));
+  for (const value of ["입고 처리", "남은 수량 전부 채우기", "부분입고 확정", "전량 입고확정", "/api/china-order-manager/receipts"]) assert.ok(panel.includes(value));
   assert.ok(page.includes("InternalChinaReceiptPanel")); assert.ok(page.includes('title="입고"'));
 });
 test("stage 4 uses actual ledger order evidence even when the stored Draft snapshot is stale", () => {
@@ -102,6 +102,8 @@ test("stage 4 uses actual ledger order evidence even when the stored Draft snaps
         ondolpassOverageRowCount: 0,
         ondolpassOverageQuantity: 0,
         ondolpassMismatchCount: 0,
+        ondolpassTrackingNumbers: [],
+        ondolpassOrderMismatches: [],
         suggestedReceiptQuantity: null,
       },
     ],

@@ -111,7 +111,7 @@ test("forwarder close always uses a legal operation-ledger status even when down
 
 test("receipt close requires the exact forwarder amount only for the final receipt", () => {
   assert.ok(panel.includes("배송대행지 실제비용(원)"));
-  assert.ok(panel.includes("selectedQuantity === remainingTotal"));
+  assert.ok(panel.includes("fullReceiptPrepared"));
   assert.ok(panel.includes("actualForwarderCostKrw <= 0"));
   assert.ok(panel.includes('/api/china-order-manager/forwarder-cost'));
   assert.ok(panel.includes("부분입고"));
