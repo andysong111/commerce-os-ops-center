@@ -6,6 +6,7 @@ import {
 } from "@/lib/internalChinaFreightBarcodeCompletion";
 import {
   applyInternalChinaOndolpassOrderNumberCorrections,
+  buildInternalChinaOndolpassReceiptSourceEventId,
   buildInternalChinaOndolpassOrderNumberCorrection,
   buildInternalChinaOndolpassReceiptObservation,
   parseStoredInternalChinaOndolpassReceiptObservation,
@@ -48,10 +49,6 @@ function supabaseConnection() {
 
 function correlationId(draftId: string) {
   return `purchase-run:${draftId}`;
-}
-
-function sourceEventId(draftId: string, snapshotHash: string) {
-  return `ondolpass-receipt:${draftId}:${snapshotHash.replace(/^sha256:/, "")}`;
 }
 
 async function readRows<T = InternalChinaOndolpassReceiptObservationRow>(
@@ -318,9 +315,10 @@ async function storeObservation(
   observation: InternalChinaOndolpassReceiptObservation,
 ) {
   const { baseUrl, secret } = supabaseConnection();
-  const eventId = sourceEventId(
+  const eventId = buildInternalChinaOndolpassReceiptSourceEventId(
     observation.draftId,
     observation.snapshotHash,
+    observation.observedAt,
   );
   const query = new URLSearchParams({
     on_conflict: "source_event_id",
@@ -365,14 +363,30 @@ async function storeObservation(
       `ONDOLPASS_RECEIPT_STORE_FAILED:${response.status}:${body.slice(0, 300)}`,
     );
   }
+  let insertedRows: unknown;
+  try {
+    insertedRows = JSON.parse(body);
+  } catch {
+    throw new Error("ONDOLPASS_RECEIPT_STORE_RESPONSE_INVALID");
+  }
+  if (!Array.isArray(insertedRows)) {
+    throw new Error("ONDOLPASS_RECEIPT_STORE_RESPONSE_INVALID");
+  }
   const readback = await loadObservationBySourceEvent(
     observation.draftId,
     eventId,
   );
-  if (!readback || readback.snapshotHash !== observation.snapshotHash) {
+  if (
+    !readback ||
+    readback.snapshotHash !== observation.snapshotHash ||
+    readback.observedAt !== observation.observedAt
+  ) {
     throw new Error("ONDOLPASS_RECEIPT_STORE_READBACK_FAILED");
   }
-  return readback;
+  return {
+    observation: readback,
+    alreadyRecorded: insertedRows.length === 0,
+  };
 }
 
 export async function recordInternalChinaOndolpassReceiptObservation(
@@ -385,11 +399,7 @@ export async function recordInternalChinaOndolpassReceiptObservation(
     context.evidence,
     context.observation,
   );
-  if (context.observation?.snapshotHash === observation.snapshotHash) {
-    return { observation: context.observation, alreadyRecorded: true };
-  }
-  const stored = await storeObservation(observation);
-  return { observation: stored, alreadyRecorded: false };
+  return storeObservation(observation);
 }
 
 export async function saveInternalChinaOndolpassOrderNumberCorrection(input: {
@@ -432,8 +442,8 @@ export async function saveInternalChinaOndolpassOrderNumberCorrection(input: {
         currentObservation,
       )
     : null;
-  const observation = nextObservation
+  const stored = nextObservation
     ? await storeObservation(nextObservation)
     : null;
-  return { correction, observation };
+  return { correction, observation: stored?.observation ?? null };
 }

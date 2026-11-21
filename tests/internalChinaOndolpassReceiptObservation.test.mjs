@@ -6,6 +6,7 @@ import {
   applyInternalChinaOndolpassOrderNumberCorrections,
   buildInternalChinaOndolpassOrderNumberCorrection,
   buildInternalChinaOndolpassReceiptObservation,
+  buildInternalChinaOndolpassReceiptSourceEventId,
   parseStoredInternalChinaOndolpassReceiptObservation,
 } from "../src/lib/internalChinaOndolpassReceiptObservationCore.ts";
 import { buildInternalChinaReceiptWorkspaceLines } from "../src/lib/internalChinaReceiptWorkspace.ts";
@@ -288,6 +289,37 @@ test("같은 화면 상태는 확인시각이 달라도 같은 멱등 해시를 
   );
 });
 
+test("같은 화면 상태라도 서로 다른 11-2 실행시각은 별도 적용 이력으로 기록한다", () => {
+  const first = buildInternalChinaOndolpassReceiptObservation(input(), evidence);
+  const later = buildInternalChinaOndolpassReceiptObservation(
+    input({ observedAt: "2026-11-21T05:00:00.000Z" }),
+    evidence,
+    first,
+  );
+  assert.equal(later.snapshotHash, first.snapshotHash);
+  const firstEventId = buildInternalChinaOndolpassReceiptSourceEventId(
+    draftId,
+    first.snapshotHash,
+    first.observedAt,
+  );
+  assert.equal(
+    buildInternalChinaOndolpassReceiptSourceEventId(
+      draftId,
+      first.snapshotHash,
+      first.observedAt,
+    ),
+    firstEventId,
+  );
+  assert.notEqual(
+    buildInternalChinaOndolpassReceiptSourceEventId(
+      draftId,
+      later.snapshotHash,
+      later.observedAt,
+    ),
+    firstEventId,
+  );
+});
+
 test("기존 저장본의 수량 불일치도 다시 읽을 때 부족·초과 입고로 복구한다", () => {
   const current = buildInternalChinaOndolpassReceiptObservation(
     input({
@@ -375,6 +407,12 @@ test("API/UI 계약은 관찰 저장과 실제 입고확정을 분리한다", as
   assert.match(route, /export async function PATCH/);
   assert.match(route, /saveInternalChinaOndolpassOrderNumberCorrection/);
   assert.match(service, /resolution=ignore-duplicates/);
+  assert.match(service, /buildInternalChinaOndolpassReceiptSourceEventId/);
+  assert.match(service, /observation\.observedAt/);
+  assert.doesNotMatch(
+    service,
+    /context\.observation\?\.snapshotHash === observation\.snapshotHash/,
+  );
   assert.match(service, /snapshotHash/);
   assert.match(service, /INTERNAL_CHINA_ONDOLPASS_ORDER_NUMBER_CORRECTION/);
   assert.match(service, /applyInternalChinaOndolpassOrderNumberCorrections/);

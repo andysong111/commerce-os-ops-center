@@ -144,6 +144,31 @@ function sourceKey(applicationNo: string, rowNo: number) {
   return `${applicationNo}:${rowNo}`;
 }
 
+export function buildInternalChinaOndolpassReceiptSourceEventId(
+  draftIdInput: unknown,
+  snapshotHashInput: unknown,
+  observedAtInput: unknown,
+) {
+  const draftId = text(draftIdInput);
+  const snapshotHash = text(snapshotHashInput);
+  const observedAt = iso(observedAtInput);
+  if (!DRAFT_ID.test(draftId)) {
+    throw new Error("ONDOLPASS_RECEIPT_SOURCE_EVENT_DRAFT_INVALID");
+  }
+  if (!SNAPSHOT_HASH.test(snapshotHash)) {
+    throw new Error("ONDOLPASS_RECEIPT_SOURCE_EVENT_HASH_INVALID");
+  }
+  if (!observedAt) {
+    throw new Error("ONDOLPASS_RECEIPT_SOURCE_EVENT_TIME_INVALID");
+  }
+  return `ondolpass-receipt:${draftId}:${hash({
+    schemaVersion: 1,
+    draftId,
+    snapshotHash,
+    observedAt,
+  }).replace(/^sha256:/, "")}`;
+}
+
 export function normalizeOndolpassTrackingNumbers(value: unknown) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value
