@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import type { InternalChinaPurchaseBudgetAudit as BudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
+import { A2B_PLANNING_FX_MULTIPLIER, ECB_REFERENCE_RATE_PAGE } from "@/lib/purchasePlanningFx";
 
 const money = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const percent = new Intl.NumberFormat("ko-KR", {
@@ -79,26 +81,30 @@ export function InternalChinaPurchaseBudgetAudit({
           note={`누적 적립 ${money.format(audit.cumulativeAccruedBudgetKrw)}원 - 주문완료 ${money.format(audit.recordedOrderedSpendKrw)}원`}
         />
         <Metric
-          label="상품대금 발주한도"
+          label={audit.planningFx ? "결제액 발주한도" : "상품대금 발주한도"}
           value={`${money.format(audit.productOrderBudgetKrw)}원`}
           note={`예상 도착 총액은 구매대금 ×${audit.purchaseCostMultiplier.toFixed(2)}`}
         />
         <Metric
-          label="현재 Draft 상품대금"
-          value={`${money.format(audit.selectedDraftEstimatedProductCostKrw)}원`}
+          label={audit.planningFx ? "초안 예상 결제액" : "현재 Draft 상품대금"}
+          value={`${money.format(audit.planningFx
+            ? audit.selectedDraftEstimatedPaymentKrw
+            : audit.selectedDraftEstimatedProductCostKrw)}원`}
           note={`${percent.format(audit.selectedDraftBudgetUtilizationPercent)}% 사용`}
           emphasized
         />
         <Metric
           label="A2B상사 내부 기준환율"
-          value="출처 연결 대기"
-          note={`기존 계산 적용 ${percent.format(audit.appliedKrwPerCny)}원/위안 · 새 산식은 기준환율 ×1.05 (결제·환전비 포함)`}
+          value={`${percent.format(audit.appliedKrwPerCny)}원/위안`}
+          note={audit.planningFx
+            ? <><a href={ECB_REFERENCE_RATE_PAGE} target="_blank" rel="noreferrer" className="underline">ECB 공시 {audit.planningFx.date}</a> · 교차환율 {percent.format(audit.planningFx.baseKrwPerCny)} ×{A2B_PLANNING_FX_MULTIPLIER} (결제·환전비 포함)</>
+            : "기록 당시 적용값"}
         />
         <Metric
           label={
             audit.selectedDraftBudgetOverKrw > 0
               ? "예산 초과"
-              : "상품대금 잔여예산"
+              : "잔여예산"
           }
           value={`${money.format(
             audit.selectedDraftBudgetOverKrw > 0
@@ -159,7 +165,7 @@ function Metric({
 }: {
   label: string;
   value: string;
-  note?: string;
+  note?: ReactNode;
   emphasized?: boolean;
   danger?: boolean;
 }) {

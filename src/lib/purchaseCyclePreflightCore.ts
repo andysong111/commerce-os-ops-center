@@ -10,6 +10,7 @@ import { PURCHASE_DRAFT_REVIEW_LINE_LIMIT } from "./purchaseDraftLimits.ts";
 import type { PurchaseCandidateOmissionReviewRow } from "./purchaseCandidateOmissionAudit";
 import type { PurchaseWholesaleCostEstimateSnapshot } from "./purchaseWholesaleCostEstimate";
 import type { PurchaseActualDraftCostSnapshot } from "./purchaseActualDraftCostSnapshot";
+import { A2B_PLANNING_PAYMENT_MULTIPLIER } from "./purchasePlanningFx.ts";
 import {
   validPurchaseOwnerCostEstimateSnapshot,
   type PurchaseOwnerCostEstimateSnapshot,
@@ -755,8 +756,20 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
     input.spendBefore.contentFingerprint === input.spendAfter.contentFingerprint;
   if (!spendStable) blockers.push("CYCLE_SPEND_CHANGED_OR_UNVERIFIED");
   const recordedCycleSpendKrw = spendStable && input.spendAfter ? input.spendAfter.recordedSpendKrw : null;
+  const actualBefore = input.actualCostsBefore ?? null;
+  const actualAfter = input.actualCostsAfter ?? null;
+  const actualSnapshotStable = Boolean(
+    actualBefore &&
+    actualAfter &&
+    actualBefore.draftId === input.options.replaceDraftId &&
+    actualAfter.draftId === input.options.replaceDraftId &&
+    fingerprint(actualBefore.contentFingerprint) &&
+    actualBefore.contentFingerprint === actualAfter.contentFingerprint,
+  );
   const multiplier = source?.purchaseCostMultiplier;
-  const paymentFeeMultiplier = source?.paymentFeeMultiplier ?? DEFAULT_PAYMENT_FEE_MULTIPLIER;
+  const paymentFeeMultiplier = startNewRun || (actualSnapshotStable && actualAfter?.planningFx)
+    ? A2B_PLANNING_PAYMENT_MULTIPLIER
+    : source?.paymentFeeMultiplier ?? DEFAULT_PAYMENT_FEE_MULTIPLIER;
   const multiplierValid = typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 1 && multiplier <= 3;
   const paymentFeeMultiplierValid = typeof paymentFeeMultiplier === "number" && Number.isFinite(paymentFeeMultiplier) && paymentFeeMultiplier >= 1 && paymentFeeMultiplier <= 2;
   const fundingValid = positive(source?.grossBudgetKrw) && multiplierValid && paymentFeeMultiplierValid;
@@ -845,16 +858,6 @@ export function buildPurchaseCyclePreflight(input: PurchasePreflightInput): Purc
   }
   if (ownerSnapshot && !ownerSnapshotUsable) reviewBlockers.push("OWNER_COST_ESTIMATE_INVALID");
 
-  const actualBefore = input.actualCostsBefore ?? null;
-  const actualAfter = input.actualCostsAfter ?? null;
-  const actualSnapshotStable = Boolean(
-    actualBefore &&
-    actualAfter &&
-    actualBefore.draftId === input.options.replaceDraftId &&
-    actualAfter.draftId === input.options.replaceDraftId &&
-    fingerprint(actualBefore.contentFingerprint) &&
-    actualBefore.contentFingerprint === actualAfter.contentFingerprint,
-  );
   const actualByBarcode = new Map<string, PurchaseCostBasis>();
   if (actualSnapshotStable && actualAfter) {
     for (const row of actualAfter.rows) {

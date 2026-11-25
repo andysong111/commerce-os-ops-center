@@ -5,6 +5,7 @@ on:
     paths:
       - "src/lib/chinaOrderLedger.ts"
       - "src/lib/internalChinaPurchaseDraft.ts"
+      - "src/lib/purchasePlanningFx.ts"
       - "src/lib/internalChinaOrderEvidence.ts"
       - "src/lib/internalChinaPaymentEvidence.ts"
       - "src/lib/productDecisionEngine/purchaseCostPolicy.ts"
@@ -40,6 +41,7 @@ on:
       - "src/components/fast-purchase-mvp/PreviousPurchaseCycleHandoff.tsx"
       - "tests/chinaOrderLedger.test.mjs"
       - "tests/internalChinaPurchaseDraftMvp.test.mjs"
+      - "tests/purchasePlanningFx.test.mjs"
       - "tests/internalChinaOrderEvidence.test.mjs"
       - "tests/internalChinaPaymentEvidence.test.mjs"
       - "tests/internalChinaPurchaseBudgetAudit.test.mjs"
@@ -78,6 +80,7 @@ jobs:
           npx eslint
           src/lib/chinaOrderLedger.ts
           src/lib/internalChinaPurchaseDraft.ts
+          src/lib/purchasePlanningFx.ts
           src/lib/internalChinaOrderEvidence.ts
           src/lib/internalChinaPurchaseBudgetAudit.ts
           src/lib/internalChinaReceipt.ts
@@ -130,6 +133,7 @@ jobs:
           src/components/fast-purchase-mvp/PreviousPurchaseCycleHandoff.tsx
           tests/chinaOrderLedger.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
+          tests/purchasePlanningFx.test.mjs
           tests/internalChinaOrderEvidence.test.mjs
           tests/internalChinaPaymentEvidence.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
@@ -146,6 +150,7 @@ jobs:
         run: >-
           node --experimental-strip-types --test
           tests/chinaOrderLedger.test.mjs
+          tests/purchasePlanningFx.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
           tests/internalChinaOrderEvidence.test.mjs
           tests/internalChinaPaymentEvidence.test.mjs
