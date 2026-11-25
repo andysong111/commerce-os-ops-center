@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const ORIGIN = "https://commerce-os-ops-center.vercel.app";
 const REPOSITORY = "andysong111/commerce-os-ops-center";
+const PRIMARY_VERCEL_CONTEXTS = new Set(["Vercel", "Vercel – commerce-os-ops-center"]);
 const MONTH = /^20\d{2}-(0[1-9]|1[0-2])$/;
 const STAGES = ["order", "receipt", "master", "inventory", "sale", "cost", "funding", "next"];
 const STATES = ["BLOCKED", "NEEDS_ACTION", "READY_FOR_NEXT_CALCULATION", "NO_ORDER_CLOSED"];
@@ -89,7 +90,7 @@ export async function waitForProduction(sha, token, fetcher = fetch, pause = sle
     });
     requireProof(response.ok, "LIVE_DEPLOYMENT_READ_FAILED");
     const payload = await response.json();
-    const deployment = payload.statuses?.find((row) => row.context === "Vercel");
+    const deployment = payload.statuses?.find((row) => PRIMARY_VERCEL_CONTEXTS.has(row.context));
     requireProof(!["error", "failure"].includes(deployment?.state), "LIVE_DEPLOYMENT_FAILED");
     if (deployment?.state === "success") {
       const head = await fetcher(`https://api.github.com/repos/${REPOSITORY}/git/ref/heads/main`, {

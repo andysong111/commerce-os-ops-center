@@ -51,7 +51,7 @@ test("401, wrong month, malformed stages and false completion never pass the liv
   assert.throws(() => safeCycleSummary(200, invalidDiagnostics, month), /LIVE_STOCK_DIAGNOSTICS_INVALID/);
 });
 
-test("deployment waiter uses exact SHA, a fixed read endpoint and waits for successful Vercel status", async () => {
+test("deployment waiter uses exact SHA, a fixed read endpoint and the primary Ops Center Vercel status", async () => {
   const sha = "a".repeat(40); let calls = 0, pauses = 0, heads = 0;
   await waitForProduction(sha, "fixture-token", async (url, options) => {
     if (url.endsWith("/git/ref/heads/main")) {
@@ -59,12 +59,15 @@ test("deployment waiter uses exact SHA, a fixed read endpoint and waits for succ
     }
     assert.equal(url, `https://api.github.com/repos/andysong111/commerce-os-ops-center/commits/${sha}/status`);
     assert.equal(options.redirect, "error"); assert.equal(options.method || "GET", "GET");
-    calls++; return Response.json({ statuses: [{ context: "Vercel", state: calls === 1 ? "pending" : "success" }] });
+    calls++; return Response.json({ statuses: [
+      { context: "Vercel – commerce-os-shopling-parallel-resume-hf51", state: "failure" },
+      { context: "Vercel – commerce-os-ops-center", state: calls === 1 ? "pending" : "success" },
+    ] });
   }, async () => { pauses++; });
   assert.equal(calls, 2); assert.equal(pauses, 1); assert.equal(heads, 1);
   await assert.rejects(waitForProduction(sha, "fixture-token", async (url) => Response.json(url.endsWith("/git/ref/heads/main") ? { object: { sha: "b".repeat(40) } } : { statuses: [{ context: "Vercel", state: "success" }] })), /LIVE_DEPLOYMENT_SUPERSEDED/);
   await assert.rejects(waitForProduction("bad", "fixture-token", async () => { throw new Error("must not fetch"); }), /LIVE_DEPLOYMENT_CONTEXT_REQUIRED/);
-  await assert.rejects(waitForProduction(sha, "fixture-token", async () => Response.json({ statuses: [{ context: "Vercel", state: "failure" }] })), /LIVE_DEPLOYMENT_FAILED/);
+  await assert.rejects(waitForProduction(sha, "fixture-token", async () => Response.json({ statuses: [{ context: "Vercel – commerce-os-ops-center", state: "failure" }] })), /LIVE_DEPLOYMENT_FAILED/);
 });
 
 test("ready-for-next-calculation must not certify the next calculation itself as started or completed", () => {
