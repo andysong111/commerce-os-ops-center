@@ -16,6 +16,7 @@ import type { KeywordElonTitleExpansionMaterial } from "./keywordEngineElonTitle
 import {
   mergeSeoRequiredTitleKeywords,
   normalizeSeoRequiredKeywords,
+  seoTwoRequiredTitleCoverage,
 } from "./seoRequiredKeywords.ts";
 
 function text(value: unknown) {
@@ -219,6 +220,7 @@ export function composeFreshKeywordElonMallTitles(input: {
   const attemptResults: KeywordElonMallTitleSafeComposerResult[] = [];
   let best: KeywordElonMallTitleSafeComposerResult | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestCoverage = 0;
   let bestAttempt = 0;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -237,9 +239,11 @@ export function composeFreshKeywordElonMallTitles(input: {
     });
     attemptResults.push(result);
     const score = freshnessScore(result, excludedTitles);
-    if (score < bestScore) {
+    const coverage = seoTwoRequiredTitleCoverage(requiredTitleKeywords, result.rows);
+    if (score < bestScore || (score === bestScore && coverage > bestCoverage)) {
       best = result;
       bestScore = score;
+      bestCoverage = coverage;
       bestAttempt = attempt;
     }
   }
@@ -247,6 +251,18 @@ export function composeFreshKeywordElonMallTitles(input: {
   if (!best) throw new Error("SEO 회차 상품명 후보를 만들지 못했습니다.");
 
   let selected = best;
+  const retainedPreference = (proposed: KeywordElonMallTitleSafeComposerResult) => {
+    if (!preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
+      return "kept_history_preference";
+    }
+    if (
+      seoTwoRequiredTitleCoverage(requiredTitleKeywords, proposed.rows) <
+      seoTwoRequiredTitleCoverage(requiredTitleKeywords, selected.rows)
+    ) {
+      return "kept_required_title_coverage";
+    }
+    return null;
+  };
   let portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:enabled";
   try {
     const proposed = composeKeywordElonIntentPortfolioV7({
@@ -255,11 +271,9 @@ export function composeFreshKeywordElonMallTitles(input: {
       expansionPool: expansion,
       excludedTitles,
     });
-    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
-      selected = proposed;
-    } else {
-      portfolioWarning = "SEO_RUN_INTENT_PORTFOLIO_V7:kept_history_preference";
-    }
+    const reason = retainedPreference(proposed);
+    if (reason) portfolioWarning = `SEO_RUN_INTENT_PORTFOLIO_V7:${reason}`;
+    else selected = proposed;
   } catch (error) {
     portfolioWarning = `SEO_RUN_INTENT_PORTFOLIO_V7_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
@@ -274,11 +288,9 @@ export function composeFreshKeywordElonMallTitles(input: {
       finalKeywords: finals,
       excludedTitles,
     });
-    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
-      selected = proposed;
-    } else {
-      diversityWarning = "SEO_RUN_MALL_TITLE_DIVERSITY_V8:kept_history_preference";
-    }
+    const reason = retainedPreference(proposed);
+    if (reason) diversityWarning = `SEO_RUN_MALL_TITLE_DIVERSITY_V8:${reason}`;
+    else selected = proposed;
   } catch (error) {
     diversityWarning = `SEO_RUN_MALL_TITLE_DIVERSITY_V8_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,
@@ -292,11 +304,9 @@ export function composeFreshKeywordElonMallTitles(input: {
       selected,
       finalKeywords: finals,
     });
-    if (preservesKeywordElonHistoricalFreshness(selected, proposed, excludedTitles)) {
-      selected = proposed;
-    } else {
-      sameMallDiversityWarning = "SEO_RUN_SAME_MALL_DIVERSITY_V9:kept_history_preference";
-    }
+    const reason = retainedPreference(proposed);
+    if (reason) sameMallDiversityWarning = `SEO_RUN_SAME_MALL_DIVERSITY_V9:${reason}`;
+    else selected = proposed;
   } catch (error) {
     sameMallDiversityWarning = `SEO_RUN_SAME_MALL_DIVERSITY_V9_FALLBACK:${safeWarning(
       error instanceof Error ? error.message : error,

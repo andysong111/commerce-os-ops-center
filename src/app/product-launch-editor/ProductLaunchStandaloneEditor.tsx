@@ -9,6 +9,7 @@ import {
 import {
   SEO_REQUIRED_SEARCH_KEYWORD_LIMIT,
   SEO_REQUIRED_TITLE_KEYWORD_LIMIT,
+  compactSeoRequiredTitleInput,
   normalizeSeoRequiredKeywords,
   parseSeoRequiredKeywordList,
 } from "@/lib/seoRequiredKeywords";
@@ -131,7 +132,7 @@ function normalizeItem(value: unknown): EditorItem {
     shoplingCategory: text(row.shoplingCategory),
     selfCodeBase: text(row.selfCodeBase),
     notes: text(row.notes),
-    requiredTitleKeywords: parseSeoRequiredKeywordList(row.requiredTitleKeywords),
+    requiredTitleKeywords: parseSeoRequiredKeywordList(row.requiredTitleKeywords, "title"),
     requiredSearchKeywords: parseSeoRequiredKeywordList(row.requiredSearchKeywords),
     orderOptions: Array.isArray(row.orderOptions)
       ? row.orderOptions.map(normalizeOption)
@@ -152,8 +153,8 @@ function formFromItem(item: EditorItem): FormState {
     shoplingCategory: item.shoplingCategory,
     selfCodeBase: item.selfCodeBase,
     notes: item.notes,
-    requiredTitleKeywords: item.requiredTitleKeywords.join(", "),
-    requiredSearchKeywords: item.requiredSearchKeywords.join(", "),
+    requiredTitleKeywords: item.requiredTitleKeywords.join(","),
+    requiredSearchKeywords: item.requiredSearchKeywords.join(","),
     chinaProductLinks: item.chinaProductLinks.join("\n"),
     detailHtml: String(asset.html ?? ""),
     mainImageUrl: text(asset.mainImageUrl),
@@ -415,7 +416,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
   };
 
   const canSave = Boolean(form && item && !saving && !loading && form.modelNumber.trim() && form.productName.trim());
-  const requiredTitleKeywordCount = parseSeoRequiredKeywordList(form?.requiredTitleKeywords).length;
+  const requiredTitleKeywordCount = parseSeoRequiredKeywordList(form?.requiredTitleKeywords, "title").length;
   const requiredSearchKeywordCount = parseSeoRequiredKeywordList(form?.requiredSearchKeywords).length;
   const pricedOptionCount = useMemo(
     () => options.filter((option) => option.baseSalePriceKrw > 0 || option.unitCostKrw > 0).length,
@@ -603,10 +604,10 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
               <KeywordField
                 label="상품명 필수 포함 키워드"
                 value={form.requiredTitleKeywords}
-                onChange={(value) => updateForm("requiredTitleKeywords", value)}
+                onChange={(value) => updateForm("requiredTitleKeywords", compactSeoRequiredTitleInput(value))}
                 count={requiredTitleKeywordCount}
                 limit={SEO_REQUIRED_TITLE_KEYWORD_LIMIT}
-                help="1개는 모든 상품명에, 여러 개는 29개 쇼핑몰 상품명에 나눠 반영 · 확장 시드로 사용"
+                help="키워드 내부 공백은 자동 제거 · 1~2개는 가능한 많은 쇼핑몰에 반영 · 확장 시드로 사용"
               />
               <KeywordField
                 label="검색어 필수 포함 키워드"
@@ -614,7 +615,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
                 onChange={(value) => updateForm("requiredSearchKeywords", value)}
                 count={requiredSearchKeywordCount}
                 limit={SEO_REQUIRED_SEARCH_KEYWORD_LIMIT}
-                help="최종 검색어 10개 안에 우선 고정 · 확장 seed에는 사용하지 않음"
+                help="키워드 내부 공백 허용 · 모든 쇼핑몰의 공통 검색어 10개 안에 우선 반영"
               />
             </div>
           </div>

@@ -136,13 +136,23 @@ export function composeFreshKeywordElonMallTitles(input: {
     if (!groupFinalKeywords.length) {
       throw new Error(`V11 ${mallKey} 상품명에 배정할 최종키워드가 없습니다.`);
     }
-    const partial = composeFreshKeywordElonMallTitlesBase({
+    const groupInput = {
       ...input,
       markets,
       finalKeywords: groupFinalKeywords,
-      requiredTitleKeywords: requiredTitleKeywords.length === 1 ? requiredTitleKeywords : [],
       variationSeed: `${text(input.variationSeed) || "seo-v11"}:mall:${mallKey}`,
-    });
+    };
+    let partial: KeywordElonMallTitleSafeComposerResult;
+    try {
+      partial = composeFreshKeywordElonMallTitlesBase({
+        ...groupInput,
+        requiredTitleKeywords: requiredTitleKeywords.length <= 2 ? requiredTitleKeywords : [],
+      });
+    } catch (error) {
+      const coverageError = error instanceof Error && error.message.startsWith("쇼핑몰별 상품명 최종키워드 커버 실패:");
+      if (requiredTitleKeywords.length !== 2 || (!coverageError && !mayRecoverBySameMall(error))) throw error;
+      partial = composeFreshKeywordElonMallTitlesBase({ ...groupInput, requiredTitleKeywords: [] });
+    }
     partials.push(partial);
     for (const row of partial.rows) rowsByIdentity.set(rowIdentity(row), row);
   }

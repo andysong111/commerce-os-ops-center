@@ -416,11 +416,19 @@ function selectCandidate(input: {
   intentUsage: Map<KeywordElonTitleIntentClass, number>;
   preferredExpansionAvailable: boolean;
   supportingExpansionAvailable: boolean;
+  preferredRequiredKeys: string[];
 }) {
   let best: TitleCandidate | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
+  const requiredWeights = new Map(input.preferredRequiredKeys.map((key) => [
+    key,
+    1_000 + 10 * (input.rowIndex - (input.keywordUsage.get(key) ?? 0)),
+  ]));
   for (const candidate of input.candidates) {
     if (input.usedCanonical.has(candidate.canonical)) continue;
+    const requiredBonus = requiredWeights.size
+      ? candidate.segments.reduce((sum, segment) => sum + (requiredWeights.get(segment.key) ?? 0), 0)
+      : 0;
     const score = candidateScore({
       candidate,
       primary: input.primary,
@@ -429,7 +437,7 @@ function selectCandidate(input: {
       intentUsage: input.intentUsage,
       preferredExpansionAvailable: input.preferredExpansionAvailable,
       supportingExpansionAvailable: input.supportingExpansionAvailable,
-    });
+    }) - requiredBonus;
     if (
       score < bestScore ||
       (score === bestScore &&
@@ -454,8 +462,12 @@ export function composeKeywordElonSafeMallTitles(input: {
   const requiredTitleKeywords = normalizeSeoRequiredKeywords({
     titleKeywords: input.requiredTitleKeywords,
   }).titleKeywords;
+  const requiredByKey = new Map(requiredTitleKeywords.map((keyword) => [keywordElonSeoCanonical(keyword), keyword]));
   const { finals, materials } = buildMaterials({
-    finalKeywords: [...input.finalKeywords, ...requiredTitleKeywords],
+    finalKeywords: [
+      ...input.finalKeywords.map((keyword) => requiredByKey.get(keywordElonSeoCanonical(keyword)) ?? keyword),
+      ...requiredTitleKeywords,
+    ],
     titleExpansionPool: input.titleExpansionPool ?? [],
     context: input.context,
     blockedTerms: input.blockedTerms ?? [],
@@ -464,6 +476,7 @@ export function composeKeywordElonSafeMallTitles(input: {
   const requiredKeyForEveryTitle = requiredTitleKeywords.length === 1
     ? keywordElonSeoCanonical(requiredTitleKeywords[0])
     : "";
+  const preferredRequiredKeys = requiredTitleKeywords.length === 2 ? [...requiredByKey.keys()] : [];
   let candidates = buildCandidatePool(materials, finalKeys, requiredKeyForEveryTitle);
   const storedCategoryExpansions =
     candidates.length < input.markets.length
@@ -507,6 +520,7 @@ export function composeKeywordElonSafeMallTitles(input: {
       intentUsage,
       preferredExpansionAvailable,
       supportingExpansionAvailable,
+      preferredRequiredKeys,
     });
     if (!selected) throw new Error("카테고리 정합 상품명 후보가 부족합니다.");
 
