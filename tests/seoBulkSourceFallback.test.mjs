@@ -5,6 +5,7 @@ import test from "node:test";
 import * as v2 from "../src/lib/keywordEngineElonLabV2.ts";
 import * as materialReadiness from "../src/lib/productLaunchSeoMaterialReadiness.ts";
 import * as chain from "../src/lib/seoBulkSourceFallback.ts";
+import * as seoRequiredKeywords from "../src/lib/seoRequiredKeywords.ts";
 import * as oneClickRegistration from "../src/lib/seoRunOneClickRegistration.ts";
 import { loadPurchaseCycleModule as loadModule } from "./helpers/purchaseCycleHarness.mjs";
 
@@ -218,6 +219,7 @@ function routeFixture(authorized = true) {
       mergeSeoProhibitedKeywordLists: (...values) => [...new Set(values.flat().filter(Boolean))],
       readCombinedSeoProhibitedKeywordTerms: async () => [],
     },
+    "@/lib/seoRequiredKeywords": seoRequiredKeywords,
     "@/lib/productLaunchStockAvailability": {
       loadProductLaunchShoplingStockSnapshot: async () => ({}),
       buildProductLaunchStockStatusIndex: () => ({}),
@@ -477,6 +479,7 @@ test("actual durable worker carries Shopling/tracker fallback through checkpoint
       "@/lib/keywordEngineElonLabV2Step3": { expandKeywordElonFromPassing: async () => ({ newCandidateCount: 0, discovery: { candidates: [] } }) },
       "@/lib/keywordEngineElonLabV2Selection": { normalizeKeywordElonSelectionThresholds: () => ({}), selectKeywordElonStep4Union: (rows) => rows },
       "@/lib/keywordEngineElonLabV2Step4": { filterKeywordElonProhibitedKeywords: async () => { filterCalls++; return { allowedKeys: ["연필꽂이"], allowedCount: 1, decisions: [] }; } },
+      "@/lib/seoRequiredKeywords": seoRequiredKeywords,
       "@/lib/productLaunchTrackerServer": { getProductLaunchAdminConfig: () => ({ ok: true, value: {} }) },
       "@/lib/seoRunOneClickRegistration": oneClickRegistration,
       "@/lib/seoRunJobServer": {

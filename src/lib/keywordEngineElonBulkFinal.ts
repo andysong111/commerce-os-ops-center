@@ -349,9 +349,10 @@ export function composeKeywordElonBulkFinal(
     customBlockedTerms: input.customBlockedTerms ?? [],
     limit: 10,
   });
+  const selectedSearchKeywords = searchSelection.searchKeywords;
   const searchKeywords = prioritizeSeoRequiredSearchKeywords(
     requiredKeywords.searchKeywords,
-    searchSelection.searchKeywords,
+    selectedSearchKeywords,
     10,
   );
   if (searchKeywords.length !== 10) {
