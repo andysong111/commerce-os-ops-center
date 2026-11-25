@@ -26,8 +26,8 @@ import type {
   KeywordElonTitleIntentClass,
 } from "./keywordEngineElonTitleExpansion.ts";
 import {
+  missingSeoRequiredTitleKeywords,
   normalizeSeoRequiredKeywords,
-  seoTitleIncludesRequiredKeyword,
 } from "./seoRequiredKeywords.ts";
 
 export type KeywordElonMallTitleFactContext = {
@@ -194,7 +194,7 @@ function buildMaterials(input: {
 function buildCandidatePool(
   materials: KeywordElonLongTitleMaterial[],
   finalKeys: Set<string>,
-  requiredKeys: Set<string>,
+  requiredKeyForEveryTitle: string,
 ) {
   const result: TitleCandidate[] = [];
   const seen = new Set<string>();
@@ -205,11 +205,7 @@ function buildCandidatePool(
     append: (segments) => {
       if (segments.length < 2) return false;
       if (!segments.some((segment) => finalKeys.has(segment.key))) return false;
-      if (
-        [...requiredKeys].some(
-          (requiredKey) => !segments.some((segment) => segment.key === requiredKey),
-        )
-      ) {
+      if (requiredKeyForEveryTitle && !segments.some((segment) => segment.key === requiredKeyForEveryTitle)) {
         return false;
       }
       const title = segments
@@ -459,14 +455,16 @@ export function composeKeywordElonSafeMallTitles(input: {
     titleKeywords: input.requiredTitleKeywords,
   }).titleKeywords;
   const { finals, materials } = buildMaterials({
-    finalKeywords: [...requiredTitleKeywords, ...input.finalKeywords],
+    finalKeywords: [...input.finalKeywords, ...requiredTitleKeywords],
     titleExpansionPool: input.titleExpansionPool ?? [],
     context: input.context,
     blockedTerms: input.blockedTerms ?? [],
   });
   const finalKeys = new Set(finals.map(keywordElonSeoCanonical));
-  const requiredKeys = new Set(requiredTitleKeywords.map(keywordElonSeoCanonical));
-  let candidates = buildCandidatePool(materials, finalKeys, requiredKeys);
+  const requiredKeyForEveryTitle = requiredTitleKeywords.length === 1
+    ? keywordElonSeoCanonical(requiredTitleKeywords[0])
+    : "";
+  let candidates = buildCandidatePool(materials, finalKeys, requiredKeyForEveryTitle);
   const storedCategoryExpansions =
     candidates.length < input.markets.length
       ? appendStoredCategoryExpansionMaterials({
@@ -476,7 +474,7 @@ export function composeKeywordElonSafeMallTitles(input: {
         })
       : [];
   if (storedCategoryExpansions.length) {
-    candidates = buildCandidatePool(materials, finalKeys, requiredKeys);
+    candidates = buildCandidatePool(materials, finalKeys, requiredKeyForEveryTitle);
   }
   const expansionAvailable = materials.some((row) => row.origin === "category_expansion");
   const preferredExpansionAvailable = materials.some(
@@ -572,14 +570,11 @@ export function composeKeywordElonSafeMallTitles(input: {
     ) {
       throw new Error(`검증되지 않은 상품명 재료가 포함되었습니다: ${row.title}`);
     }
-    const missingRequired = requiredTitleKeywords.filter(
-      (keyword) => !seoTitleIncludesRequiredKeyword(row.title, keyword),
-    );
-    if (missingRequired.length) {
-      throw new Error(
-        `쇼핑몰별 상품명 필수 키워드 누락: ${missingRequired.join(", ")}`,
-      );
-    }
+  }
+
+  const missingRequired = missingSeoRequiredTitleKeywords(requiredTitleKeywords, rows);
+  if (missingRequired.length) {
+    throw new Error(`전체 쇼핑몰 상품명 필수 키워드 누락: ${missingRequired.join(", ")}`);
   }
 
   const uniqueTitleCount = new Set(

@@ -9,10 +9,8 @@ import {
 import {
   SEO_REQUIRED_SEARCH_KEYWORD_LIMIT,
   SEO_REQUIRED_TITLE_KEYWORD_LIMIT,
-  SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT,
   normalizeSeoRequiredKeywords,
   parseSeoRequiredKeywordList,
-  seoRequiredTitleKeywordBytes,
 } from "@/lib/seoRequiredKeywords";
 
 const ITEM_API = "/api/product-launch-tracker/normalized-optimized";
@@ -419,7 +417,6 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
   const canSave = Boolean(form && item && !saving && !loading && form.modelNumber.trim() && form.productName.trim());
   const requiredTitleKeywordCount = parseSeoRequiredKeywordList(form?.requiredTitleKeywords).length;
   const requiredSearchKeywordCount = parseSeoRequiredKeywordList(form?.requiredSearchKeywords).length;
-  const requiredTitleKeywordByteCount = seoRequiredTitleKeywordBytes(form?.requiredTitleKeywords);
   const pricedOptionCount = useMemo(
     () => options.filter((option) => option.baseSalePriceKrw > 0 || option.unitCostKrw > 0).length,
     [options],
@@ -609,7 +606,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
                 onChange={(value) => updateForm("requiredTitleKeywords", value)}
                 count={requiredTitleKeywordCount}
                 limit={SEO_REQUIRED_TITLE_KEYWORD_LIMIT}
-                help={`29개 쇼핑몰 상품명 모두에 포함 · 확장 seed로 사용 · 공백 포함 ${requiredTitleKeywordByteCount}/${SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT}bytes`}
+                help="1개는 모든 상품명에, 여러 개는 29개 쇼핑몰 상품명에 나눠 반영 · 확장 시드로 사용"
               />
               <KeywordField
                 label="검색어 필수 포함 키워드"

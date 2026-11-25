@@ -7,6 +7,7 @@ import { PRODUCT_GROUP_MARKET_REGISTRY } from "../src/lib/productGroupMarketRegi
 import { applyProductLaunchTrackerMutation } from "../src/lib/productLaunchTrackerOptimized.ts";
 import {
   buildSeoRequiredExpansionSeeds,
+  missingSeoRequiredTitleKeywords,
   normalizeSeoRequiredKeywords,
   prioritizeSeoRequiredSearchKeywords,
   seoTitleIncludesRequiredKeyword,
@@ -16,14 +17,14 @@ async function source(path) {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("상품상세 patch는 상품명·검색어 필수 키워드를 정규화해 item payload에 보존한다", () => {
+test("상품상세 patch는 AAA450의 47바이트 상품명 키워드와 중복 제거한 검색어를 저장한다", () => {
   const result = applyProductLaunchTrackerMutation(
     {
       schemaVersion: 3,
       items: [{
         id: "launch-required-keywords",
-        modelNumber: "AAA999",
-        productName: "무선 게임패드",
+        modelNumber: "AAA450",
+        productName: "MBTI 키보드키링 일자형",
         orderOptions: [],
       }],
     },
@@ -31,14 +32,15 @@ test("상품상세 patch는 상품명·검색어 필수 키워드를 정규화�
       operation: "patch_item",
       itemId: "launch-required-keywords",
       patch: {
-        requiredTitleKeywords: [" 무선게임패드 ", "블루투스컨트롤러", "무선게임패드"],
-        requiredSearchKeywords: "PC게임패드, 조이스틱, PC게임패드",
+        requiredTitleKeywords: "MBTI 키보드 키링,키보드키링,클리커",
+        requiredSearchKeywords: "mbti키보드키링, 클리커, 클리커",
       },
     },
   );
   const item = result.state.items[0];
-  assert.deepEqual(item.requiredTitleKeywords, ["무선게임패드", "블루투스컨트롤러"]);
-  assert.deepEqual(item.requiredSearchKeywords, ["PC게임패드", "조이스틱"]);
+  assert.equal(Buffer.byteLength(item.requiredTitleKeywords.join(" ")), 47);
+  assert.deepEqual(item.requiredTitleKeywords, ["MBTI 키보드 키링", "키보드키링", "클리커"]);
+  assert.deepEqual(item.requiredSearchKeywords, ["mbti키보드키링", "클리커"]);
 });
 
 test("상품명 필수 키워드만 확장 seed 앞자리에 고정하고 자동 seed로 나머지를 채운다", () => {
@@ -61,39 +63,73 @@ test("검색어 필수 키워드는 최종 10칸에서 우선 보존되고 중�
   assert.equal(keywords.filter((keyword) => keyword === "조이스틱").length, 1);
 });
 
-test("29개 쇼핑몰 상품명 모두에 상품명 필수 키워드를 넣고 50bytes 한도를 지킨다", () => {
-  const requiredTitleKeywords = ["발지압판", "지압발판"];
+test("AAA450의 47바이트 필수 키워드 세 개를 29개 상품명에 나눠 쓰고 발굴 키워드를 활용한다", () => {
+  const requiredTitleKeywords = ["MBTI 키보드 키링", "키보드키링", "클리커"];
+  const discovered = ["키캡키링", "가방고리", "키보드스위치", "열쇠고리", "미니키링", "일자형"];
   const result = composeFreshKeywordElonMallTitles({
     markets: PRODUCT_GROUP_MARKET_REGISTRY,
-    finalKeywords: [
-      "발지압판",
-      "지압발판",
-      "발바닥",
-      "지압",
-      "발판",
-      "마사지",
-      "발지압",
-      "발마사지",
-      "지압기",
-      "발관리",
-    ],
+    finalKeywords: discovered,
     requiredTitleKeywords,
-    modelName: "발바닥 지압스텝퍼",
+    modelName: "MBTI 키보드키링 일자형",
     context: {
-      modelNumber: "AAA491",
-      productName: "발바닥 지압스텝퍼",
-      category: "생활/건강>안마용품>다리/발안마기",
+      modelNumber: "AAA450",
+      productName: "MBTI 키보드키링 일자형",
+      category: "문구/취미/펫>문구/사무용품>문구용품>열쇠고리/키홀더",
     },
   });
 
   assert.equal(result.rows.length, 29);
   assert.equal(result.uniqueTitleCount, 29);
   for (const row of result.rows) {
-    for (const keyword of requiredTitleKeywords) {
-      assert.equal(seoTitleIncludesRequiredKeyword(row.title, keyword), true, row.title);
-    }
-    assert.ok(Buffer.byteLength(row.title, "utf8") <= 50, row.title);
+    assert.ok(Buffer.byteLength(row.title, "utf8") >= 30 && Buffer.byteLength(row.title, "utf8") <= 50, row.title);
   }
+  for (const keyword of requiredTitleKeywords) {
+    const rows = result.rows.filter((row) => row.keywordMaterials.includes(keyword));
+    assert.ok(rows.length > 1 && rows.length < 29, `${keyword}: ${rows.length}/29`);
+    assert.ok(rows.every((row) => seoTitleIncludesRequiredKeyword(row.title, keyword)));
+  }
+  assert.ok(result.rows.some((row) =>
+    row.keywordMaterials.some((keyword) => requiredTitleKeywords.includes(keyword)) &&
+    row.keywordMaterials.some((keyword) => discovered.includes(keyword)),
+  ));
+});
+
+test("V11 희소 후보 복구는 몰마다 필수 키워드 일부를 배정하고 전체에서 모두 보존한다", () => {
+  const requiredTitleKeywords = ["스트라이프버킷햇", "벙거지모자용품"];
+  const markets = PRODUCT_GROUP_MARKET_REGISTRY.map((market, index) => ({
+    ...market,
+    mallKey: `fixture-${index}`,
+  }));
+  const result = composeFreshKeywordElonMallTitles({
+    markets,
+    finalKeywords: ["여름패션"],
+    requiredTitleKeywords,
+    modelName: "여름휴가코디",
+    context: { productName: "스트라이프버킷햇" },
+  });
+  assert.equal(result.rows.length, markets.length);
+  assert.ok(result.warnings.some((warning) => warning.startsWith("SEO_RUN_V11_SAME_MALL_UNIQUENESS_FALLBACK:")));
+  assert.deepEqual(missingSeoRequiredTitleKeywords(requiredTitleKeywords, result.rows), []);
+  assert.ok(result.rows.some((row) => row.keywordMaterials.includes("여름패션")));
+});
+
+test("상품명 필수 키워드가 한 개면 29개 상품명 모두에 포함한다", () => {
+  const requiredTitleKeywords = ["클리커"];
+  const result = composeFreshKeywordElonMallTitles({
+    markets: PRODUCT_GROUP_MARKET_REGISTRY,
+    finalKeywords: ["키캡키링", "가방고리", "키보드스위치", "열쇠고리", "미니키링", "일자형"],
+    requiredTitleKeywords,
+    modelName: "MBTI 키보드키링 일자형",
+    context: { modelNumber: "AAA450", productName: "MBTI 키보드키링 일자형" },
+  });
+  assert.equal(result.rows.length, 29);
+  for (const row of result.rows) {
+    assert.ok(row.keywordMaterials.includes("클리커"), row.title);
+  }
+  assert.deepEqual(
+    missingSeoRequiredTitleKeywords(requiredTitleKeywords, [...result.rows, { title: "가방고리", keywordMaterials: ["가방고리"] }]),
+    requiredTitleKeywords,
+  );
 });
 
 test("한도 초과·금지어 입력은 조용히 잘라내지 않고 저장/등록 전에 차단한다", () => {
@@ -106,8 +142,21 @@ test("한도 초과·금지어 입력은 조용히 잘라내지 않고 저장/�
     /금지·잡음/,
   );
   assert.throws(
-    () => normalizeSeoRequiredKeywords({ titleKeywords: "가나다라마바사아,아사바마라다나가" }),
-    /합계.*43bytes/,
+    () => normalizeSeoRequiredKeywords({ titleKeywords: "가나다라마바사아자차카" }),
+    /30bytes를 초과/,
+  );
+});
+
+test("전체 상품명 검증은 긴 문구에 묻어 있는 키워드나 재료에만 적힌 키워드를 사용으로 세지 않는다", () => {
+  assert.deepEqual(
+    missingSeoRequiredTitleKeywords(
+      ["MBTI 키보드 키링", "키보드키링", "클리커"],
+      [
+        { title: "MBTI 키보드 키링 미니 열쇠고리", keywordMaterials: ["MBTI 키보드 키링", "미니", "열쇠고리"] },
+        { title: "가방고리 미니 키링", keywordMaterials: ["가방고리", "미니 키링", "클리커"] },
+      ],
+    ),
+    ["키보드키링", "클리커"],
   );
 });
 
@@ -130,6 +179,6 @@ test("상품상세 → SEO RUN → FINAL 공통 경로에 필수 키워드 계�
   assert.doesNotMatch(worker, /buildSeoRequiredExpansionSeeds\(\s*input\.requiredSearchKeywords/s);
   assert.match(finalComposer, /requiredTitleKeywords: requiredKeywords\.titleKeywords/);
   assert.match(finalComposer, /prioritizeSeoRequiredSearchKeywords/);
-  assert.match(finalComposer, /상품명 필수 키워드가 누락되었습니다/);
+  assert.match(finalComposer, /missingSeoRequiredTitleKeywords\(requiredKeywords\.titleKeywords, mallTitles\)/);
   assert.match(finalComposer, /검색어 필수 키워드가 누락되었습니다/);
 });
