@@ -43,7 +43,8 @@ test("V8 title-first generation preserves V6 ledger compatibility and 30~50B tit
     /groupProductNames\[SEO_TITLE_EXPANSION_META_GROUP_KEY\] = JSON\.stringify/,
   );
   assert.match(bulk, /source: SEO_FINAL_SOURCE_V8/);
-  assert.match(bulk, /const searchKeywords = searchSelection.searchKeywords/);
+  assert.match(bulk, /const selectedSearchKeywords = searchSelection.searchKeywords/);
+  assert.match(bulk, /const searchKeywords = prioritizeSeoRequiredSearchKeywords/);
   assert.match(bulk, /titleMaterialPolicy: titleExpansionPool\.length/);
 
   assert.match(policy, /KEYWORD_ELON_LONG_TITLE_HARD_MIN_BYTES = 30/);

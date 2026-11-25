@@ -16,6 +16,7 @@ on:
       - "src/app/seo-bulk-cloud/**"
       - "src/lib/seoTitle*"
       - "src/lib/seoRun*"
+      - "src/lib/seoRequiredKeywords.ts"
       - "src/lib/seoBulk*"
       - "src/lib/productLaunchSeoMaterialReadiness.ts"
       - "src/lib/sourcingReceiptGate.ts"
@@ -64,6 +65,7 @@ on:
       - "tests/seoRunDurableWorker.test.mjs"
       - "tests/seoBulkSourceFallback.test.mjs"
       - "tests/seoRunClaimLoadShedding.test.mjs"
+      - "tests/seoRequiredKeywords.test.mjs"
       - "tests/seoCloudPerformance.test.mjs"
       - "vercel.json"
       - ".github/workflows/seo-title-inventory-ledger-ci.yml"
@@ -105,6 +107,7 @@ jobs:
           src/lib/seoRunJobServer.ts
           src/lib/seoRunJobHistory.ts
           src/lib/seoRunWorker.ts
+          src/lib/seoRequiredKeywords.ts
           src/lib/seoBulkSourceFallback.ts
           src/lib/seoBulkShoplingSource.ts
           src/lib/seoRunWorkerControl.ts
@@ -122,6 +125,7 @@ jobs:
           src/lib/keywordEngineElonLabModule.ts
           src/lib/opsModuleRegistry.ts
           tests/seoRunClaimLoadShedding.test.mjs
+          tests/seoRequiredKeywords.test.mjs
           tests/seoCategoryIntentExpansionV5.test.mjs
           tests/seoRunDurableWorker.test.mjs
           tests/seoBulkSourceFallback.test.mjs
@@ -143,6 +147,7 @@ jobs:
           tests/seoRunDurableWorker.test.mjs
           tests/seoBulkSourceFallback.test.mjs
           tests/seoRunClaimLoadShedding.test.mjs
+          tests/seoRequiredKeywords.test.mjs
           tests/seoCloudPerformance.test.mjs
       - name: Build
         run: npm run build

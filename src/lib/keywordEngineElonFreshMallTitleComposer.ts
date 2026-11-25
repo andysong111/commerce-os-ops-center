@@ -13,6 +13,10 @@ import {
   type KeywordElonSeoMarket,
 } from "./keywordEngineElonLabSeoOutput.ts";
 import type { KeywordElonTitleExpansionMaterial } from "./keywordEngineElonTitleExpansion.ts";
+import {
+  mergeSeoRequiredTitleKeywords,
+  normalizeSeoRequiredKeywords,
+} from "./seoRequiredKeywords.ts";
 
 function text(value: unknown) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -176,6 +180,7 @@ function buildSparseModelSupports(input: {
 export function composeFreshKeywordElonMallTitles(input: {
   markets: KeywordElonSeoMarket[];
   finalKeywords: string[];
+  requiredTitleKeywords?: string[];
   titleExpansionPool?: KeywordElonTitleExpansionMaterial[];
   modelName: string;
   context: KeywordElonMallTitleFactContext;
@@ -183,7 +188,14 @@ export function composeFreshKeywordElonMallTitles(input: {
   excludedTitles?: string[];
   variationSeed?: string;
 }): KeywordElonMallTitleSafeComposerResult {
-  const finals = [...input.finalKeywords];
+  const requiredTitleKeywords = normalizeSeoRequiredKeywords({
+    titleKeywords: input.requiredTitleKeywords,
+  }).titleKeywords;
+  const finals = mergeSeoRequiredTitleKeywords(
+    requiredTitleKeywords,
+    input.finalKeywords,
+    12,
+  );
   const baseExpansion = [...(input.titleExpansionPool ?? [])];
   const sparseModelSupports = buildSparseModelSupports({
     finals,
@@ -217,6 +229,7 @@ export function composeFreshKeywordElonMallTitles(input: {
     const result = composeKeywordElonSafeMallTitles({
       markets: input.markets,
       finalKeywords: rotate(finals, finalOffset),
+      requiredTitleKeywords,
       titleExpansionPool: rotate(expansion, expansionOffset),
       modelName: input.modelName,
       context: input.context,
@@ -321,6 +334,7 @@ export function composeFreshKeywordElonMallTitles(input: {
       `SEO_RUN_EXCLUDED_TITLE_COUNT:${excludedTitles.length}`,
       `SEO_RUN_EXACT_TITLE_REUSE:${exactReuse}`,
       `SEO_RUN_REORDER_ONLY_REUSE:${reorderOnly}`,
+      `SEO_RUN_REQUIRED_TITLE_KEYWORDS:${requiredTitleKeywords.length}`,
     ],
   };
 }

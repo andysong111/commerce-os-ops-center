@@ -24,7 +24,8 @@ test("SEO bulk 상품명은 FACT 브리지 없이 검증 상품명 재료를 먼
   assert.match(bulk, /titleExpansionPool/);
   assert.match(bulk, /buildKeywordElonTitleKeywordReservoirV8/);
   assert.match(bulk, /selectKeywordElonComplementSearchKeywordsV8/);
-  assert.match(bulk, /const searchKeywords = searchSelection.searchKeywords/);
+  assert.match(bulk, /const selectedSearchKeywords = searchSelection.searchKeywords/);
+  assert.match(bulk, /const searchKeywords = prioritizeSeoRequiredSearchKeywords/);
   assert.match(bulk, /SEO_KEYWORD_POLICY:TITLE_FIRST_SEARCH_COMPLEMENT_V8/);
   assert.match(bulk, /titleKeywords.length < 2/);
   assert.match(bulk, /searchKeywords.length !== 10/);

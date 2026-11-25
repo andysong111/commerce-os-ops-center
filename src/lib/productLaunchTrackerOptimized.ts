@@ -5,6 +5,7 @@ import {
 import { productLaunchSeoMaterialReadiness } from "./productLaunchSeoMaterialReadiness.ts";
 import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts";
 import { roundUpProductLaunchPriceKrw } from "./productLaunchPricePolicy.ts";
+import { normalizeSeoRequiredKeywords } from "./seoRequiredKeywords.ts";
 import {
   sourcingReceiptStatus,
   type SourcingReceiptStatus,
@@ -742,6 +743,10 @@ function patchStage(
 function normalizeWholeItem(item: UnknownRecord, now: string) {
   const barcode = normalizeLocationCode(item.barcode);
   const orderOptions = normalizeOrderOptions(item.orderOptions, item.options);
+  const requiredKeywords = normalizeSeoRequiredKeywords({
+    titleKeywords: item.requiredTitleKeywords,
+    searchKeywords: item.requiredSearchKeywords,
+  });
   if (orderOptions.length === 1 && barcode) orderOptions[0].barcode = barcode;
   return {
     ...item,
@@ -754,6 +759,8 @@ function normalizeWholeItem(item: UnknownRecord, now: string) {
     shoplingCategory: text(item.shoplingCategory),
     selfCodeBase: text(item.selfCodeBase),
     notes: text(item.notes),
+    requiredTitleKeywords: requiredKeywords.titleKeywords,
+    requiredSearchKeywords: requiredKeywords.searchKeywords,
     orderOptions,
     options: orderOptions.map((option) => option.saleOption).filter(Boolean),
     updatedAt: text(item.updatedAt) || now,
