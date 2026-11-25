@@ -141,7 +141,7 @@ test("바코드 근거에 주문번호가 있으면 온돌패스 주문번호 �
   assert.match(result.issues.join("\n"), /ORDER_NO_MISMATCH:673626:1/);
 });
 
-test("누락·중복 행과 이미 입고된 행의 회귀는 fail-closed 한다", () => {
+test("누락·중복 행은 차단하고 이미 입고된 행의 표식 소실은 누적 상태로 유지한다", () => {
   const missing = input({
     applications: input().applications.map((application) =>
       application.applicationNo === "673842"
@@ -161,10 +161,17 @@ test("누락·중복 행과 이미 입고된 행의 회귀는 fail-closed 한다
       rows: application.rows.map((row) => ({ ...row, status: "PENDING" })),
     })),
   });
-  assert.throws(
-    () => buildInternalChinaOndolpassReceiptObservation(regressed, evidence, previous),
-    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  const carried = buildInternalChinaOndolpassReceiptObservation(
+    regressed,
+    evidence,
+    previous,
   );
+  assert.equal(carried.receivedRowCount, previous.receivedRowCount);
+  assert.equal(
+    carried.observedReceivedQuantity,
+    previous.observedReceivedQuantity,
+  );
+  assert.equal(carried.snapshotHash, previous.snapshotHash);
 
   const partialPrevious = buildInternalChinaOndolpassReceiptObservation(input({
     applications: input().applications.map((application) => ({
@@ -187,6 +194,43 @@ test("누락·중복 행과 이미 입고된 행의 회귀는 fail-closed 한다
     () => buildInternalChinaOndolpassReceiptObservation(reducedQuantity, evidence, partialPrevious),
     /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
   );
+
+  const disposedAfterReceipt = input({
+    observedAt: "2026-11-21T06:00:00.000Z",
+    applications: input().applications.map((application) => ({
+      ...application,
+      rows: application.rows.map((row) => ({
+        ...row,
+        status: application.applicationNo === "673842" && row.rowNo === 1
+          ? "DISPOSED"
+          : "RECEIVED",
+      })),
+    })),
+  });
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(
+      disposedAfterReceipt,
+      evidence,
+      partialPrevious,
+    ),
+    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  );
+});
+
+test("온돌패스 상단 신청상태는 신청번호별 품목 입고 판정에 관여하지 않는다", () => {
+  const baseline = buildInternalChinaOndolpassReceiptObservation(input(), evidence);
+  const changedHeaderStates = buildInternalChinaOndolpassReceiptObservation(
+    input({
+      applications: input().applications.map((application, index) => ({
+        ...application,
+        state: ["입고대기", "부분입고", "출고준비"][index % 3],
+      })),
+    }),
+    evidence,
+  );
+  assert.equal(changedHeaderStates.snapshotHash, baseline.snapshotHash);
+  assert.deepEqual(changedHeaderStates.rows, baseline.rows);
+  assert.deepEqual(changedHeaderStates.byBarcode, baseline.byBarcode);
 });
 
 test("같은 화면 상태는 확인시각이 달라도 같은 멱등 해시를 사용하고 저장값을 복원한다", () => {
