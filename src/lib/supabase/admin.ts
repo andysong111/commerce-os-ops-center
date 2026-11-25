@@ -47,7 +47,7 @@ class SupabaseRestQuery implements PromiseLike<AdminResult> {
   private readonly params = new URLSearchParams();
   private count: "exact" | undefined;
   private head = false;
-  private method: "GET" | "PATCH" | "POST" = "GET";
+  private method: "GET" | "PATCH" | "POST" | "DELETE" = "GET";
   private requestBody: WriteBody | null = null;
   private resolution: "merge-duplicates" | "ignore-duplicates" | null = null;
 
@@ -93,6 +93,14 @@ class SupabaseRestQuery implements PromiseLike<AdminResult> {
     }
     this.method = "PATCH";
     this.requestBody = values;
+    this.resolution = null;
+    this.head = false;
+    return this;
+  }
+
+  delete() {
+    this.method = "DELETE";
+    this.requestBody = null;
     this.resolution = null;
     this.head = false;
     return this;
@@ -171,7 +179,7 @@ class SupabaseRestQuery implements PromiseLike<AdminResult> {
     const headers = createSupabaseAdminHeaders(this.secretKey);
     const preferences: string[] = [];
     if (this.count === "exact") preferences.push("count=exact");
-    if (this.method === "PATCH" || this.method === "POST") preferences.push("return=representation");
+    if (this.method === "PATCH" || this.method === "POST" || this.method === "DELETE") preferences.push("return=representation");
     if (this.method === "POST" && this.resolution) preferences.push(`resolution=${this.resolution}`);
     if (preferences.length > 0) headers.Prefer = preferences.join(",");
     const timeoutMs =
@@ -189,7 +197,7 @@ class SupabaseRestQuery implements PromiseLike<AdminResult> {
         const response = await fetch(`${this.baseUrl}/rest/v1/${encodeURIComponent(this.table)}?${this.params.toString()}`, {
           method: this.head ? "HEAD" : this.method,
           headers,
-          body: this.method === "GET" ? undefined : JSON.stringify(this.requestBody ?? {}),
+          body: this.method === "GET" || this.method === "DELETE" ? undefined : JSON.stringify(this.requestBody ?? {}),
           cache: "no-store",
           signal: AbortSignal.timeout(timeoutMs),
         });
