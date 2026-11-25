@@ -9,6 +9,7 @@ import {
 
 /** A click authorizes increases only. A stock count never certifies historical cost. */
 import { MONTHLY_PRICE_POLICY } from "./monthlyPriceContract.ts";
+import { allocatedLandedUnitCostKrw } from "./internalChinaPurchaseCostMath.ts";
 export { MONTHLY_PRICE_POLICY, MONTHLY_PRICE_BRIDGE, MONTHLY_PRICE_EXTENSION_VERSION } from "./monthlyPriceContract.ts";
 export const MONTHLY_PRICE_MAX = 100_000_000;
 export type PriceValues = { sellPrice: number; purchasePrice: number; consumerPrice: number };
@@ -115,6 +116,8 @@ export function monthlyCostsFromEvidence(input: {
   const rate = decimal(draft.exchangeRateKrwPerCny);
   const freight = decimal(close.actualCostKrw, true);
   const lines = draft.lines.map(monthlyRecord);
+  const payment = monthlyRecord(draft.verifiedPayment);
+  const verified = Boolean(payment.evidenceHash);
   const codes = new Set<string>();
   const groups = new Map<string, { quantity: number; freight: number }>();
   let productSum = 0, domesticSum = 0;
@@ -123,15 +126,26 @@ export function monthlyCostsFromEvidence(input: {
     if (!/^[A-Z]{3}\d+-\d+$/.test(barcode) || codes.has(barcode)) throw new Error("MONTHLY_PRICE_DRAFT_BARCODE_CONFLICT");
     codes.add(barcode);
     const quantity = monthlyMoney(line.quantity), cost = decimal(line.unitPriceCny);
-    const domestic = decimal(line.domesticChinaFreightCny, true);
+    const domestic = verified ? Number(line.domesticChinaFreightCny) : decimal(line.domesticChinaFreightCny, true);
+    if (!Number.isFinite(domestic) || Math.abs(domestic) > MONTHLY_PRICE_MAX) throw new Error("MONTHLY_PRICE_COST_INPUT_INVALID");
     const key = String(line.freightGroupId || `__${barcode}`);
     const group = groups.get(key) ?? { quantity: 0, freight: 0 };
     group.quantity += quantity; group.freight += domestic; groups.set(key, group);
     productSum += cost * quantity * rate; domesticSum += domestic * rate;
   }
   const productTotal = Math.round(productSum);
-  if (productTotal <= 0 || productTotal !== monthlyMoney(close.productPurchaseCostKrw) || Math.round(domesticSum) !== monthlyMoney(close.domesticChinaFreightKrw, true)) throw new Error("MONTHLY_PRICE_CLOSED_DRAFT_CHANGED");
-  const multiplier = (productTotal + freight) / productTotal;
+  let paymentBase = productTotal;
+  if (verified) {
+    const paid = monthlyMoney(payment.paidKrw);
+    const fee = monthlyMoney(payment.worldFirstFeeKrw, true);
+    paymentBase = paid + fee;
+    if (payment.evidenceHash !== close.paymentEvidenceHash || paid !== Math.round(productSum + domesticSum) ||
+        paid !== close.actual1688PaymentKrw || paymentBase !== close.orderPaymentCostKrw ||
+        paymentBase + freight !== close.actualTotalOutflowKrw) throw new Error("MONTHLY_PRICE_CLOSED_COST_CONFLICT");
+  }
+  if (productTotal <= 0 || productTotal !== monthlyMoney(close.productPurchaseCostKrw) ||
+      (!verified && Math.round(domesticSum) !== monthlyMoney(close.domesticChinaFreightKrw, true))) throw new Error("MONTHLY_PRICE_CLOSED_DRAFT_CHANGED");
+  const multiplier = (paymentBase + freight) / paymentBase;
   if (Math.abs(decimal(close.actualMultiplier) - multiplier) > 0.000051) throw new Error("MONTHLY_PRICE_CLOSED_COST_CONFLICT");
   const quantities = new Map<string, number>(), ids = new Map<string, Set<string>>(), seen = new Set<string>();
   for (const raw of input.receiptRows) {
@@ -166,7 +180,11 @@ export function monthlyCostsFromEvidence(input: {
     const barcode = String(line.barcode), quantity = monthlyMoney(line.quantity);
     if (quantities.get(barcode) !== quantity) throw new Error("MONTHLY_PRICE_RECEIPT_INCOMPLETE");
     const group = groups.get(String(line.freightGroupId || `__${barcode}`))!;
-    const unitCostKrw = Math.round(decimal(line.unitPriceCny) * rate * multiplier + (group.freight / group.quantity) * rate);
+    const productUnitKrw = decimal(line.unitPriceCny) * rate;
+    const freightPerUnitKrw = (group.freight / group.quantity) * rate;
+    const unitCostKrw = verified
+      ? allocatedLandedUnitCostKrw(productUnitKrw, freightPerUnitKrw, decimal(draft.paymentFeeMultiplier), multiplier)
+      : Math.round(productUnitKrw * multiplier + freightPerUnitKrw);
     monthlyMoney(unitCostKrw);
     return { barcode, unitCostKrw, quantity, draftId, cycleMonth: month, closedAt, receiptIds: [...ids.get(barcode)!].sort(), provenance: "CONFIRMED_RECEIPT_AND_CLOSED_COST" as const };
   }).sort((a, b) => a.barcode.localeCompare(b.barcode));

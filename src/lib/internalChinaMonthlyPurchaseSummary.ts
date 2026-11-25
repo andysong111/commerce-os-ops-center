@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { read1688PaymentEvidence } from "./internalChinaPaymentEvidence.ts";
 
 export const INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE =
   "INTERNAL_CHINA_PURCHASE_PREP";
@@ -42,6 +43,12 @@ export type InternalChinaMonthlyPurchaseSummary = {
   cashFlowEarlyClose: boolean;
   latestRecordedAt: string | null;
   lines: InternalChinaMonthlyPurchaseLine[];
+  paymentEvidenceHash?: string;
+  barcodeEvidenceHash?: string;
+  worldFirstFeeKrw?: number;
+  paymentFeeBps?: number;
+  orderRecorded?: boolean;
+  drafts?: ParsedDraft[];
 };
 
 type StoredRow = {
@@ -54,7 +61,7 @@ type StoredRow = {
 
 type ParsedDraft = Omit<
   InternalChinaMonthlyPurchaseSummary,
-  "draftCount" | "skuCount"
+  "draftCount" | "skuCount" | "drafts"
 > & {
   draftId: string;
 };
@@ -151,6 +158,32 @@ function parseLine(
 
 function parseDraft(row: StoredRow): ParsedDraft | null {
   const snapshot = snapshotFrom(row);
+  const payment = read1688PaymentEvidence(snapshot, row.source_event_id);
+  if (payment) {
+    const { draftId, cycleMonth, exchangeRateKrwPerCny } = payment;
+    const lines = payment.rows.map((line) => parseLine({
+      barcode: line.barcode, orderNumber: line.orderNo, quantity: line.quantity,
+      goodsPaidCny: line.goodsFen / 100, domesticChinaFreightCny: line.freightFen / 100,
+      serviceFeeCny: line.serviceFen / 100,
+      actualLinePaidCny: (line.goodsFen + line.freightFen + line.serviceFen) / 100,
+    }, draftId, exchangeRateKrwPerCny)!);
+    return {
+      draftId, cycleMonth, orderRecorded: true,
+      orderCount: new Set(lines.map(line => line.orderNumber)).size,
+      lineCount: lines.length, totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+      goodsPaidCny: decimal(lines.reduce((sum, line) => sum + line.goodsPaidCny, 0)),
+      domesticChinaFreightCny: lines.reduce((sum, line) => sum + line.domesticChinaFreightCny, 0),
+      serviceFeeCny: decimal(lines.reduce((sum, line) => sum + line.serviceFeeCny, 0)),
+      actualOrderPaidCny: payment.paidTotalFen / 100,
+      actualOrderPaidKrwAtInternalFx: payment.actualOrderPaidKrwAtInternalFx,
+      exchangeRateKrwPerCny, assignedLineCount: lines.length,
+      unassignedLineCount: 0, importedFromActualOrder: true, cashFlowEarlyClose: false,
+      latestRecordedAt: iso(row.updated_at) || iso(row.started_at),
+      paymentEvidenceHash: payment.paymentEvidenceHash, barcodeEvidenceHash: payment.barcodeEvidenceHash,
+      worldFirstFeeKrw: payment.worldFirstFeeKrw, paymentFeeBps: payment.paymentFeeBps,
+      lines,
+    };
+  }
   const cycleMonth = text(snapshot.cycleMonth);
   if (!/^\d{4}-\d{2}$/.test(cycleMonth)) return null;
 
@@ -204,6 +237,7 @@ function parseDraft(row: StoredRow): ParsedDraft | null {
     unassignedLineCount,
     importedFromActualOrder: snapshot.importedFromActualOrder === true,
     cashFlowEarlyClose: snapshot.cashFlowEarlyClose === true,
+    orderRecorded: snapshot.status === "ORDERED" || snapshot.importedFromActualOrder === true,
     latestRecordedAt:
       iso(snapshot.savedAt) ||
       iso(snapshot.updatedAt) ||
@@ -235,6 +269,14 @@ function aggregateDrafts(
   return {
     cycleMonth,
     draftCount: drafts.length,
+    drafts,
+    ...(drafts.length === 1 ? {
+      paymentEvidenceHash: drafts[0].paymentEvidenceHash,
+      barcodeEvidenceHash: drafts[0].barcodeEvidenceHash,
+      worldFirstFeeKrw: drafts[0].worldFirstFeeKrw,
+      paymentFeeBps: drafts[0].paymentFeeBps,
+      orderRecorded: drafts[0].orderRecorded,
+    } : {}),
     orderCount: drafts.reduce((sum, draft) => sum + draft.orderCount, 0),
     lineCount: drafts.reduce((sum, draft) => sum + draft.lineCount, 0),
     skuCount: uniqueSku.size,
@@ -283,6 +325,13 @@ function aggregateDrafts(
   };
 }
 
+function preferDraft(byDraft: Map<string, ParsedDraft>, key: string, parsed: ParsedDraft) {
+  const previous = byDraft.get(key);
+  if (!previous || (parsed.paymentEvidenceHash && !previous.paymentEvidenceHash)) {
+    byDraft.set(key, parsed);
+  }
+}
+
 async function readRecentRows() {
   const admin = await createSupabaseAdminClient();
   if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
@@ -316,7 +365,7 @@ export async function loadRecentInternalChinaMonthlyPurchaseSummaries(
     const parsed = parseDraft(row);
     if (!parsed) continue;
     const key = `${parsed.cycleMonth}:${parsed.draftId}`;
-    if (!byDraft.has(key)) byDraft.set(key, parsed);
+    preferDraft(byDraft, key, parsed);
   }
   const byMonth = new Map<string, ParsedDraft[]>();
   for (const draft of byDraft.values()) {
@@ -348,6 +397,8 @@ export function selectInternalChinaPurchaseSummaryForDraft(
 ): InternalChinaMonthlyPurchaseSummary | null {
   if (!summary) return null;
   const draftId = text(draftIdInput);
+  const source = summary.drafts?.find((draft) => draft.draftId === draftId);
+  if (source?.paymentEvidenceHash) return aggregateDrafts(source.cycleMonth, [source]);
   const lines = summary.lines.filter((line) => line.draftId === draftId);
   if (!draftId || !lines.length) return null;
   const orderNumbers = new Set(lines.map((line) => line.orderNumber).filter(Boolean));
@@ -357,7 +408,7 @@ export function selectInternalChinaPurchaseSummaryForDraft(
   return {
     cycleMonth: summary.cycleMonth,
     draftCount: 1,
-    orderCount: orderNumbers.size || (actualOrderPaidCny > 0 ? 1 : 0),
+    orderCount: orderNumbers.size,
     lineCount: lines.length,
     skuCount: new Set(
       lines
@@ -378,9 +429,10 @@ export function selectInternalChinaPurchaseSummaryForDraft(
     exchangeRateKrwPerCny: summary.exchangeRateKrwPerCny,
     assignedLineCount: lines.filter((line) => line.assigned).length,
     unassignedLineCount: lines.filter((line) => !line.assigned).length,
-    importedFromActualOrder: summary.importedFromActualOrder,
-    cashFlowEarlyClose: summary.cashFlowEarlyClose,
-    latestRecordedAt: summary.latestRecordedAt,
+    importedFromActualOrder: source?.importedFromActualOrder ?? false,
+    cashFlowEarlyClose: source?.cashFlowEarlyClose ?? false,
+    latestRecordedAt: source?.latestRecordedAt ?? summary.latestRecordedAt,
+    orderRecorded: source?.orderRecorded,
     lines,
   };
 }
@@ -390,7 +442,7 @@ export function buildInternalChinaMonthlyPurchaseSummaryFromRows(rows: readonly 
   const byDraft = new Map<string, ParsedDraft>();
   for (const row of rows) {
     const parsed = parseDraft(row);
-    if (parsed?.cycleMonth === cycleMonth && !byDraft.has(parsed.draftId)) byDraft.set(parsed.draftId, parsed);
+    if (parsed?.cycleMonth === cycleMonth) preferDraft(byDraft, parsed.draftId, parsed);
   }
   return byDraft.size ? aggregateDrafts(cycleMonth, [...byDraft.values()]) : null;
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { createHash } from 'node:crypto';
+import { internalChinaReceiptOrderItemId, MAX_RECEIPT_LINES } from '../src/lib/internalChinaReceiptFollowupCore.ts';
 import {
   summarizeStoredReceiptReplay,
   validReceiptRequestId,
@@ -175,6 +176,7 @@ async function receiptBackend(options={}) {
   const meta={...input(),outboxId};
   const run=await load('../src/lib/internalChinaReceipt.ts','recordInternalChinaReceipt',{
     createHash,randomUUID:()=>receiptId,
+    internalChinaReceiptOrderItemId,MAX_RECEIPT_LINES,
     summarizeStoredReceiptReplay,validReceiptRequestId,
     CHINA_ORDER_EVENT_OPERATION_TYPE:'CHINA_ORDER_COMMITMENT_EVENT',
     loadChinaOrderLedger:async()=>({error:null,commitments:[commitment]}),

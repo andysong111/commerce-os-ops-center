@@ -1,6 +1,7 @@
 import type { InternalChinaFreightBarcodeReceiptEvidence } from "@/lib/internalChinaFreightBarcodeCompletion";
 import type { InternalChinaMonthlyPurchaseSummary } from "@/lib/internalChinaMonthlyPurchaseSummary";
 import type { InternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
+import { match1688PaymentQuantities } from "./internalChinaPaymentEvidence.ts";
 
 function barcode(value: unknown) {
   return String(value ?? "")
@@ -26,12 +27,22 @@ export function buildInternalChinaActualPurchaseCostDraft(input: {
   barcodeEvidence: InternalChinaFreightBarcodeReceiptEvidence;
 }): InternalChinaPurchaseDraft {
   const { baseDraft, purchase, barcodeEvidence } = input;
+  if (!purchase.paymentEvidenceHash || purchase.barcodeEvidenceHash !== barcodeEvidence.evidenceHash ||
+      purchase.paymentFeeBps === undefined || purchase.worldFirstFeeKrw === undefined ||
+      barcodeEvidence.draftId !== baseDraft.draftId ||
+      purchase.lines.some(line => !line.assigned || line.draftId !== baseDraft.draftId)) {
+    throw new Error("INTERNAL_CHINA_ACTUAL_COST_PAYMENT_EVIDENCE_REQUIRED");
+  }
   if (
     purchase.cycleMonth !== barcodeEvidence.cycleMonth ||
     purchase.cycleMonth !== baseDraft.cycleMonth
   ) {
     throw new Error("INTERNAL_CHINA_ACTUAL_COST_CYCLE_CONFLICT");
   }
+  match1688PaymentQuantities(
+    purchase.lines.map(line => ({ orderNo: line.orderNumber, barcode: line.barcode, quantity: line.quantity })),
+    barcodeEvidence.lines,
+  );
 
   const quantityByBarcode = new Map<string, number>();
   for (const line of barcodeEvidence.lines) {
@@ -97,22 +108,24 @@ export function buildInternalChinaActualPurchaseCostDraft(input: {
       };
     });
 
-  const selectedPaidCny = lines.reduce(
-    (sum, line) =>
-      sum +
-      line.unitPriceCny * line.quantity +
-      line.domesticChinaFreightCny,
-    0,
-  );
+  const fx = purchase.exchangeRateKrwPerCny;
+  const paidKrw = purchase.actualOrderPaidKrwAtInternalFx;
   return {
     ...baseDraft,
     status: "ORDERED",
     lineCount: lines.length,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
     lines,
-    actualOrderPaidKrwAtInternalFx: Math.max(
-      1,
-      Math.round(selectedPaidCny * baseDraft.exchangeRateKrwPerCny),
-    ),
+    exchangeRateKrwPerCny: fx,
+    paymentFeeMultiplier: 1 + purchase.paymentFeeBps / 10_000,
+    actualOrderPaidKrwAtInternalFx: paidKrw,
+    verifiedPayment: {
+      evidenceHash: purchase.paymentEvidenceHash,
+      goodsKrw: Math.round(purchase.goodsPaidCny * fx),
+      domesticFreightKrw: Math.round(purchase.domesticChinaFreightCny * fx),
+      serviceFeeKrw: Math.round(purchase.serviceFeeCny * fx),
+      paidKrw,
+      worldFirstFeeKrw: purchase.worldFirstFeeKrw,
+    },
   };
 }

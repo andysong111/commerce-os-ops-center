@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
 import { InternalChinaForwarderCostFallback } from "@/components/china-order-manager/InternalChinaForwarderCostFallback";
 import { InternalChinaReceiptPanel } from "@/components/china-order-manager/InternalChinaReceiptPanel";
+import { InternalChinaPaymentEvidencePanel } from "@/components/china-order-manager/InternalChinaPaymentEvidencePanel";
 import { InternalChinaPurchaseDraftGuide } from "@/components/china-order-manager/InternalChinaPurchaseDraftGuide";
 import { PurchaseRunStartButton } from "@/components/china-order-manager/PurchaseRunStartButton";
 import { PageHeader } from "@/components/PageHeader";
@@ -45,6 +46,7 @@ import {
   resolveInternalChinaReceiptOrderEvidence,
 } from "@/lib/internalChinaReceiptWorkspace";
 import { loadLatestInternalChinaOndolpassReceiptObservation } from "@/lib/internalChinaOndolpassReceiptObservation";
+import { build1688PaymentOrderTemplate, INTERNAL_CHINA_PAYMENT_FX } from "@/lib/internalChinaPaymentEvidence";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -274,8 +276,16 @@ export default async function ChinaOrderManagerPage({
   const {
     displayedOrderQuantity,
     displayedOrderLineCount,
-    hasOrder,
   } = summarizeMonthlyPurchaseProgress(selectedRows, purchase);
+  const hasOrder = Boolean(barcodeReceiptEvidence || purchase?.orderRecorded ||
+    selectedRows.some(row => row.orderedQuantity > 0));
+  const confirmedPurchase = purchase?.paymentEvidenceHash &&
+    purchase.barcodeEvidenceHash === barcodeReceiptEvidence?.evidenceHash ? purchase : null;
+  const barcodeOrderCount = new Set(barcodeReceiptEvidence?.lines.map(line => line.orderNo).filter(Boolean)).size;
+  const barcodeGoodsEstimateCny = barcodeReceiptEvidence?.lines.every(line =>
+    Number.isFinite(line.declaredUnitPriceCny) && line.declaredUnitPriceCny! > 0)
+    ? barcodeReceiptEvidence.lines.reduce((sum, line) => sum + line.declaredUnitPriceCny! * line.quantity, 0)
+    : null;
   const receiptOrderEvidence = resolveInternalChinaReceiptOrderEvidence({
     cycleMonth: selectedMonth,
     commitments: selectedRows,
@@ -341,7 +351,7 @@ export default async function ChinaOrderManagerPage({
   );
   const costRows: CostRow[] = await Promise.all(
     selectedDrafts
-      .filter(() => hasReceiptWorkspace)
+      .filter(() => hasReceiptWorkspace && confirmedPurchase)
       .map(async (draft) => {
         const stored = forwarderCloses.find(
           (row) => row.draftId === draft.draftId,
@@ -399,7 +409,7 @@ export default async function ChinaOrderManagerPage({
     // Old archived months may no longer have a reconstructable draft in memory.
     // For a currently loaded draft, never fall back to a possibly stale stored
     // subtotal; show the reconciliation warning instead of a wrong total.
-    return selectedDraftIds.has(stored.draftId) ? [] : [stored];
+    return selectedDraftIds.has(stored.draftId) && confirmedPurchase ? [] : [stored];
   });
   const forwarderCostKrw = total(
     selectedForwarderCloses,
@@ -413,17 +423,6 @@ export default async function ChinaOrderManagerPage({
           (row) => row.actualTotalOutflowKrw ?? 0,
         )
       : 0;
-  const scopedActual1688Krw = total(costRows, (row) =>
-    row.summary
-      ? row.summary.productPurchaseCostKrw +
-        row.summary.domesticChinaFreightKrw
-      : 0,
-  );
-  const actual1688Krw =
-    scopedActual1688Krw > 0
-      ? scopedActual1688Krw
-      : purchase?.actualOrderPaidKrwAtInternalFx ?? 0;
-  const remainingBeforeFinalCost = budget.availableCashKrw;
   const budgetUsage =
     budget.accruedGrossBudgetKrw > 0
       ? Math.min(
@@ -505,7 +504,7 @@ export default async function ChinaOrderManagerPage({
               </h2>
               {selectedRun ? (
                 <Badge tone={selectedRun.state === "RECEIVED" ? "emerald" : "amber"}>
-                  {selectedRun.stateLabel}
+                  {selectedRun.state === "DRAFT" && barcodeReceiptEvidence ? "입고대기" : selectedRun.stateLabel}
                 </Badge>
               ) : null}
               {inboundOpenQuantity > 0 ? (
@@ -548,10 +547,11 @@ export default async function ChinaOrderManagerPage({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <SummaryCard
             label="현재 지출가능금액"
             value={
+              budget.error === "CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED" ? "결제 확인 대기" :
               budget.totalSpendingBudgetKrw > 0
                 ? `${money.format(budget.totalSpendingBudgetKrw)}원`
                 : "조회 대기"
@@ -559,24 +559,22 @@ export default async function ChinaOrderManagerPage({
             note={
               budget.accrualStartMonth
                 ? `${budget.accrualStartMonth === budget.accrualEndMonth ? budget.accrualStartMonth : `${budget.accrualStartMonth}~${budget.accrualEndMonth}`} 정상매출${budget.accruedAblyShippingDeductionKrw > 0 ? `에서 에이블리 ${money.format(budget.accruedAblyOrderCount)}건 × 3,000원 차감 후` : "의"} 50% - 실제 주문 ${money.format(budget.recordedSpendKrw)}원`
-                : "월별 예산 적립 원장 확인 중"
+                : budget.error === "CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED"
+                  ? "실결제 자료 확인 후 잔액 계산"
+                  : "월별 예산 적립 원장 확인 중"
             }
             tone="blue"
           />
           <SummaryCard
             label="1688 실제 결제"
-            value={`${money.format(actual1688Krw)}원`}
-            note="상품 + 중국내운임 + 서비스비"
-          />
-          <SummaryCard
-            label="최종비용 전 남은 한도"
-            value={`${money.format(remainingBeforeFinalCost)}원`}
-            note="국제운송·세금·작업비 입력 전"
-            tone="amber"
+            value={confirmedPurchase ? `${money.format(confirmedPurchase.actualOrderPaidKrwAtInternalFx)}원` : hasOrder ? "원본 확인 대기" : "주문 전"}
+            note={confirmedPurchase ? "내부환율 환산 · 1688 서비스비 포함"
+              : barcodeGoodsEstimateCny === null ? "1688 결제 원본 기준"
+                : `온돌패스 상품 참고액 ${money.format(barcodeGoodsEstimateCny * INTERNAL_CHINA_PAYMENT_FX)}원`}
           />
           <SummaryCard
             label="1688 주문"
-            value={`${money.format(purchase?.orderCount ?? 0)}건 · ${money.format(actualOrderDisplayQuantity)}개`}
+            value={`${money.format(barcodeOrderCount || (hasOrder ? purchase?.orderCount ?? 0 : 0))}건 · ${money.format(hasOrder ? actualOrderDisplayQuantity : 0)}개`}
             note={
               releasableQuantity > 0
                 ? `실주문 ${money.format(actualOrderDisplayLineCount)}개 품목 줄 · 주문초안 예약 ${money.format(releasableQuantity)}개 (${money.format(releasableRows.length)}개 줄)`
@@ -603,7 +601,7 @@ export default async function ChinaOrderManagerPage({
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-center justify-between text-xs font-bold text-slate-600">
             <span>실제 주문완료 누계 기준 예산 사용률</span>
-            <span>{budgetUsage.toFixed(1)}%</span>
+            <span>{budget.error ? "확인 대기" : `${budgetUsage.toFixed(1)}%`}</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
             <div
@@ -622,9 +620,9 @@ export default async function ChinaOrderManagerPage({
         </div>
       </section>
 
-      {purchase?.unassignedLineCount ? (
+      {confirmedPurchase?.unassignedLineCount ? (
         <section className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-950">
-          <strong>B-code 미연결 품목 {purchase.unassignedLineCount}건</strong>이 실제 1688 결제에는 포함되어 있지만 입고 원장에는 연결되지 않았습니다. 아래 1688 원가 상세에서 해당 품목을 확인해 B-code를 배정해야 수량·원가·입고가 일치합니다.
+          <strong>B-code 미연결 품목 {confirmedPurchase.unassignedLineCount}건</strong>의 배정을 확인하세요.
         </section>
       ) : null}
 
@@ -660,6 +658,16 @@ export default async function ChinaOrderManagerPage({
             id="purchase-run-input-workspace"
             className={`mt-4 scroll-mt-6 space-y-4 ${styles.inputScope}`}
           >
+            {barcodeReceiptEvidence && !confirmedPurchase && !forwarderDone ? (
+              <InternalChinaPaymentEvidencePanel
+                key={selectedDraftId}
+                draftId={selectedDraftId}
+                barcodeEvidenceHash={barcodeReceiptEvidence.evidenceHash}
+                goodsEstimateCny={barcodeGoodsEstimateCny}
+                orderCount={barcodeOrderCount}
+                orderTemplate={build1688PaymentOrderTemplate(barcodeReceiptEvidence.lines)}
+              />
+            ) : null}
             {costRows.map((row) => {
               const draft = selectedDrafts.find(
                 (candidate) => candidate.draftId === row.draftId,
@@ -777,6 +785,8 @@ export default async function ChinaOrderManagerPage({
                   ? "추적 품목 입고 완료"
                   : !barcodeCompletion
                     ? "바코드 업무 종결 후 진행"
+                    : !confirmedPurchase
+                      ? "1688 실결제 원본 등록 후 진행"
                     : !receiptOrderEvidence.ok
                       ? "실주문·B-code·수량 원장 대조 필요"
                     : inboundOpenQuantity
@@ -784,7 +794,7 @@ export default async function ChinaOrderManagerPage({
                   : "입고 수량 입력 대기"
               }
               href={
-                barcodeCompletion && hasOrder && hasReceiptWorkspace
+                barcodeCompletion && hasOrder
                   ? "#purchase-run-input-workspace"
                   : undefined
               }
@@ -841,7 +851,7 @@ export default async function ChinaOrderManagerPage({
             </h2>
           </div>
           <div className="flex items-center gap-3">
-            {purchase ? (
+            {confirmedPurchase && purchase ? (
               <span className="hidden text-right text-xs font-bold leading-5 text-slate-600 lg:block">
                 상품 {cny.format(purchase.goodsPaidCny)}위안 · 중국내운임 {cny.format(purchase.domesticChinaFreightCny)}위안
                 <br />
@@ -852,7 +862,7 @@ export default async function ChinaOrderManagerPage({
           </div>
         </summary>
         <div className="border-t border-blue-100 p-5">
-          {purchase ? (
+          {confirmedPurchase && purchase ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <MiniCard label="상품대금" value={`${cny.format(purchase.goodsPaidCny)}위안`} />
@@ -928,7 +938,7 @@ export default async function ChinaOrderManagerPage({
             </>
           ) : (
             <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              선택한 발주차시에 실제 1688 주문 원가 기록이 없습니다.
+                선택한 발주차시의 1688 결제 원본을 확인해 주세요.
             </p>
           )}
         </div>
@@ -997,7 +1007,7 @@ export default async function ChinaOrderManagerPage({
                         {money.format(run.lineCount)}종 / {money.format(run.requestedQuantity)}개
                       </td>
                       <td className="px-3 py-3 text-right font-bold text-blue-700">
-                        {runPurchase
+                        {runPurchase?.paymentEvidenceHash
                           ? `${money.format(runPurchase.actualOrderPaidKrwAtInternalFx)}원`
                           : "-"}
                       </td>

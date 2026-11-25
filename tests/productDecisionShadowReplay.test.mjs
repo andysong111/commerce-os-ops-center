@@ -156,7 +156,7 @@ test("portable D1 adapter builds only managed barcodes and uses all normal sales
     ["BAA1-1", "BAA1-2"],
   );
   assert.equal(source.purchaseCostMultiplier, 1.5);
-  assert.equal(source.paymentFeeMultiplier, 1.05);
+  assert.equal(source.paymentFeeMultiplier, 1.008);
   assert.equal(source.minimumOrderAmount, 5000);
   assert.equal(source.recent30DayRevenue, 138_000);
 

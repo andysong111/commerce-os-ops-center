@@ -93,6 +93,14 @@ export type InternalChinaPurchaseDraft = {
   lines: InternalChinaPurchaseDraftLine[];
   externalOrderExecuted: false;
   actualOrderPaidKrwAtInternalFx?: number;
+  verifiedPayment?: {
+    evidenceHash: string;
+    goodsKrw: number;
+    domesticFreightKrw: number;
+    serviceFeeKrw: number;
+    paidKrw: number;
+    worldFirstFeeKrw: number;
+  };
 };
 
 export type InternalChinaPurchaseDraftInput = {

@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, candidate, live, observation } from './monthly-price-fixtures.mjs';
 import { monthlyCostsFromEvidence, monthlyProtectedCosts, monthlyValidateObservation, monthlyMoney, monthlyMonth, buildMonthlyPricePlan, assertMonthlyWritePreimage, verifyMonthlyPricePlan, monthlyLiveProduct, resolveMonthlyPriceGroup, reviewMonthlyLinkedMarketPrices } from '../src/lib/monthlyPriceCore.ts';
+import { fixture as settlementFixture } from "./monthly-price-fixtures.mjs";
+
+test("verified 1688 settlement sends the same fee-inclusive landed cost to price review", () => {
+  const { draft, close, receiptRows } = settlementFixture();
+  draft.lines[0].domesticChinaFreightCny = -2;
+  draft.paymentFeeMultiplier = 1.008;
+  draft.verifiedPayment = { evidenceHash: "proof", paidKrw: 11_040, worldFirstFeeKrw: 88 };
+  Object.assign(close, { paymentEvidenceHash: "proof", actual1688PaymentKrw: 11_040,
+    orderPaymentCostKrw: 11_128, actualTotalOutflowKrw: 12_278,
+    actualMultiplier: Math.round((12_278 / 11_128) * 10_000) / 10_000 });
+  assert.equal(monthlyCostsFromEvidence({ draft, close, receiptRows })[0].unitCostKrw, 1_228);
+  assert.throws(() => monthlyCostsFromEvidence({ draft, close: { ...close, paymentEvidenceHash: "wrong" }, receiptRows }), /MONTHLY_PRICE_CLOSED_COST_CONFLICT/);
+});
 
 test('September missing cache: durable receipt plus matching freight close reconstructs only arrival cost', () => {
   const input = fixture(), before = structuredClone(input);

@@ -34,6 +34,16 @@ function roundedKrw(value: number) {
   return Math.max(0, Math.round(value));
 }
 
+export function allocatedLandedUnitCostKrw(
+  productUnitKrw: number,
+  freightPerUnitKrw: number,
+  paymentFeeMultiplier: number,
+  landedMultiplier: number,
+) {
+  const preFeeUnitKrw = Math.max(0, productUnitKrw + freightPerUnitKrw);
+  return Math.max(1, Math.round(preFeeUnitKrw * paymentFeeMultiplier * landedMultiplier));
+}
+
 /**
  * Canonical final-order calculator shared by the upper budget audit and the
  * lower order workspace. Keep full precision until the final KRW display so

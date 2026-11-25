@@ -11,6 +11,7 @@ import {
 import type { InternalChinaForwarderCostSummary } from "@/lib/internalChinaForwarderCost";
 import { toFreightImageProxyUrl } from "@/lib/freightImageProxy";
 import { runInboundReceiptOnSaleSync } from "@/lib/inboundReceiptOnSaleSync";
+import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 
 export type InternalChinaReceiptPanelLine = {
   barcode: string;
@@ -435,7 +436,7 @@ export function InternalChinaReceiptPanel({
     }
     if (
       !window.confirm(
-        `${monthLabel(cycleMonth)} 배송대행지 실제비용 ${number.format(actualForwarderCostKrw)}원을 반영해 실제 한국 도착 원가배수를 확정할까요?\n\n결제원가 = (상품대금 + 중국내운임·할인/가감) × ${forwarderCost.paymentFeeMultiplier.toFixed(2)}\n실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가\n최종 SKU 매입원가 = SKU별 결제원가 × 실제 도착 원가배수\n\n이 확정원가는 이후 가격조정 판단에 사용되며, 실제 판매가는 별도 승인 절차 없이 즉시 변경하지 않습니다.`,
+        `${monthLabel(cycleMonth)} 배송대행지 실제비용 ${number.format(actualForwarderCostKrw)}원을 반영해 실제 한국 도착 원가배수를 확정할까요?\n\n결제원가 = 1688 실결제 + 월드퍼스트 콰징바오 수수료\n실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가\n최종 SKU 매입원가 = SKU별 결제원가 × 실제 도착 원가배수\n\n이 확정원가는 이후 가격조정 판단에 사용되며, 실제 판매가는 별도 승인 절차 없이 즉시 변경하지 않습니다.`,
       )
     ) {
       return;
@@ -655,12 +656,12 @@ export function InternalChinaReceiptPanel({
               <CostMetric
                 label="중국내운임"
                 value={`${number.format(forwarderCost.domesticChinaFreightKrw)}원`}
-                note="상품대금과 함께 결제수수료 적용"
+                note="1688 실결제에 포함 · 가감 반영"
               />
               <CostMetric
-                label={`결제수수료 ×${forwarderCost.paymentFeeMultiplier.toFixed(2)}`}
+                label={worldFirstFeeLabel(forwarderCost.paymentFeeMultiplier)}
                 value={`${number.format(forwarderCost.paymentFeeCostKrw)}원`}
-                note={`결제원가 ${number.format(forwarderCost.orderPaymentCostKrw)}원`}
+                note={`내부환율 기준 · 결제원가 ${number.format(forwarderCost.orderPaymentCostKrw)}원`}
               />
               <CostMetric
                 label={`기존 ${forwarderCost.estimatedMultiplier.toFixed(2)} 추정 배대지 비용`}
@@ -704,7 +705,7 @@ export function InternalChinaReceiptPanel({
               />
             </div>
             <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-bold leading-5 text-blue-950">
-              결제원가 = (상품대금 + 중국내운임·할인/가감) × {forwarderCost.paymentFeeMultiplier.toFixed(2)}. 실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가. 최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수로 확정합니다. 이 확정원가는 Product Master와 가격조정 판단에 사용되지만, 실제 판매가격은 별도 승인 절차 없이 즉시 변경하지 않습니다.
+              결제원가 = 1688 실결제(서비스비 포함) + 월드퍼스트 콰징바오 수수료. 실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가. 최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수로 확정합니다. 이 확정원가는 Product Master와 가격조정 판단에 사용되지만, 실제 판매가격은 별도 승인 절차 없이 즉시 변경하지 않습니다.
             </p>
             {forwarderCost.closedAt ? (
               <p className="mt-2 text-xs text-blue-800">

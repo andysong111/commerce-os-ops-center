@@ -45,14 +45,14 @@ test("legacy explicit cash envelope still overrides only the gross funding cap",
     items,
   });
   assert.equal(result.grossBudget, 152_250);
-  assert.equal(result.paymentFeeMultiplier, 1.05);
-  assert.equal(result.productOrderBudget, 100_000);
-  assert.equal(result.expectedSpend, 100_000);
+  assert.equal(result.paymentFeeMultiplier, 1.008);
+  assert.equal(result.productOrderBudget, 103_960);
+  assert.equal(result.expectedSpend, 103_000);
   assert.deepEqual(
     result.items.map((row) => [row.barcode, row.allocatedQuantity]),
     [
       ["BAA1-1", 60],
-      ["BAA1-2", 40],
+      ["BAA1-2", 43],
       ["BAA1-3", 0],
     ],
   );
@@ -66,9 +66,9 @@ test("legacy cash envelope preserves existing group priority before score", () =
     minimumOrderAmount: 0,
     items,
   });
-  assert.equal(result.productOrderBudget, 60_000);
+  assert.equal(result.productOrderBudget, 62_376);
   assert.equal(result.items[0].allocatedQuantity, 60);
-  assert.equal(result.items[1].allocatedQuantity, 0);
+  assert.equal(result.items[1].allocatedQuantity, 2);
   assert.equal(result.items[2].allocatedQuantity, 0);
 });
 
@@ -82,7 +82,7 @@ test("omitting legacy cash envelope keeps the original revenue based budget", ()
   assert.equal(result.grossBudget, 152_250);
   assert.equal(
     result.productOrderBudget,
-    calculateProductOrderBudget(152_250, 1.45, 1.05),
+    calculateProductOrderBudget(152_250, 1.45, 1.008),
   );
 });
 

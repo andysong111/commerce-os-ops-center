@@ -2,7 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { InternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { applyInternalChinaActualPurchaseCosts, applyInternalChinaQuantityOverrides, type InternalChinaQuantityOverride } from "@/lib/internalChinaDraftQuantityOverride";
 import { buildInternalChinaMonthlyPurchaseSummaryFromRows } from "@/lib/internalChinaMonthlyPurchaseSummary";
-import { buildInternalChinaForwarderCostSummaryFromDraft } from "@/lib/internalChinaForwarderCost";
+import { buildInternalChinaForwarderCostSummaryFromDraft, loadActualPurchaseCostDraft } from "@/lib/internalChinaForwarderCost";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
 import { monthlyCostsFromEvidence, monthlyHash, monthlyRecord, monthlyMonth, monthlyProtectedCosts, MONTHLY_PRICE_POLICY, type MonthlyCost, type MonthlyPriceCandidate } from "@/lib/monthlyPriceCore";
@@ -66,7 +66,9 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
         const o = monthlyRecord(raw.input_snapshot);
         if (o.draftId === draftId && !overrideMap.has(String(o.barcode))) overrideMap.set(String(o.barcode), { barcode: String(o.barcode), targetQuantity: Number(o.targetQuantity), savedAt: String(o.savedAt ?? raw.started_at) });
       }
-      const draft = applyInternalChinaActualPurchaseCosts(applyInternalChinaQuantityOverrides({ ...snapshot, savedAt: String(saved[0].updated_at || snapshot.savedAt) } as InternalChinaPurchaseDraft, overrideMap), buildInternalChinaMonthlyPurchaseSummaryFromRows(preps, monthOfDraft));
+      const draft = storedClose.paymentEvidenceHash
+        ? await loadActualPurchaseCostDraft(draftId, monthOfDraft)
+        : applyInternalChinaActualPurchaseCosts(applyInternalChinaQuantityOverrides({ ...snapshot, savedAt: String(saved[0].updated_at || snapshot.savedAt) } as InternalChinaPurchaseDraft, overrideMap), buildInternalChinaMonthlyPurchaseSummaryFromRows(preps, monthOfDraft));
       const storedActualCostKrw = Number(storedClose.actualCostKrw);
       const storedClosedAt = String(storedClose.closedAt ?? "");
       if (!Number.isSafeInteger(storedActualCostKrw) || storedActualCostKrw <= 0 || !Number.isFinite(Date.parse(storedClosedAt))) {
@@ -84,7 +86,11 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
         Number(storedClose.actualTotalOutflowKrw) !== close.actualTotalOutflowKrw ||
         Number(storedClose.actualMultiplier) !== close.actualMultiplier
       ) {
+        if (storedClose.paymentEvidenceHash) throw new Error("MONTHLY_PRICE_CLOSED_COST_CONFLICT");
         warnings.push(`${draftId}:MONTHLY_PRICE_LEGACY_CLOSE_REBASED`);
+      }
+      if (storedClose.paymentEvidenceHash !== close.paymentEvidenceHash) {
+        throw new Error("MONTHLY_PRICE_CLOSED_COST_CONFLICT");
       }
       const costs = monthlyCostsFromEvidence({ draft, close, receiptRows: rows });
       sourceProofs.push({ draftId, storedClose, effectiveClose: close, draft, receiptRows: rows.map((row) => ({ input: row.input_snapshot, result: row.result_snapshot })) });

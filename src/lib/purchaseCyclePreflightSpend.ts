@@ -5,6 +5,7 @@ import {
   purchaseBudgetCarryoverFingerprint,
   purchaseBudgetRevenueAccrualSummary,
   purchaseCycleSpendMonthFilter,
+  reconcilePurchaseSpendEvidence,
   verifiedPurchaseCycleSpend,
 } from "@/lib/purchaseCyclePreflightSpendCore";
 import { loadCalendarMonthNormalRevenue } from "@/lib/shopling/calendarMonthRevenue";
@@ -21,8 +22,8 @@ export async function loadVerifiedPurchaseCycleSpend(cycleMonth: string) {
     // Filter on the indexed operation columns first. Month extraction happens
     // after a complete scan so unindexed JSON paths cannot time out PostgREST.
     const result = await admin.from("commerce_operation_runs")
-      .select("id,source_event_id,input_snapshot,result_snapshot,started_at,updated_at", { count: "exact" })
-      .eq("operation_type", "INTERNAL_CHINA_PURCHASE_PREP")
+      .select("id,operation_type,source_event_id,input_snapshot,result_snapshot,started_at,updated_at", { count: "exact" })
+      .in("operation_type", ["INTERNAL_CHINA_PURCHASE_PREP", "INTERNAL_CHINA_FREIGHT_BARCODE_COMPLETE"])
       .eq("status", "SUCCEEDED")
       .order("started_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
@@ -35,7 +36,7 @@ export async function loadVerifiedPurchaseCycleSpend(cycleMonth: string) {
     if (from + rowCount >= result.count!) break;
     if (rowCount !== PAGE_SIZE) throw new Error("CYCLE_SPEND_SCAN_INCOMPLETE");
   }
-  const rows = combineCompletePurchaseCycleSpendScanPages(pages, MAXIMUM_ROWS);
+  const rows = reconcilePurchaseSpendEvidence(cycleMonth, combineCompletePurchaseCycleSpendScanPages(pages, MAXIMUM_ROWS));
   const readAt = new Date().toISOString();
   const monthly = verifiedPurchaseCycleSpend(cycleMonth, rows, rows.length, readAt);
   const carryover = purchaseBudgetCarryoverBasis(cycleMonth, rows);

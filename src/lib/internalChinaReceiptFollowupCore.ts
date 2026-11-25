@@ -4,6 +4,10 @@ import type { PriceAdjustmentReceipt } from "./priceAdjustmentReceiptCache";
 export type ReceiptStoredRow = { input_snapshot?: unknown; result_snapshot?: unknown; started_at?: unknown };
 export type ReceiptFollowupLine = { barcode: string; quantity: number; receivedAt: string; captured: PriceAdjustmentReceipt | null };
 export type ReceiptFollowupBundle = { receiptId: string; draftId: string; cycleMonth: string; lines: ReceiptFollowupLine[] };
+export const MAX_RECEIPT_LINES = 120;
+export function internalChinaReceiptOrderItemId(draftId: string, code: string) {
+  return parseInt(createHash("sha256").update(`${draftId}:${code}`).digest("hex").slice(0, 7), 16);
+}
 export function receiptRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -12,7 +16,7 @@ export function validInternalReceiptId(value: unknown): value is string {
 }
 export function receiptFollowupBundle(receiptId: string, rows: ReceiptStoredRow[]): ReceiptFollowupBundle {
   if (!validInternalReceiptId(receiptId)) throw new Error("RECEIPT_FOLLOWUP_ID_INVALID");
-  if (!rows.length || rows.length > 100) throw new Error("RECEIPT_FOLLOWUP_ROWS_INVALID");
+  if (!rows.length || rows.length > MAX_RECEIPT_LINES) throw new Error("RECEIPT_FOLLOWUP_ROWS_INVALID");
   let draftId = "", cycleMonth = "";
   const codes = new Set<string>();
   const lines = rows.map((row) => {

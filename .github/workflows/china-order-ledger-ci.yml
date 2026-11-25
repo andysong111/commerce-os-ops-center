@@ -6,6 +6,9 @@ on:
       - "src/lib/chinaOrderLedger.ts"
       - "src/lib/internalChinaPurchaseDraft.ts"
       - "src/lib/internalChinaOrderEvidence.ts"
+      - "src/lib/internalChinaPaymentEvidence.ts"
+      - "src/lib/productDecisionEngine/purchaseCostPolicy.ts"
+      - "src/lib/purchaseCyclePreflightSpend*.ts"
       - "src/lib/internalChinaPurchaseBudgetAudit.ts"
       - "src/lib/internalChinaReceipt.ts"
       - "src/lib/internalChinaForwarderCost.ts"
@@ -38,6 +41,7 @@ on:
       - "tests/chinaOrderLedger.test.mjs"
       - "tests/internalChinaPurchaseDraftMvp.test.mjs"
       - "tests/internalChinaOrderEvidence.test.mjs"
+      - "tests/internalChinaPaymentEvidence.test.mjs"
       - "tests/internalChinaPurchaseBudgetAudit.test.mjs"
       - "tests/internalChinaReceipt.test.mjs"
       - "tests/internalChinaForwarderCost.test.mjs"
@@ -127,6 +131,7 @@ jobs:
           tests/chinaOrderLedger.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
           tests/internalChinaOrderEvidence.test.mjs
+          tests/internalChinaPaymentEvidence.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
           tests/internalChinaForwarderCost.test.mjs
@@ -143,6 +148,10 @@ jobs:
           tests/chinaOrderLedger.test.mjs
           tests/internalChinaPurchaseDraftMvp.test.mjs
           tests/internalChinaOrderEvidence.test.mjs
+          tests/internalChinaPaymentEvidence.test.mjs
+          tests/internalChinaPurchaseCostMath.test.mjs
+          tests/fastPurchaseCashEnvelope.test.mjs
+          tests/productDecisionShadowReplay.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
           tests/internalChinaForwarderCost.test.mjs

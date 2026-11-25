@@ -26,6 +26,8 @@ import {
   readProductLaunchState,
 } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
+import { allocatedLandedUnitCostKrw } from "./internalChinaPurchaseCostMath.ts";
+import { internalChinaReceiptOrderItemId } from "./internalChinaReceiptFollowupCore.ts";
 
 export const INTERNAL_CHINA_FORWARDER_COST_OPERATION_TYPE =
   "INTERNAL_CHINA_FORWARDER_COST_CLOSE";
@@ -59,6 +61,9 @@ export type InternalChinaForwarderCostSummary = {
   cycleMonth: string;
   productPurchaseCostKrw: number;
   domesticChinaFreightKrw: number;
+  serviceFeeKrw?: number;
+  actual1688PaymentKrw?: number;
+  paymentEvidenceHash?: string;
   paymentFeeMultiplier: number;
   paymentFeeCostKrw: number;
   orderPaymentCostKrw: number;
@@ -168,6 +173,7 @@ function domesticChinaFreightKrw(draft: InternalChinaPurchaseDraft) {
 }
 
 function orderPaymentCostKrw(draft: InternalChinaPurchaseDraft) {
+  if (draft.verifiedPayment) return draft.verifiedPayment.paidKrw + draft.verifiedPayment.worldFirstFeeKrw;
   const preFeeOrderCost = Math.max(
     1,
     productPurchaseCostKrw(draft) + domesticChinaFreightKrw(draft),
@@ -200,10 +206,9 @@ export function productUnitCostByBarcode(
         : 0;
     const productUnitKrw =
       decimal(line.unitPriceCny) * draft.exchangeRateKrwPerCny;
-    const preFeeUnitKrw = Math.max(0, productUnitKrw + freightPerUnitKrw);
-    const landedUnitKrw =
-      preFeeUnitKrw * draft.paymentFeeMultiplier * multiplier;
-    result.set(line.barcode, Math.max(1, Math.round(landedUnitKrw)));
+    result.set(line.barcode, allocatedLandedUnitCostKrw(
+      productUnitKrw, freightPerUnitKrw, draft.paymentFeeMultiplier, multiplier,
+    ));
   }
   return result;
 }
@@ -215,9 +220,9 @@ export function buildInternalChinaForwarderCostSummaryFromDraft(
   closedAt: string | null,
   receiptCostReconciliation: InternalChinaReceiptCostReconciliation | null = null,
 ): InternalChinaForwarderCostSummary {
-  const productCost = productPurchaseCostKrw(draft);
-  const domesticFreight = domesticChinaFreightKrw(draft);
-  const preFeeOrderCost = Math.max(1, productCost + domesticFreight);
+  const productCost = draft.verifiedPayment?.goodsKrw ?? productPurchaseCostKrw(draft);
+  const domesticFreight = draft.verifiedPayment?.domesticFreightKrw ?? domesticChinaFreightKrw(draft);
+  const preFeeOrderCost = draft.verifiedPayment?.paidKrw ?? Math.max(1, productCost + domesticFreight);
   const orderPaymentCost = orderPaymentCostKrw(draft);
   const paymentFeeCost = Math.max(0, orderPaymentCost - preFeeOrderCost);
   const estimatedForwarder = Math.max(
@@ -239,6 +244,9 @@ export function buildInternalChinaForwarderCostSummaryFromDraft(
     cycleMonth,
     productPurchaseCostKrw: productCost,
     domesticChinaFreightKrw: domesticFreight,
+    serviceFeeKrw: draft.verifiedPayment?.serviceFeeKrw,
+    actual1688PaymentKrw: draft.verifiedPayment?.paidKrw,
+    paymentEvidenceHash: draft.verifiedPayment?.evidenceHash,
     paymentFeeMultiplier: draft.paymentFeeMultiplier,
     paymentFeeCostKrw: paymentFeeCost,
     orderPaymentCostKrw: orderPaymentCost,
@@ -297,6 +305,7 @@ async function reconcileReceiptCosts(
     for (const row of rows) {
       if (
         row.batchId !== cycleBatchId ||
+        row.orderItemId !== internalChinaReceiptOrderItemId(draft.draftId, line.barcode) ||
         !row.id.startsWith("china-receipt:")
       ) {
         continue;
@@ -372,7 +381,7 @@ async function readStoredCost(draftId: string) {
   };
 }
 
-async function loadActualPurchaseCostDraft(
+export async function loadActualPurchaseCostDraft(
   draftId: string,
   cycleMonth: string,
 ) {

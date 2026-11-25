@@ -97,6 +97,9 @@ export function parseStoredInternalChinaForwarderClose(
     cycleMonth,
     productPurchaseCostKrw,
     domesticChinaFreightKrw,
+    serviceFeeKrw: snapshot.serviceFeeKrw === undefined ? undefined : integer(snapshot.serviceFeeKrw),
+    actual1688PaymentKrw: snapshot.actual1688PaymentKrw === undefined ? undefined : integer(snapshot.actual1688PaymentKrw),
+    paymentEvidenceHash: text(snapshot.paymentEvidenceHash) || undefined,
     paymentFeeMultiplier: decimal(snapshot.paymentFeeMultiplier) || 1,
     paymentFeeCostKrw:
       integer(snapshot.paymentFeeCostKrw) ||
