@@ -89,7 +89,7 @@ test("other active RESERVED drafts are surfaced before the operator orders", () 
   assert.match(card, /과거 Draft는 해제/);
 });
 
-test("calendar-month budget and internal standard cost are visible on the China draft page", () => {
+test("China draft shows the A2B rate policy without presenting the previous applied rate as a new quote", () => {
   assert.match(page, /loadInternalChinaPurchaseBudgetAudit/);
   assert.match(page, /InternalChinaPurchaseBudgetAudit/);
   assert.match(page, /budgetAudit=\{budgetAudit\}/);
@@ -97,9 +97,12 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(card, /1일~말일 고정/);
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);
-  assert.match(card, /내부기준원가/);
-  assert.match(card, /월드퍼스트 콰징바오 수수료 0\.8%/);
-  assert.match(card, /내부기준원가 1\.50/);
+  assert.match(card, /A2B상사 내부 기준환율/);
+  assert.match(card, /출처 연결 대기/);
+  assert.match(card, /×1\.05 \(결제·환전비 포함\)/);
+  assert.match(card, /예상 도착 총액은 구매대금/);
+  assert.match(audit, /appliedKrwPerCny: draft\.exchangeRateKrwPerCny \* draft\.paymentFeeMultiplier/);
+  assert.doesNotMatch(card, /내부기준원가/);
   assert.match(card, /예산 초과/);
 });
 

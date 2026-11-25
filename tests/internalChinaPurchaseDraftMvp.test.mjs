@@ -140,14 +140,14 @@ test("1688 link is read-only and comes from the model fixed first product link",
   );
 });
 
-test("exchange input is removed and internal standard cost is system-owned", () => {
+test("draft shows an estimated payment and keeps the editable order fields separate from budgeting policy", () => {
   assert.match(engine, /INTERNAL_CHINA_FIXED_KRW_PER_CNY = 230/);
   assert.match(engine, /INTERNAL_CHINA_ORDER_COST_MULTIPLIER/);
   assert.match(engine, /internalOrderCostMultiplier/);
   assert.doesNotMatch(workspace, /적용 환율 KRW\/CNY/);
-  assert.match(workspace, /내부기준원가/);
-  assert.match(workspace, /worldFirstFeeLabel\(draft.paymentFeeMultiplier\)/);
-  assert.match(workspace, /한국 도착 원가 ×/);
+  assert.match(workspace, /1688 예상 결제액/);
+  assert.match(workspace, /예상 결제단가 KRW/);
+  assert.doesNotMatch(workspace, /내부기준원가|실주문 원가|worldFirstFeeLabel/);
 });
 
 test("product name column is removed and B-code model and sale option share one identity cell", () => {

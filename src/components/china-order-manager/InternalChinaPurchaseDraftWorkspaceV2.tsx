@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
-import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 import {
   InternalChinaManualDraftLineAdder,
   type StagedDraftAddition,
@@ -46,8 +45,7 @@ const TABLE_COLUMNS = [
   { label: "운임·할인/가감", width: 150 },
   { label: "개당 운임", width: 100 },
   { label: "최종단가 CNY", width: 110 },
-  { label: "실주문원가 KRW", width: 120 },
-  { label: "내부기준원가 KRW", width: 130 },
+  { label: "예상 결제단가 KRW", width: 130 },
   { label: "1688 주문번호", width: 160 },
   { label: "메모", width: 260 },
 ] as const;
@@ -433,7 +431,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         freightPerUnitCny: number;
         finalUnitCny: number;
         actualUnitKrw: number;
-        internalStandardUnitKrw: number;
       }
     >();
 
@@ -443,12 +440,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       const finalUnitCny = decimal(line.unitPriceCny) + freightPerUnitCny;
       const actualUnitKrw =
         finalUnitCny * draft.exchangeRateKrwPerCny * draft.paymentFeeMultiplier;
-      const internalStandardUnitKrw = actualUnitKrw * draft.internalOrderCostMultiplier;
       byBarcode.set(line.barcode, {
         freightPerUnitCny,
         finalUnitCny,
         actualUnitKrw,
-        internalStandardUnitKrw,
       });
     }
     const costSummary = calculateInternalChinaPurchaseCostSummary({
@@ -467,9 +462,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       productCny: costSummary.productCny,
       productKrw: costSummary.productCostKrwExact,
       freightCny: costSummary.domesticChinaAdjustmentCny,
-      paymentFeeKrw: costSummary.paymentFeeKrwExact,
       totalKrw: costSummary.actualOrderCostKrwExact,
-      internalStandardTotalKrw: costSummary.internalBaseCostKrwExact,
       budgetUsedPercent,
       budgetRemainingKrw: Math.max(0, budgetKrw - costSummary.productCostKrwExact),
       budgetOverKrw: Math.max(0, costSummary.productCostKrwExact - budgetKrw),
@@ -1180,12 +1173,11 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="상태" value={draft.status === "ORDERED" ? "실주문 기록" : "주문 준비"} />
         <Metric label="SKU" value={`${number.format(draft.lineCount)}개`} />
         <Metric label="총 주문수량" value={`${number.format(draft.totalQuantity)}개`} />
         <Metric label="필수 확인" value={`${number.format(requiredIssues.length)}건`} danger={requiredIssues.length > 0} />
-        <Metric label="내부기준원가" value={`${number.format(Math.round(calculations.internalStandardTotalKrw))}원`} emphasized />
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1198,13 +1190,6 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[230px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-              <span className="block text-xs font-bold text-emerald-700">내부기준원가</span>
-              <strong className="mt-0.5 block text-right text-base font-black text-emerald-950">
-                {number.format(Math.round(calculations.internalStandardTotalKrw))}원
-              </strong>
-              <span className="mt-0.5 block text-[11px] text-emerald-700">{worldFirstFeeLabel(draft.paymentFeeMultiplier)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}</span>
-            </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
             <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingCostCaptureBlockingEdits} title={hasPendingCostCaptureBlockingEdits ? "수량·제외·추가·단종 변경을 먼저 저장하거나 취소하세요." : stockBandUpdates.length > 0 ? "대략 재고 변경은 보류하고 현재 발주안의 원가·운임만 기록합니다." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
             <button type="button" onClick={() => void open1688Workflow("cart-staging")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingRecalculation || missingStockBandCount > 0 || executionLineLimitExceeded || calculations.budgetOverKrw > 0 || calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0} title={hasPendingRecalculation ? "대기 변경을 먼저 재계산하세요." : missingStockBandCount > 0 || executionLineLimitExceeded ? "대략 재고 선택과 발주안 재계산을 먼저 마치세요." : calculations.budgetOverKrw > 0 ? "예산 초과를 먼저 해결하세요." : calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0 ? "5-1 원가·운임 기록과 중국옵션 확인을 먼저 마치세요." : undefined} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "CART" ? "5-2 여는 중..." : "5-2 장바구니 담기"}</button>
@@ -1226,11 +1211,10 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
           <span>초록색 선택은 다음 차시 재사용을 위한 기록이라 재계산 후에도 남습니다. 완료 메시지의 제거·추가·수량변경 수로 결과를 확인하세요.</span>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SubMetric label="상품금액" value={`${cny.format(calculations.productCny)} CNY`} />
           <SubMetric label="중국내 운임·할인/가감" value={`${cny.format(calculations.freightCny)} CNY`} />
-          <SubMetric label={worldFirstFeeLabel(draft.paymentFeeMultiplier)} value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`} />
-          <SubMetric label="실주문 원가" value={`${number.format(Math.round(calculations.totalKrw))}원`} />
+          <SubMetric label="1688 예상 결제액" value={`${number.format(Math.round(calculations.totalKrw))}원`} />
           <SubMetric label="중국옵션 확인 필요" value={`${number.format(optionReviewCount)} SKU`} />
         </div>
 
@@ -1310,7 +1294,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
             <thead className="border-b border-slate-200 bg-slate-50 font-bold text-slate-500">
               <tr>
                 {TABLE_COLUMNS.map((column, index) => (
-                  <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 10 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
+                  <th key={column.label} className={`px-3 py-3 ${index >= 3 && index <= 9 ? "text-right" : ""}`} style={stickyCellStyle(index, freezeThrough, true)}>
                     {index === 0 ? <div><label className="flex items-center gap-2"><input type="checkbox" checked={allLinesSelected} onChange={(event) => setSelectedRows((current) => ({ ...current, ...Object.fromEntries(visibleLines.map((line) => [line.barcode, event.target.checked])) }))} disabled={draft.status !== "DRAFT" || visibleLines.length === 0} aria-label="작업할 상품 전체 선택 (현재 보이는 목록)" className="size-4" /><span>작업할 상품 선택</span></label><span className="mt-1 block text-[11px] font-semibold text-slate-500">{column.label}</span></div> : column.label}
                   </th>
                 ))}
@@ -1392,9 +1376,8 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                     <td className="px-3 py-3 text-right font-semibold text-slate-600" style={stickyCellStyle(7, freezeThrough)}>{cny.format(calc.freightPerUnitCny)}</td>
                     <td className="px-3 py-3 text-right font-black text-emerald-800" style={stickyCellStyle(8, freezeThrough)}>{cny.format(calc.finalUnitCny)}</td>
                     <td className="px-3 py-3 text-right font-black text-blue-800" style={stickyCellStyle(9, freezeThrough)}>{number.format(Math.round(calc.actualUnitKrw))}원</td>
-                    <td className="px-3 py-3 text-right font-black text-violet-800" style={stickyCellStyle(10, freezeThrough)}>{number.format(Math.round(calc.internalStandardUnitKrw))}원</td>
-                    <td className="px-2 py-2" style={stickyCellStyle(11, freezeThrough)}><Input value={line.orderNumber} disabled={!editable} placeholder="1688 주문번호" onChange={(value) => updateLine(line.barcode, { orderNumber: value })} /></td>
-                    <td className="px-2 py-2" style={stickyCellStyle(12, freezeThrough)}><Input value={line.note} disabled={!editable} placeholder="주문·옵션 특이사항" onChange={(value) => updateLine(line.barcode, { note: value })} /></td>
+                    <td className="px-2 py-2" style={stickyCellStyle(10, freezeThrough)}><Input value={line.orderNumber} disabled={!editable} placeholder="1688 주문번호" onChange={(value) => updateLine(line.barcode, { orderNumber: value })} /></td>
+                    <td className="px-2 py-2" style={stickyCellStyle(11, freezeThrough)}><Input value={line.note} disabled={!editable} placeholder="주문·옵션 특이사항" onChange={(value) => updateLine(line.barcode, { note: value })} /></td>
                   </tr>
                 );
               })}

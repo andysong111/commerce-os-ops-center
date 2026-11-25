@@ -58,6 +58,7 @@ export type InternalChinaPurchaseBudgetAudit = {
   recordedOrderedSpendKrw: number;
   accrualStartMonth: string;
   paymentFeeMultiplier: number;
+  appliedKrwPerCny: number;
   purchaseCostMultiplier: number;
   productOrderBudgetKrw: number;
   engineExpectedSpendKrw: number;
@@ -362,7 +363,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     budgetMonthRevenueKrw,
     budgetRevenueError: calendarRevenue.error,
     sourceWarnings: [...sourceWarnings, ...(carryoverRead.error ? [`누적 발주 가능 금액 확인 실패: ${carryoverRead.error}`] : [])],
-    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원 · 월드퍼스트 콰징바오 수수료 ×${paymentFeeMultiplier.toFixed(3)} · 한국 도착 내부기준원가 ×${purchaseCostMultiplier.toFixed(2)}`,
+    basisLabel: `${carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth}~${carryoverRead.value?.accrualEndMonth ?? cycle.budgetMonth} 월별 정상매출${carryoverRead.value?.accruedAblyShippingDeductionKrw ? `에서 에이블리 ${carryoverRead.value.accruedAblyOrderCount.toLocaleString("ko-KR")}건 × 3,000원 차감 후` : "의"} 50% 누적 ${cumulativeAccruedBudgetKrw.toLocaleString("ko-KR")}원 - 실제 주문완료 ${recordedOrderedSpendKrw.toLocaleString("ko-KR")}원`,
     recent30RevenueKrw,
     grossCogsBudgetKrw,
     currentMonthAccrualKrw,
@@ -370,6 +371,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     recordedOrderedSpendKrw,
     accrualStartMonth: carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth,
     paymentFeeMultiplier,
+    appliedKrwPerCny: draft.exchangeRateKrwPerCny * draft.paymentFeeMultiplier,
     purchaseCostMultiplier,
     productOrderBudgetKrw,
     engineExpectedSpendKrw,
