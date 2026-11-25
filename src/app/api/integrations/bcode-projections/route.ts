@@ -13,9 +13,12 @@ function text(value: unknown) {
 }
 
 function authorized(request: Request) {
-  const expected = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
   const supplied = request.headers.get("x-commerce-os-integration-secret")?.trim();
-  return Boolean(expected && supplied && expected === supplied);
+  const allowed = [
+    process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim(),
+    process.env.AAA022_RECONCILIATION_OPS_SECRET?.trim(),
+  ].filter(Boolean);
+  return Boolean(supplied && allowed.includes(supplied));
 }
 
 export async function POST(request: Request) {
