@@ -11,9 +11,12 @@ function text(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const expected = process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim();
   const supplied = request.headers.get("x-commerce-os-integration-secret")?.trim();
-  if (!expected || supplied !== expected) {
+  const allowed = [
+    process.env.PRODUCT_MASTER_INTEGRATION_SECRET?.trim(),
+    process.env.AAA022_RECONCILIATION_OPS_SECRET?.trim(),
+  ].filter(Boolean);
+  if (!supplied || !allowed.includes(supplied)) {
     return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
   try {
