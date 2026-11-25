@@ -110,6 +110,22 @@ function hash(value: unknown) {
     .digest("hex")}`;
 }
 
+export function buildOndolpassReceiptSourceEventId(
+  observation: InternalChinaOndolpassReceiptObservation,
+  previous: InternalChinaOndolpassReceiptObservation | null,
+) {
+  // A corrected quantity can later return to an earlier value. Deduplicate
+  // retries of this transition without reusing that earlier stored event.
+  const eventHash = previous
+    ? hash({
+        snapshotHash: observation.snapshotHash,
+        previousSnapshotHash: previous.snapshotHash,
+        previousObservedAt: previous.observedAt,
+      })
+    : observation.snapshotHash;
+  return `ondolpass-receipt:${observation.draftId}:${eventHash.slice("sha256:".length)}`;
+}
+
 function sourceKey(applicationNo: string, rowNo: number) {
   return `${applicationNo}:${rowNo}`;
 }
@@ -276,19 +292,16 @@ export function buildInternalChinaOndolpassReceiptObservation(
       if (
         !current ||
         !current.eligible ||
+        current.orderNo !== oldRow.orderNo ||
         current.status === "DISPOSED" ||
-        current.displayedQuantity < oldRow.receivedQuantity ||
         (current.status === "PENDING" &&
-          current.displayedQuantity !== oldRow.receivedQuantity) ||
-        (current.status === "RECEIVED" &&
-          current.receivedQuantity < oldRow.receivedQuantity)
+          current.displayedQuantity !== oldRow.receivedQuantity)
       ) {
         throw new Error("ONDOLPASS_RECEIPT_STATUS_REGRESSION");
       }
       if (current.status === "PENDING") {
-        // 온돌패스는 출고 단계가 진행되면 품목의 빨간 `입고` 표식을
-        // 목록에서 제거할 수 있다. 신청번호·행번호·수량·주문번호가
-        // 그대로면 이미 검증한 입고 근거를 누적 상태로 유지한다.
+        // 표식만 사라지고 동일 행의 수량·주문번호가 유지되면
+        // 이전에 확인한 입고수량을 유지한다.
         current.status = "RECEIVED";
         current.receivedQuantity = oldRow.receivedQuantity;
       }
@@ -336,13 +349,21 @@ export function buildInternalChinaOndolpassReceiptObservation(
       orderNo: row.orderNo,
     })),
   };
+  const snapshotHash = hash(canonicalState);
+  if (
+    previous &&
+    snapshotHash !== previous.snapshotHash &&
+    Date.parse(observedAt) <= Date.parse(previous.observedAt)
+  ) {
+    throw new Error("ONDOLPASS_RECEIPT_OBSERVATION_STALE");
+  }
   return {
     draftId,
     cycleMonth: evidence.cycleMonth,
     historyRecordId: evidence.historyRecordId,
     evidenceHash,
     observedAt,
-    snapshotHash: hash(canonicalState),
+    snapshotHash,
     rowCount: rows.length,
     receivedRowCount,
     pendingRowCount,
