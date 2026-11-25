@@ -310,6 +310,58 @@ test("온돌패스 상단 신청상태는 신청번호별 품목 입고 판정�
   assert.deepEqual(changedHeaderStates.byBarcode, baseline.byBarcode);
 });
 
+test("과거에 입고로 저장된 기준 10개·표시 15개 품목은 초과로 제외하고 나머지는 저장한다", () => {
+  const sample = input();
+  const first = buildInternalChinaOndolpassReceiptObservation(sample, evidence);
+  const legacyOverage = {
+    ...first,
+    // Legacy fingerprint of the same 15-count source, before eligibility was hashed.
+    snapshotHash: "sha256:ff2908f9b4808ea7209fd21f8cc802fc44f5083be7bdfca086ff721427fbc042",
+    rows: first.rows.map((row) => row.applicationNo === "673842" && row.rowNo === 1
+      ? { ...row, displayedQuantity: 15, receivedQuantity: 15, quantityMatches: false }
+      : row),
+  };
+  const observe = (quantity, orderNo = sample.applications[0].rows[0].orderNo) => input({
+    observedAt: "2026-11-25T11:47:09.000Z",
+    applications: sample.applications.map((application) => application.applicationNo === "673842"
+      ? {
+          ...application,
+          rows: application.rows.map((row) => row.rowNo === 1
+            ? { ...row, quantity, orderNo }
+            : row),
+        }
+      : application),
+  });
+
+  const updated = buildInternalChinaOndolpassReceiptObservation(observe(15), evidence, legacyOverage);
+  const overage = updated.rows.find((row) => row.applicationNo === "673842" && row.rowNo === 1);
+  assert.equal(overage.displayedQuantity, 15);
+  assert.equal(overage.eligible, false);
+  assert.equal(overage.receivedQuantity, 0);
+  assert.equal(updated.observedReceivedQuantity, 8);
+  assert.equal(updated.receivedRowCount, 1);
+  assert.equal(updated.mismatchCount, 1);
+  assert.equal(updated.complete, false);
+  assert.notEqual(updated.snapshotHash, legacyOverage.snapshotHash);
+  assert.equal(
+    buildInternalChinaOndolpassReceiptObservation(observe(15), evidence, updated).snapshotHash,
+    updated.snapshotHash,
+  );
+  assert.ok(updated.issues.includes("QUANTITY_MISMATCH:673842:1:10:15"));
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(observe(16), evidence, legacyOverage),
+    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  );
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(
+      observe(15, "3316598510069009454"),
+      evidence,
+      legacyOverage,
+    ),
+    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  );
+});
+
 test("같은 화면 상태는 확인시각이 달라도 같은 멱등 해시를 사용하고 저장값을 복원한다", () => {
   const first = buildInternalChinaOndolpassReceiptObservation(input(), evidence);
   const replay = buildInternalChinaOndolpassReceiptObservation(
