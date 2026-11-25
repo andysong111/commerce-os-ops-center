@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   buildInternalChinaOndolpassReceiptObservation,
+  buildOndolpassReceiptSourceEventId,
   parseStoredInternalChinaOndolpassReceiptObservation,
 } from "../src/lib/internalChinaOndolpassReceiptObservationCore.ts";
 import { buildInternalChinaReceiptWorkspaceLines } from "../src/lib/internalChinaReceiptWorkspace.ts";
@@ -185,7 +186,7 @@ test("누락·중복 행은 차단하고 이미 입고된 행의 표식 소실�
       ...application,
       rows: application.rows.map((row) => (
         application.applicationNo === "673842" && row.rowNo === 1
-          ? { ...row, status: "RECEIVED", quantity: 9 }
+          ? { ...row, status: "PENDING", quantity: 9 }
           : { ...row, status: "RECEIVED" }
       )),
     })),
@@ -212,6 +213,82 @@ test("누락·중복 행은 차단하고 이미 입고된 행의 표식 소실�
       disposedAfterReceipt,
       evidence,
       partialPrevious,
+    ),
+    /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
+  );
+});
+
+test("같은 주문의 명시적 입고수량이 1535개에서 1452개로 정정되면 최신 수량만 준비한다", () => {
+  const correctionEvidence = {
+    ...evidence,
+    lines: [{ ...evidence.lines[0], quantity: 1535 }],
+  };
+  const base = input();
+  const application = base.applications[0];
+  const sample = (quantity, observedAt, orderNo = application.rows[0].orderNo) => ({
+    ...base,
+    observedAt,
+    applications: [{
+      ...application,
+      rows: [{ ...application.rows[0], quantity, orderNo }],
+    }],
+  });
+  const original = buildInternalChinaOndolpassReceiptObservation(
+    sample(1535, "2026-11-23T03:33:29.123Z"),
+    correctionEvidence,
+  );
+  const correctedInput = sample(1452, "2026-11-25T11:35:24.000Z");
+  const corrected = buildInternalChinaOndolpassReceiptObservation(
+    correctedInput,
+    correctionEvidence,
+    original,
+  );
+  assert.equal(corrected.rows[0].status, "RECEIVED");
+  assert.equal(corrected.rows[0].receivedQuantity, 1452);
+  assert.equal(corrected.byBarcode[0].observedReceivedQuantity, 1452);
+  assert.equal(corrected.observedReceivedQuantity, 1452);
+  assert.equal(corrected.expectedQuantity, 1535);
+  assert.notEqual(corrected.snapshotHash, original.snapshotHash);
+  const restored = buildInternalChinaOndolpassReceiptObservation(
+    sample(1535, "2026-11-25T12:00:00.000Z"),
+    correctionEvidence,
+    corrected,
+  );
+  assert.equal(restored.snapshotHash, original.snapshotHash);
+  assert.notEqual(
+    buildOndolpassReceiptSourceEventId(restored, corrected),
+    buildOndolpassReceiptSourceEventId(original, null),
+  );
+  const correctedAgain = buildInternalChinaOndolpassReceiptObservation(
+    sample(1452, "2026-11-25T13:00:00.000Z"),
+    correctionEvidence,
+    restored,
+  );
+  assert.equal(correctedAgain.snapshotHash, corrected.snapshotHash);
+  assert.notEqual(
+    buildOndolpassReceiptSourceEventId(correctedAgain, restored),
+    buildOndolpassReceiptSourceEventId(corrected, original),
+  );
+  assert.equal(
+    buildOndolpassReceiptSourceEventId(correctedAgain, restored),
+    buildOndolpassReceiptSourceEventId(
+      { ...correctedAgain, observedAt: "2026-11-25T13:00:01.000Z" },
+      restored,
+    ),
+  );
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(
+      correctedInput,
+      correctionEvidence,
+      restored,
+    ),
+    /ONDOLPASS_RECEIPT_OBSERVATION_STALE/,
+  );
+  assert.throws(
+    () => buildInternalChinaOndolpassReceiptObservation(
+      sample(1452, correctedInput.observedAt, "3316598510069009454"),
+      correctionEvidence,
+      original,
     ),
     /ONDOLPASS_RECEIPT_STATUS_REGRESSION/,
   );

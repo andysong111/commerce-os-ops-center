@@ -42,7 +42,9 @@ function errorResponse(error: unknown) {
     ONDOLPASS_RECEIPT_ROW_SET_MISMATCH:
       "완료 근거의 신청번호·행번호와 온돌패스 화면이 정확히 일치하지 않습니다.",
     ONDOLPASS_RECEIPT_STATUS_REGRESSION:
-      "이전에 입고로 확인한 품목이 대기로 되돌아가 저장을 차단했습니다.",
+      "이전에 입고로 확인한 품목의 주문번호·수량·상태를 현재 표시와 대조할 수 없어 저장을 차단했습니다.",
+    ONDOLPASS_RECEIPT_OBSERVATION_STALE:
+      "이미 더 최근의 입고현황을 저장했습니다. 현재 온돌패스 화면에서 다시 확인해 주세요.",
     ONDOLPASS_RECEIPT_STORE_READBACK_FAILED:
       "입고현황 저장 결과를 다시 확인하지 못했습니다. 반복 클릭하지 말고 잠시 뒤 새로고침하세요.",
   };

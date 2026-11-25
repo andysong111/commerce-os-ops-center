@@ -5,6 +5,7 @@ import {
 } from "@/lib/internalChinaFreightBarcodeCompletion";
 import {
   buildInternalChinaOndolpassReceiptObservation,
+  buildOndolpassReceiptSourceEventId,
   parseStoredInternalChinaOndolpassReceiptObservation,
   type InternalChinaOndolpassReceiptObservation,
   type InternalChinaOndolpassReceiptObservationRow,
@@ -42,10 +43,6 @@ function supabaseConnection() {
 
 function correlationId(draftId: string) {
   return `purchase-run:${draftId}`;
-}
-
-function sourceEventId(draftId: string, snapshotHash: string) {
-  return `ondolpass-receipt:${draftId}:${snapshotHash.replace(/^sha256:/, "")}`;
 }
 
 async function readRows(query: URLSearchParams) {
@@ -126,12 +123,10 @@ export async function loadInternalChinaOndolpassReceiptContext(
 
 async function storeObservation(
   observation: InternalChinaOndolpassReceiptObservation,
+  previous: InternalChinaOndolpassReceiptObservation | null,
 ) {
   const { baseUrl, secret } = supabaseConnection();
-  const eventId = sourceEventId(
-    observation.draftId,
-    observation.snapshotHash,
-  );
+  const eventId = buildOndolpassReceiptSourceEventId(observation, previous);
   const query = new URLSearchParams({
     on_conflict: "source_event_id",
     select: "source_event_id",
@@ -198,6 +193,6 @@ export async function recordInternalChinaOndolpassReceiptObservation(
   if (context.observation?.snapshotHash === observation.snapshotHash) {
     return { observation: context.observation, alreadyRecorded: true };
   }
-  const stored = await storeObservation(observation);
+  const stored = await storeObservation(observation, context.observation);
   return { observation: stored, alreadyRecorded: false };
 }
