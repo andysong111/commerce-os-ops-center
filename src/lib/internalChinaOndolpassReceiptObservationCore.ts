@@ -289,6 +289,19 @@ export function buildInternalChinaOndolpassReceiptObservation(
       const current = currentByKey.get(
         sourceKey(oldRow.applicationNo, oldRow.rowNo),
       );
+      // Older snapshots counted this overage as eligible. Keep the unchanged
+      // observation as a mismatch so it contributes zero to the new proposal.
+      if (
+        current?.status === "RECEIVED" &&
+        current.orderNoMatches &&
+        current.orderNo === oldRow.orderNo &&
+        current.expectedQuantity === oldRow.expectedQuantity &&
+        current.displayedQuantity > current.expectedQuantity &&
+        current.displayedQuantity === oldRow.displayedQuantity &&
+        current.displayedQuantity === oldRow.receivedQuantity
+      ) {
+        continue;
+      }
       if (
         !current ||
         !current.eligible ||
@@ -347,6 +360,8 @@ export function buildInternalChinaOndolpassReceiptObservation(
       displayedQuantity: row.displayedQuantity,
       status: row.status,
       orderNo: row.orderNo,
+      eligible: row.eligible,
+      receivedQuantity: row.receivedQuantity,
     })),
   };
   const snapshotHash = hash(canonicalState);
