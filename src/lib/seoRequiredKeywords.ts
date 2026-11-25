@@ -9,7 +9,6 @@ import {
 
 export const SEO_REQUIRED_TITLE_KEYWORD_LIMIT = 3;
 export const SEO_REQUIRED_SEARCH_KEYWORD_LIMIT = KEYWORD_ELON_SEO_SEARCH_LIMIT;
-export const SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT = 43;
 export const SEO_REQUIRED_EXPANSION_SEED_LIMIT = 8;
 
 export type SeoRequiredKeywords = {
@@ -82,13 +81,6 @@ export function normalizeSeoRequiredKeywords(input: {
 
   for (const keyword of titleKeywords) assertKeywordShape(keyword, "상품명 필수 키워드");
   for (const keyword of searchKeywords) assertKeywordShape(keyword, "검색어 필수 키워드");
-
-  const titleBytes = keywordElonSeoUtf8Bytes(titleKeywords.join(" "));
-  if (titleBytes > SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT) {
-    throw new Error(
-      `상품명 필수 키워드 합계는 공백 포함 ${SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT}bytes 이하여야 합니다. 현재 ${titleBytes}bytes입니다.`,
-    );
-  }
 
   return { titleKeywords, searchKeywords };
 }
@@ -176,6 +168,17 @@ export function seoTitleIncludesRequiredKeyword(title: unknown, keyword: unknown
   return Boolean(keywordKey && titleKey.includes(keywordKey));
 }
 
-export function seoRequiredTitleKeywordBytes(value: unknown) {
-  return keywordElonSeoUtf8Bytes(parseSeoRequiredKeywordList(value).join(" "));
+export function missingSeoRequiredTitleKeywords(
+  requiredKeywords: string[],
+  rows: readonly { title: string; keywordMaterials: readonly string[] }[],
+) {
+  return requiredKeywords.filter((keyword) => {
+    const key = keywordElonSeoCanonical(keyword);
+    const includesKeyword = (row: (typeof rows)[number]) =>
+      row.keywordMaterials.some((material) => keywordElonSeoCanonical(material) === key) &&
+      seoTitleIncludesRequiredKeyword(row.title, keyword);
+    return requiredKeywords.length === 1
+      ? rows.length === 0 || !rows.every(includesKeyword)
+      : !rows.some(includesKeyword);
+  });
 }

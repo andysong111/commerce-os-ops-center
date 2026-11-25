@@ -40,9 +40,9 @@ import { PRODUCT_GROUP_MARKET_REGISTRY } from "@/lib/productGroupMarketRegistry"
 import {
   assertSeoRequiredKeywordsAllowed,
   mergeSeoRequiredTitleKeywords,
+  missingSeoRequiredTitleKeywords,
   normalizeSeoRequiredKeywords,
   prioritizeSeoRequiredSearchKeywords,
-  seoTitleIncludesRequiredKeyword,
 } from "@/lib/seoRequiredKeywords";
 
 // Keep the hidden group key stable so existing stored FINAL payloads remain readable.
@@ -329,15 +329,11 @@ export function composeKeywordElonBulkFinal(
       `쇼핑몰별 상품명이 29개가 아닙니다. 현재 ${mallTitles.length}개`,
     );
   }
-  for (const row of mallTitles) {
-    const missing = requiredKeywords.titleKeywords.filter(
-      (keyword) => !seoTitleIncludesRequiredKeyword(row.title, keyword),
+  const missingTitleKeywords = missingSeoRequiredTitleKeywords(requiredKeywords.titleKeywords, mallTitles);
+  if (missingTitleKeywords.length) {
+    throw new Error(
+      `전체 쇼핑몰 상품명에서 필수 키워드가 누락되었습니다: ${missingTitleKeywords.join(", ")}`,
     );
-    if (missing.length) {
-      throw new Error(
-        `상품명 필수 키워드가 누락되었습니다: ${missing.join(", ")}`,
-      );
-    }
   }
 
   const searchSelection = selectKeywordElonComplementSearchKeywordsV8({

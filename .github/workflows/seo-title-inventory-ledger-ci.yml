@@ -26,6 +26,7 @@ on:
       - "src/lib/keywordEngineElonBulkFinal.ts"
       - "src/lib/keywordEngineElonLabV2Scoring.ts"
       - "src/lib/keywordEngineElonFreshMallTitleComposer.ts"
+      - "src/lib/keywordEngineElonFreshMallTitleComposerV11.ts"
       - "src/lib/keywordEngineElonMallTitleIntentPortfolioV7.ts"
       - "src/lib/keywordEngineElonMallTitleDiversityV8.ts"
       - "src/lib/keywordEngineElonSameMallTitleDiversityV9.ts"
@@ -114,6 +115,7 @@ jobs:
           src/lib/keywordEngineElonBulkFinal.ts
           src/lib/keywordEngineElonLabV2Scoring.ts
           src/lib/keywordEngineElonFreshMallTitleComposer.ts
+          src/lib/keywordEngineElonFreshMallTitleComposerV11.ts
           src/lib/keywordEngineElonTitleExpansion.ts
           src/lib/keywordEngineElonLongTitlePriority.ts
           src/lib/keywordEngineElonMallTitleSafeComposer.ts
