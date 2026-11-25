@@ -50,6 +50,10 @@ import {
   getProductLaunchAdminConfig,
   type ProductLaunchAdminConfig,
 } from "@/lib/productLaunchTrackerServer";
+import {
+  buildSeoRequiredExpansionSeeds,
+  normalizeSeoRequiredKeywords,
+} from "@/lib/seoRequiredKeywords";
 
 const SEO_RUN_LEASE_SECONDS = 420;
 const SEO_RUN_EXPANSION_ROUNDS = 3;
@@ -112,6 +116,10 @@ function requireCandidates(value: unknown, label: string) {
 
 function inputFromJob(job: SeoRunJobRow) {
   const input = record(job.input_payload);
+  const requiredKeywords = normalizeSeoRequiredKeywords({
+    titleKeywords: input.requiredTitleKeywords,
+    searchKeywords: input.requiredSearchKeywords,
+  });
   const result: KeywordElonBulkFinalInput = {
     launchItemId: text(input.launchItemId) || job.launch_item_id,
     modelNumber: text(input.modelNumber) || job.model_number,
@@ -122,6 +130,8 @@ function inputFromJob(job: SeoRunJobRow) {
     supportingText: text(input.supportingText),
     mallTitleCategory: text(input.mallTitleCategory),
     customBlockedTerms: stringList(input.customBlockedTerms, 200),
+    requiredTitleKeywords: requiredKeywords.titleKeywords,
+    requiredSearchKeywords: requiredKeywords.searchKeywords,
     variationSeed: text(input.variationSeed) || job.run_id,
     excludedMallTitles: stringList(input.excludedMallTitles, 1200),
   };
@@ -334,7 +344,10 @@ async function executeStage(
         message: "STEP 3 확장 완료 · 금지키워드 검사 대기",
       });
     }
-    const seeds = seedRows(candidates);
+    const seeds = buildSeoRequiredExpansionSeeds(
+      input.requiredTitleKeywords,
+      seedRows(candidates),
+    );
     if (!seeds.length) {
       return checkpoint(config, job, workerId, {
         stage: "filter_keywords",

@@ -6,6 +6,14 @@ import {
   productLaunchSalePriceFromUnitCostKrw,
   roundUpProductLaunchPriceKrw,
 } from "@/lib/productLaunchPricePolicy";
+import {
+  SEO_REQUIRED_SEARCH_KEYWORD_LIMIT,
+  SEO_REQUIRED_TITLE_KEYWORD_LIMIT,
+  SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT,
+  normalizeSeoRequiredKeywords,
+  parseSeoRequiredKeywordList,
+  seoRequiredTitleKeywordBytes,
+} from "@/lib/seoRequiredKeywords";
 
 const ITEM_API = "/api/product-launch-tracker/normalized-optimized";
 const TRANSIENT_STATUSES = new Set([409, 408, 425, 429, 502, 503, 504]);
@@ -36,6 +44,8 @@ type EditorItem = UnknownRecord & {
   shoplingCategory: string;
   selfCodeBase: string;
   notes: string;
+  requiredTitleKeywords: string[];
+  requiredSearchKeywords: string[];
   orderOptions: OrderOption[];
   chinaProductLinks: string[];
   detailPageAsset: UnknownRecord;
@@ -50,6 +60,8 @@ type FormState = {
   shoplingCategory: string;
   selfCodeBase: string;
   notes: string;
+  requiredTitleKeywords: string;
+  requiredSearchKeywords: string;
   chinaProductLinks: string;
   detailHtml: string;
   mainImageUrl: string;
@@ -121,6 +133,8 @@ function normalizeItem(value: unknown): EditorItem {
     shoplingCategory: text(row.shoplingCategory),
     selfCodeBase: text(row.selfCodeBase),
     notes: text(row.notes),
+    requiredTitleKeywords: parseSeoRequiredKeywordList(row.requiredTitleKeywords),
+    requiredSearchKeywords: parseSeoRequiredKeywordList(row.requiredSearchKeywords),
     orderOptions: Array.isArray(row.orderOptions)
       ? row.orderOptions.map(normalizeOption)
       : [],
@@ -140,6 +154,8 @@ function formFromItem(item: EditorItem): FormState {
     shoplingCategory: item.shoplingCategory,
     selfCodeBase: item.selfCodeBase,
     notes: item.notes,
+    requiredTitleKeywords: item.requiredTitleKeywords.join(", "),
+    requiredSearchKeywords: item.requiredSearchKeywords.join(", "),
     chinaProductLinks: item.chinaProductLinks.join("\n"),
     detailHtml: String(asset.html ?? ""),
     mainImageUrl: text(asset.mainImageUrl),
@@ -208,6 +224,10 @@ function optionMatches(left: OrderOption, right: OrderOption, index: number, opt
 }
 
 function verifySaved(expectedForm: FormState, expectedOptions: OrderOption[], actual: EditorItem) {
+  const requiredKeywords = normalizeSeoRequiredKeywords({
+    titleKeywords: expectedForm.requiredTitleKeywords,
+    searchKeywords: expectedForm.requiredSearchKeywords,
+  });
   const scalarPairs: Array<[string, string, string]> = [
     ["작업 묶음", expectedForm.workBatch.trim(), actual.workBatch],
     ["창고위치", expectedForm.warehouseLocation.trim(), actual.warehouseLocation],
@@ -216,6 +236,16 @@ function verifySaved(expectedForm: FormState, expectedOptions: OrderOption[], ac
     ["모델명", expectedForm.productName.trim(), actual.productName],
     ["샵플링 카테고리", expectedForm.shoplingCategory.trim(), actual.shoplingCategory],
     ["비고", expectedForm.notes.trim(), actual.notes],
+    [
+      "상품명 필수 키워드",
+      requiredKeywords.titleKeywords.join(","),
+      actual.requiredTitleKeywords.join(","),
+    ],
+    [
+      "검색어 필수 키워드",
+      requiredKeywords.searchKeywords.join(","),
+      actual.requiredSearchKeywords.join(","),
+    ],
   ];
   for (const [label, expected, saved] of scalarPairs) {
     if (expected !== saved) throw new Error(`${label} 저장 확인 실패`);
@@ -285,6 +315,39 @@ function Field({
   );
 }
 
+function KeywordField({
+  label,
+  value,
+  onChange,
+  help,
+  count,
+  limit,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  help: string;
+  count: number;
+  limit: number;
+}) {
+  return (
+    <label className="space-y-1 md:col-span-2">
+      <span className="flex items-center justify-between gap-3 text-xs font-black text-slate-700">
+        <span>{label}</span>
+        <span className={count > limit ? "text-rose-700" : "text-blue-700"}>{count}/{limit}개</span>
+      </span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={2}
+        placeholder="예: 무선게임패드, 블루투스컨트롤러"
+        className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+      />
+      <span className="block text-[11px] leading-5 text-slate-500">{help}</span>
+    </label>
+  );
+}
+
 export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: string }) {
   const [item, setItem] = useState<EditorItem | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
@@ -319,7 +382,10 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
   }, [itemId]);
 
   useEffect(() => {
-    void load();
+    const timerId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timerId);
   }, [load]);
 
   const updateForm = (key: keyof FormState, value: string) => {
@@ -351,6 +417,9 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
   };
 
   const canSave = Boolean(form && item && !saving && !loading && form.modelNumber.trim() && form.productName.trim());
+  const requiredTitleKeywordCount = parseSeoRequiredKeywordList(form?.requiredTitleKeywords).length;
+  const requiredSearchKeywordCount = parseSeoRequiredKeywordList(form?.requiredSearchKeywords).length;
+  const requiredTitleKeywordByteCount = seoRequiredTitleKeywordBytes(form?.requiredTitleKeywords);
   const pricedOptionCount = useMemo(
     () => options.filter((option) => option.baseSalePriceKrw > 0 || option.unitCostKrw > 0).length,
     [options],
@@ -365,6 +434,16 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
 
   const save = async () => {
     if (!form || !item || !canSave) return;
+    let requiredKeywords;
+    try {
+      requiredKeywords = normalizeSeoRequiredKeywords({
+        titleKeywords: form.requiredTitleKeywords,
+        searchKeywords: form.requiredSearchKeywords,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "필수 키워드 입력을 확인해 주세요.");
+      return;
+    }
     if (bCodeChanges.length > 1) {
       setError("B코드는 샵플링 확인까지 한 옵션씩 순서대로 변경합니다. 한 옵션만 수정해 저장해 주세요.");
       return;
@@ -394,6 +473,8 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
       shoplingCategory: form.shoplingCategory.trim(),
       selfCodeBase: form.selfCodeBase.trim(),
       notes: form.notes.trim(),
+      requiredTitleKeywords: requiredKeywords.titleKeywords,
+      requiredSearchKeywords: requiredKeywords.searchKeywords,
       orderOptions: expectedOptions,
       chinaProductLinks: splitLines(form.chinaProductLinks, 5),
       detailPageAsset: {
@@ -516,6 +597,30 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
           <Field label="모델명" value={form.productName} onChange={(value) => updateForm("productName", value)} span />
           <Field label="샵플링 표준 카테고리" value={form.shoplingCategory} onChange={(value) => updateForm("shoplingCategory", value)} span />
           <Field label="자사상품 기본코드" value={form.selfCodeBase} readOnly />
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 md:col-span-2">
+            <div className="mb-3">
+              <h3 className="text-sm font-black text-blue-950">SEO 필수 포함 키워드</h3>
+              <p className="mt-1 text-xs leading-5 text-blue-900/70">콤마로 구분해 입력합니다. 새 SEO 대량등록과 물갈이 재등록의 새 RUN에 함께 적용됩니다.</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <KeywordField
+                label="상품명 필수 포함 키워드"
+                value={form.requiredTitleKeywords}
+                onChange={(value) => updateForm("requiredTitleKeywords", value)}
+                count={requiredTitleKeywordCount}
+                limit={SEO_REQUIRED_TITLE_KEYWORD_LIMIT}
+                help={`29개 쇼핑몰 상품명 모두에 포함 · 확장 seed로 사용 · 공백 포함 ${requiredTitleKeywordByteCount}/${SEO_REQUIRED_TITLE_KEYWORD_TOTAL_BYTE_LIMIT}bytes`}
+              />
+              <KeywordField
+                label="검색어 필수 포함 키워드"
+                value={form.requiredSearchKeywords}
+                onChange={(value) => updateForm("requiredSearchKeywords", value)}
+                count={requiredSearchKeywordCount}
+                limit={SEO_REQUIRED_SEARCH_KEYWORD_LIMIT}
+                help="최종 검색어 10개 안에 우선 고정 · 확장 seed에는 사용하지 않음"
+              />
+            </div>
+          </div>
           <label className="space-y-1 md:col-span-2">
             <span className="text-xs font-black text-slate-600">비고·보류 사유</span>
             <textarea value={form.notes} onChange={(event) => updateForm("notes", event.target.value)} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />

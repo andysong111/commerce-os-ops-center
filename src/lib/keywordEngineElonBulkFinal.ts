@@ -37,6 +37,13 @@ import {
   selectKeywordElonComplementSearchKeywordsV8,
 } from "@/lib/keywordEngineElonKeywordPortfolioV8";
 import { PRODUCT_GROUP_MARKET_REGISTRY } from "@/lib/productGroupMarketRegistry";
+import {
+  assertSeoRequiredKeywordsAllowed,
+  mergeSeoRequiredTitleKeywords,
+  normalizeSeoRequiredKeywords,
+  prioritizeSeoRequiredSearchKeywords,
+  seoTitleIncludesRequiredKeyword,
+} from "@/lib/seoRequiredKeywords";
 
 // Keep the hidden group key stable so existing stored FINAL payloads remain readable.
 export const SEO_TITLE_EXPANSION_META_GROUP_KEY = "__seoTitleExpansionV6";
@@ -64,6 +71,8 @@ export type KeywordElonBulkFinalInput = {
   mallTitleMainImageUrl?: string;
   mallTitleAdditionalImageUrls?: string[];
   customBlockedTerms?: string[];
+  requiredTitleKeywords?: string[];
+  requiredSearchKeywords?: string[];
   variationSeed?: string;
   excludedMallTitles?: string[];
 };
@@ -90,6 +99,8 @@ export type KeywordElonBulkFinalResult = {
     titleExpansionCategory: string;
     titleMaterialPolicy: string;
     titleExpansionPool: KeywordElonTitleExpansionMaterial[];
+    requiredTitleKeywords: string[];
+    requiredSearchKeywords: string[];
     mallTitles: Array<{
       productGroup: string;
       marketName: string;
@@ -236,6 +247,13 @@ export function composeKeywordElonBulkFinal(
   if (!input.allowedKeys.length) {
     throw new Error("금지키워드 제거 후 사용할 SEO 재료가 없습니다.");
   }
+  const requiredKeywords = assertSeoRequiredKeywordsAllowed(
+    normalizeSeoRequiredKeywords({
+      titleKeywords: input.requiredTitleKeywords,
+      searchKeywords: input.requiredSearchKeywords,
+    }),
+    [...input.blockedKeys, ...(input.customBlockedTerms ?? [])],
+  );
 
   const output = buildKeywordElonSeoModelPackage(
     {
@@ -263,7 +281,11 @@ export function composeKeywordElonBulkFinal(
     customBlockedTerms: input.customBlockedTerms ?? [],
     limit: 12,
   });
-  const titleKeywords = titleReservoir.titleKeywords;
+  const titleKeywords = mergeSeoRequiredTitleKeywords(
+    requiredKeywords.titleKeywords,
+    titleReservoir.titleKeywords,
+    12,
+  );
   if (titleKeywords.length < 2) {
     throw new Error(
       `상품명용 우수 키워드가 부족합니다. 현재 ${titleKeywords.length}개`,
@@ -282,6 +304,7 @@ export function composeKeywordElonBulkFinal(
   const mallComposition = composeFreshKeywordElonMallTitles({
     markets: PRODUCT_GROUP_MARKET_REGISTRY,
     finalKeywords: titleKeywords,
+    requiredTitleKeywords: requiredKeywords.titleKeywords,
     titleExpansionPool,
     modelName: output.modelName,
     context: {
@@ -306,6 +329,16 @@ export function composeKeywordElonBulkFinal(
       `쇼핑몰별 상품명이 29개가 아닙니다. 현재 ${mallTitles.length}개`,
     );
   }
+  for (const row of mallTitles) {
+    const missing = requiredKeywords.titleKeywords.filter(
+      (keyword) => !seoTitleIncludesRequiredKeyword(row.title, keyword),
+    );
+    if (missing.length) {
+      throw new Error(
+        `상품명 필수 키워드가 누락되었습니다: ${missing.join(", ")}`,
+      );
+    }
+  }
 
   const searchSelection = selectKeywordElonComplementSearchKeywordsV8({
     rankedDirectKeywords: titleReservoir.rankedDirectKeywords,
@@ -316,10 +349,23 @@ export function composeKeywordElonBulkFinal(
     customBlockedTerms: input.customBlockedTerms ?? [],
     limit: 10,
   });
-  const searchKeywords = searchSelection.searchKeywords;
+  const searchKeywords = prioritizeSeoRequiredSearchKeywords(
+    requiredKeywords.searchKeywords,
+    searchSelection.searchKeywords,
+    10,
+  );
   if (searchKeywords.length !== 10) {
     throw new Error(
       `FINAL 검색어가 10개가 아닙니다. 현재 ${searchKeywords.length}개`,
+    );
+  }
+  const finalSearchKeys = new Set(searchKeywords.map(compactKeywordElonKey));
+  const missingRequiredSearchKeywords = requiredKeywords.searchKeywords.filter(
+    (keyword) => !finalSearchKeys.has(compactKeywordElonKey(keyword)),
+  );
+  if (missingRequiredSearchKeywords.length) {
+    throw new Error(
+      `검색어 필수 키워드가 누락되었습니다: ${missingRequiredSearchKeywords.join(", ")}`,
     );
   }
 
@@ -333,6 +379,8 @@ export function composeKeywordElonBulkFinal(
     version: 8,
     category: titleExpansionCategory,
     titleKeywords,
+    requiredTitleKeywords: requiredKeywords.titleKeywords,
+    requiredSearchKeywords: requiredKeywords.searchKeywords,
     pool: titleExpansionPool,
     searchComplement: {
       nonOverlapCount: searchSelection.nonOverlapCount,
@@ -376,6 +424,8 @@ export function composeKeywordElonBulkFinal(
         ? "excellent-direct-title-reservoir-plus-intent-portfolio-v8"
         : "excellent-direct-title-reservoir-v8-fallback",
       titleExpansionPool,
+      requiredTitleKeywords: requiredKeywords.titleKeywords,
+      requiredSearchKeywords: requiredKeywords.searchKeywords,
       mallTitles: mallTitles.map((row) => ({
         productGroup: row.productGroup,
         marketName: row.marketName,
@@ -393,6 +443,8 @@ export function composeKeywordElonBulkFinal(
       `TITLE_EXPANSION_CATEGORY:${titleExpansionCategory || "none"}`,
       `TITLE_EXPANSION_POOL_COUNT:${titleExpansionPool.length}`,
       `TITLE_PRIMARY_KEYWORD_COUNT:${titleKeywords.length}`,
+      `SEO_REQUIRED_TITLE_KEYWORDS:${requiredKeywords.titleKeywords.length}`,
+      `SEO_REQUIRED_SEARCH_KEYWORDS:${requiredKeywords.searchKeywords.length}`,
       "TITLE_MALL_NAME_POLICY:INTENT_PORTFOLIO_V7",
       "SEO_KEYWORD_POLICY:TITLE_FIRST_SEARCH_COMPLEMENT_V8",
       `SEO_RUN_VARIATION_SEED:${text(input.variationSeed) || "none"}`,

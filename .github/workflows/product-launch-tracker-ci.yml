@@ -5,6 +5,7 @@ on:
     paths:
       - 'public/product-launch-tracker-app/**'
       - 'src/app/api/product-launch-tracker/**'
+      - 'src/app/product-launch-editor/**'
       - 'src/app/api/seo-run-*/**'
       - 'src/app/seo-bulk-cloud/**'
       - 'src/app/seo-title-cloud-shopling-runner/**'
@@ -24,6 +25,7 @@ on:
       - 'src/lib/productLaunchStock*.ts'
       - 'src/lib/productLaunchShopling*.ts'
       - 'src/lib/seoRun*.ts'
+      - 'src/lib/seoRequiredKeywords.ts'
       - 'src/lib/productLaunchOptionBarcodeRegistry.ts'
       - 'src/lib/keywordEngineElonBulkFinal*.ts'
       - 'src/lib/keywordEngineElonKeywordPortfolioV8.ts'
@@ -44,6 +46,9 @@ on:
       - 'tests/productLaunchShopling*.test.mjs'
       - 'tests/productLaunchSeoRun*.test.mjs'
       - 'tests/productLaunchOptionBarcodeRegistry.test.mjs'
+      - 'tests/productLaunchStandaloneEditor.test.mjs'
+      - 'tests/productLaunchDirectItemEditor.test.mjs'
+      - 'tests/seoRequiredKeywords.test.mjs'
       - 'tests/seoTitleIntentPortfolioV7.test.mjs'
       - 'tests/seoKeywordTitleSearchComplementV8.test.mjs'
       - 'tests/seoIdentityAndSparseTitleV9.test.mjs'
@@ -98,6 +103,9 @@ jobs:
           tests/productLaunchTrackerManualPriceSave.test.mjs
           tests/productLaunchTrackerBatchSelection.test.mjs
           tests/productLaunchTrackerNormalizedCutover.test.mjs
+          tests/productLaunchStandaloneEditor.test.mjs
+          tests/productLaunchDirectItemEditor.test.mjs
+          tests/seoRequiredKeywords.test.mjs
           tests/seoTitleIntentPortfolioV7.test.mjs
           tests/seoKeywordTitleSearchComplementV8.test.mjs
           tests/seoIdentityAndSparseTitleV9.test.mjs

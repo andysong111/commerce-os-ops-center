@@ -26,6 +26,7 @@ import {
   mergeSeoProhibitedKeywordLists,
   readCombinedSeoProhibitedKeywordTerms,
 } from "@/lib/seoProhibitedKeywordPolicy";
+import { normalizeSeoRequiredKeywords } from "@/lib/seoRequiredKeywords";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -312,6 +313,19 @@ export async function POST(request: NextRequest) {
         excluded.push(`${model}:${reason}`);
         continue;
       }
+      let requiredKeywords;
+      try {
+        requiredKeywords = normalizeSeoRequiredKeywords({
+          titleKeywords: item.requiredTitleKeywords,
+          searchKeywords: item.requiredSearchKeywords,
+        });
+      } catch (error) {
+        const model = text(item.modelNumber) || run.itemId;
+        excluded.push(
+          `${model}:${error instanceof Error ? error.message : "필수 키워드 입력 오류"}`,
+        );
+        continue;
+      }
       const url = sourceUrl(item);
       const category = text(item.shoplingCategory);
       const exclusions = [
@@ -339,6 +353,8 @@ export async function POST(request: NextRequest) {
             .join(" · "),
           mallTitleCategory: category,
           customBlockedTerms,
+          requiredTitleKeywords: requiredKeywords.titleKeywords,
+          requiredSearchKeywords: requiredKeywords.searchKeywords,
           variationSeed: run.runId,
           excludedMallTitles: [...new Set(exclusions)].slice(0, 1200),
           autoQueueShoplingRegistration:

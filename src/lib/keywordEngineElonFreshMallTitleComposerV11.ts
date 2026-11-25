@@ -89,6 +89,7 @@ function coveredFinalKeywords(
 export function composeFreshKeywordElonMallTitles(input: {
   markets: KeywordElonSeoMarket[];
   finalKeywords: string[];
+  requiredTitleKeywords?: string[];
   titleExpansionPool?: KeywordElonTitleExpansionMaterial[];
   modelName: string;
   context: KeywordElonMallTitleFactContext;
