@@ -269,17 +269,28 @@ export function buildInternalChinaOndolpassReceiptObservation(
       rows.map((row) => [sourceKey(row.applicationNo, row.rowNo), row] as const),
     );
     for (const oldRow of previous.rows) {
+      if (oldRow.status !== "RECEIVED" || !oldRow.eligible) continue;
+      const current = currentByKey.get(
+        sourceKey(oldRow.applicationNo, oldRow.rowNo),
+      );
       if (
-        oldRow.status === "RECEIVED" &&
-        oldRow.eligible &&
-        (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))?.status !==
-          "RECEIVED" ||
-          !currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
-            ?.eligible ||
-          (currentByKey.get(sourceKey(oldRow.applicationNo, oldRow.rowNo))
-            ?.receivedQuantity ?? 0) < oldRow.receivedQuantity)
+        !current ||
+        !current.eligible ||
+        current.status === "DISPOSED" ||
+        current.displayedQuantity < oldRow.receivedQuantity ||
+        (current.status === "PENDING" &&
+          current.displayedQuantity !== oldRow.receivedQuantity) ||
+        (current.status === "RECEIVED" &&
+          current.receivedQuantity < oldRow.receivedQuantity)
       ) {
         throw new Error("ONDOLPASS_RECEIPT_STATUS_REGRESSION");
+      }
+      if (current.status === "PENDING") {
+        // 온돌패스는 출고 단계가 진행되면 품목의 빨간 `입고` 표식을
+        // 목록에서 제거할 수 있다. 신청번호·행번호·수량·주문번호가
+        // 그대로면 이미 검증한 입고 근거를 누적 상태로 유지한다.
+        current.status = "RECEIVED";
+        current.receivedQuantity = oldRow.receivedQuantity;
       }
     }
   }
