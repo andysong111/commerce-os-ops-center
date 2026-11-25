@@ -32,6 +32,13 @@ import {
   type InternalChinaStockInputMode,
 } from "@/lib/internalChinaStockInputPolicy";
 import { purchaseReplacementTrustedPayloadRows } from "@/lib/purchaseReplacementDraftLineage";
+import {
+  loadPurchasePlanningFx,
+  planningDraftRate,
+  readConsistentPurchasePlanningFx,
+  readPurchasePlanningFx,
+  type PurchasePlanningFx,
+} from "@/lib/purchasePlanningFx";
 
 export const INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE =
   "INTERNAL_CHINA_PURCHASE_PREP";
@@ -84,6 +91,7 @@ export type InternalChinaPurchaseDraft = {
   exchangeRateKrwPerCny: number;
   internalOrderCostMultiplier: number;
   paymentFeeMultiplier: number;
+  planningFx?: PurchasePlanningFx;
   lineCount: number;
   totalQuantity: number;
   createdFrom: "FAST_PURCHASE_RESERVED";
@@ -515,6 +523,9 @@ async function buildBaseDraft(
   const purchaseRunCycle = cycleKeys.length === 1
     ? payloadCycles.find((row) => row.cycleKey === cycleKeys[0]) ?? null
     : null;
+  const planningFx = readConsistentPurchasePlanningFx(
+    commitments.map((row) => object(row.latestPayload).planningFx),
+  );
 
   return {
     draftId,
@@ -530,6 +541,7 @@ async function buildBaseDraft(
     exchangeRateKrwPerCny: INTERNAL_CHINA_FIXED_KRW_PER_CNY,
     internalOrderCostMultiplier: INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
     paymentFeeMultiplier: INTERNAL_CHINA_PAYMENT_FEE_MULTIPLIER,
+    ...(planningFx ? planningDraftRate(planningFx) : {}),
     lineCount: lines.length,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
     createdFrom: "FAST_PURCHASE_RESERVED",
@@ -603,10 +615,6 @@ function mergeSnapshot(
   });
   return {
     ...base,
-    // Internal conversion/cost policy is system-owned, not operator editable.
-    exchangeRateKrwPerCny: INTERNAL_CHINA_FIXED_KRW_PER_CNY,
-    internalOrderCostMultiplier: INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
-    paymentFeeMultiplier: INTERNAL_CHINA_PAYMENT_FEE_MULTIPLIER,
     savedAt,
     lines,
   } satisfies InternalChinaPurchaseDraft;
@@ -675,6 +683,7 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
   };
   const purchaseRunCycle = isPurchaseRunCycleBasis(storedRunCycle) ? storedRunCycle : null;
   const status = text(snapshot.status) === "ORDERED" ? "ORDERED" : "DRAFT";
+  const planningFx = readPurchasePlanningFx(snapshot.planningFx);
   return {
     draftId,
     cycleMonth,
@@ -695,6 +704,7 @@ export async function loadStoredInternalChinaPurchaseDraftForCost(
     paymentFeeMultiplier: status === "DRAFT"
       ? INTERNAL_CHINA_PAYMENT_FEE_MULTIPLIER
       : decimal(snapshot.paymentFeeMultiplier) || 1,
+    ...(planningFx ? planningDraftRate(planningFx) : {}),
     lineCount: lines.length,
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
     createdFrom: "FAST_PURCHASE_RESERVED",
@@ -715,7 +725,10 @@ export async function loadInternalChinaPurchaseDraft(
 ) {
   const base = await buildBaseDraft(draftIdInput, options);
   const saved = await readSavedPrep(base.draftId);
-  return saved ? mergeSnapshot(base, saved.snapshot, saved.savedAt) : base;
+  const draft = saved ? mergeSnapshot(base, saved.snapshot, saved.savedAt) : base;
+  const planningFx = readConsistentPurchasePlanningFx([saved?.snapshot.planningFx, draft.planningFx]) ??
+    (draft.status === "DRAFT" ? await loadPurchasePlanningFx() : null);
+  return planningFx ? { ...draft, ...planningDraftRate(planningFx) } : draft;
 }
 
 function mergeInput(
@@ -744,9 +757,6 @@ function mergeInput(
   });
   return {
     ...base,
-    exchangeRateKrwPerCny: INTERNAL_CHINA_FIXED_KRW_PER_CNY,
-    internalOrderCostMultiplier: INTERNAL_CHINA_ORDER_COST_MULTIPLIER,
-    paymentFeeMultiplier: INTERNAL_CHINA_PAYMENT_FEE_MULTIPLIER,
     lines,
   } satisfies InternalChinaPurchaseDraft;
 }
@@ -774,6 +784,7 @@ async function storePrepSnapshot(snapshot: InternalChinaPurchaseDraft) {
           input_snapshot: {
             draftId: snapshot.draftId,
             exchangeRateKrwPerCny: snapshot.exchangeRateKrwPerCny,
+            planningFx: snapshot.planningFx,
             internalOrderCostMultiplier: snapshot.internalOrderCostMultiplier,
             paymentFeeMultiplier: snapshot.paymentFeeMultiplier,
             lineCount: snapshot.lineCount,
@@ -856,6 +867,7 @@ async function storeOrderedEvents(draft: InternalChinaPurchaseDraft) {
         exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
         internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
         paymentFeeMultiplier: draft.paymentFeeMultiplier,
+        planningFx: draft.planningFx,
         orderNumber: line.orderNumber,
         operatorNote: line.note,
         externalOrderExecuted: false,

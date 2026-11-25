@@ -453,19 +453,22 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
     });
     const budgetKrw = budgetAudit.productOrderBudgetKrw;
+    const budgetBasisKrw = draft.planningFx
+      ? costSummary.actualOrderCostKrwExact
+      : costSummary.productCostKrwExact;
     const budgetUsedPercent =
       budgetKrw > 0
-        ? Math.round((costSummary.productCostKrwExact / budgetKrw) * 10_000) / 100
+        ? Math.round((budgetBasisKrw / budgetKrw) * 10_000) / 100
         : 0;
     return {
       byBarcode,
       productCny: costSummary.productCny,
-      productKrw: costSummary.productCostKrwExact,
+      budgetBasisKrw,
       freightCny: costSummary.domesticChinaAdjustmentCny,
       totalKrw: costSummary.actualOrderCostKrwExact,
       budgetUsedPercent,
-      budgetRemainingKrw: Math.max(0, budgetKrw - costSummary.productCostKrwExact),
-      budgetOverKrw: Math.max(0, costSummary.productCostKrwExact - budgetKrw),
+      budgetRemainingKrw: Math.max(0, budgetKrw - budgetBasisKrw),
+      budgetOverKrw: Math.max(0, budgetBasisKrw - budgetKrw),
       actualPriceCount: costSummary.actualPriceCount,
     };
   }, [budgetAudit.productOrderBudgetKrw, draft]);
@@ -1064,7 +1067,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       return;
     }
     if (mode === "cart-staging" && calculations.budgetOverKrw > 0) {
-      setNotice(`현재 실제 위안단가 기준으로 상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 다시 진행하세요.`);
+      setNotice(`현재 실제 위안단가 기준으로 발주 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과했습니다. 수량을 조정하고 재계산한 뒤 다시 진행하세요.`);
       return;
     }
     if (mode === "cart-staging" && (calculations.actualPriceCount !== draft.lineCount || optionReviewCount > 0)) {
@@ -1113,7 +1116,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
       return;
     }
     if (calculations.budgetOverKrw > 0) {
-      setNotice(`상품대금 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과해 주문완료 기록을 막았습니다. 수량을 줄이고 다시 검증하세요.`);
+      setNotice(`발주 한도를 ${number.format(Math.round(calculations.budgetOverKrw))}원 초과해 주문완료 기록을 막았습니다. 수량을 줄이고 다시 검증하세요.`);
       return;
     }
     if (requiredIssues.length) {
@@ -1219,7 +1222,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         </div>
 
         <div className={`mt-4 rounded-xl border px-4 py-3 text-xs leading-5 ${calculations.budgetOverKrw > 0 ? "border-rose-300 bg-rose-50 text-rose-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
-          <strong>실시간 발주차시 예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
+          <strong>실시간 발주차시 예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 {draft.planningFx ? "예상 결제액" : "상품대금"} {number.format(Math.round(calculations.budgetBasisKrw))}원 · {draft.planningFx ? "결제액" : "상품대금"} 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}.
           {calculations.budgetOverKrw > 0 ? <span className="mt-1 block font-black">사용자 고정수량은 자동으로 줄이지 않습니다. 자동 추천수량을 줄이거나 고정수량을 직접 수정해 재계산한 뒤 5-1 업무를 다시 실행하세요.</span> : null}
         </div>
       </section>

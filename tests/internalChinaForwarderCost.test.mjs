@@ -89,7 +89,10 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
     ],
   };
   const result = buildInternalChinaActualPurchaseCostDraft({
-    baseDraft,
+    baseDraft: {
+      ...baseDraft,
+      planningFx: { source: "ECB", date: "2026-11-25", baseKrwPerCny: 201.54 },
+    },
     purchase,
     barcodeEvidence: {
       draftId: baseDraft.draftId, cycleMonth: "2026-11", historyRecordId: "history",
@@ -104,6 +107,7 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
   assert.equal(result.lines[0].domesticChinaFreightCny, 6);
   assert.equal(result.lines.some((line) => line.barcode === "BCC3-1"), false);
   assert.equal(result.actualOrderPaidKrwAtInternalFx, 18_630);
+  assert.equal(result.planningFx, undefined);
   assert.equal(result.verifiedPayment.worldFirstFeeKrw, 149);
   assert.equal(result.verifiedPayment.domesticFreightKrw, 1_840);
   assert.equal(result.verifiedPayment.serviceFeeKrw, 230);

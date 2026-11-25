@@ -7,7 +7,6 @@ import {
   monthlyPurchaseCycleForMonth,
 } from "@/lib/monthlyPurchasePolicy";
 import {
-  DEFAULT_PAYMENT_FEE_MULTIPLIER,
   DEFAULT_PURCHASE_COST_MULTIPLIER,
   calculateProductOrderBudget,
 } from "@/lib/productDecisionEngine/portfolio";
@@ -59,10 +58,12 @@ export type InternalChinaPurchaseBudgetAudit = {
   accrualStartMonth: string;
   paymentFeeMultiplier: number;
   appliedKrwPerCny: number;
+  planningFx?: InternalChinaPurchaseDraft["planningFx"];
   purchaseCostMultiplier: number;
   productOrderBudgetKrw: number;
   engineExpectedSpendKrw: number;
   selectedDraftEstimatedProductCostKrw: number;
+  selectedDraftEstimatedPaymentKrw: number;
   selectedDraftDomesticChinaFreightKrw: number;
   selectedDraftEstimatedLandedCostKrw: number;
   selectedDraftBudgetRemainingKrw: number;
@@ -167,7 +168,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
   const grossCogsBudgetKrw = carryoverRead.value
     ? money(carryoverRead.value.availableCashKrw)
     : currentMonthAccrualKrw;
-  const paymentFeeMultiplier = DEFAULT_PAYMENT_FEE_MULTIPLIER;
+  const paymentFeeMultiplier = draft.paymentFeeMultiplier;
   const purchaseCostMultiplier = DEFAULT_PURCHASE_COST_MULTIPLIER;
   const productOrderBudgetKrw = money(
     calculateProductOrderBudget(
@@ -283,25 +284,28 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     : money(selectedDraftExactProductCostKrw);
   const selectedDraftDomesticChinaFreightKrw =
     actualCostSummary.domesticChinaAdjustmentKrw;
+  const estimatedPaymentKrwExact = everyDraftLineHasActualPrice
+    ? actualCostSummary.actualOrderCostKrwExact
+    : Math.max(0, selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
+      paymentFeeMultiplier;
   const selectedDraftEstimatedLandedCostKrw = everyDraftLineHasActualPrice
     ? actualCostSummary.internalBaseCostKrw
-    : money(
-        (selectedDraftExactProductCostKrw + selectedDraftExactDomesticChinaFreightKrw) *
-          paymentFeeMultiplier *
-          purchaseCostMultiplier,
-      );
+    : money(estimatedPaymentKrwExact * purchaseCostMultiplier);
+  const budgetBasisKrwExact = draft.planningFx
+    ? estimatedPaymentKrwExact
+    : selectedDraftExactProductCostKrw;
   const selectedDraftBudgetRemainingKrw = Math.max(
     0,
-    productOrderBudgetKrw - selectedDraftEstimatedProductCostKrw,
+    productOrderBudgetKrw - budgetBasisKrwExact,
   );
   const selectedDraftBudgetOverKrw = Math.max(
     0,
-    selectedDraftEstimatedProductCostKrw - productOrderBudgetKrw,
+    budgetBasisKrwExact - productOrderBudgetKrw,
   );
   const selectedDraftBudgetUtilizationPercent =
     productOrderBudgetKrw > 0
       ? Math.round(
-          (selectedDraftEstimatedProductCostKrw / productOrderBudgetKrw) *
+          (budgetBasisKrwExact / productOrderBudgetKrw) *
             10_000,
         ) / 100
       : 0;
@@ -347,7 +351,7 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     missingCostBarcodes.length > 0 ||
     productOrderBudgetKrw <= 0
       ? "COST_REVIEW"
-      : selectedDraftEstimatedProductCostKrw > productOrderBudgetKrw
+      : selectedDraftBudgetOverKrw > 0
         ? "OVER_BUDGET"
         : "WITHIN_BUDGET";
 
@@ -372,10 +376,12 @@ export async function loadInternalChinaPurchaseBudgetAudit(
     accrualStartMonth: carryoverRead.value?.accrualStartMonth ?? cycle.budgetMonth,
     paymentFeeMultiplier,
     appliedKrwPerCny: draft.exchangeRateKrwPerCny * draft.paymentFeeMultiplier,
+    planningFx: draft.planningFx,
     purchaseCostMultiplier,
     productOrderBudgetKrw,
     engineExpectedSpendKrw,
     selectedDraftEstimatedProductCostKrw,
+    selectedDraftEstimatedPaymentKrw: money(estimatedPaymentKrwExact),
     selectedDraftDomesticChinaFreightKrw,
     selectedDraftEstimatedLandedCostKrw,
     selectedDraftBudgetRemainingKrw,

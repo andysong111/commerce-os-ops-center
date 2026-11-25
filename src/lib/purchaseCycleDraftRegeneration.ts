@@ -40,6 +40,8 @@ import {
 } from "@/lib/purchaseReplacementDraftLineage";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
 import { completeConfirmedSourcingPayload } from "@/lib/sourcingReservationIdentity";
+import { loadStoredInternalChinaPurchaseDraftForCost } from "@/lib/internalChinaPurchaseDraft";
+import { readConsistentPurchasePlanningFx } from "@/lib/purchasePlanningFx";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
@@ -275,11 +277,29 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
       .map((row) => [barcode(row.barcode), row] as const)
       .filter(([code]) => BARCODE.test(code)),
   );
+  const [ledger, storedDraft] = await Promise.all([
+    loadChinaOrderLedger(),
+    input.nextCycleStartDate
+      ? Promise.resolve(null)
+      : loadStoredInternalChinaPurchaseDraftForCost(input.expectedDraftId),
+  ]);
+  if (ledger.error) {
+    throw new Error(
+      `PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`,
+    );
+  }
+  const planningFx = input.nextCycleStartDate ? null : readConsistentPurchasePlanningFx([
+    storedDraft?.planningFx,
+    ...ledger.commitments
+      .filter((row) => row.sourceSystem === SOURCE_SYSTEM && row.sourceRunId === input.expectedDraftId)
+      .map((row) => object(row.latestPayload).planningFx),
+  ]);
   const stable = {
     regeneration: true,
     sourceFingerprint: input.sourceFingerprint,
     dataMode: "PURCHASE_PREFLIGHT",
     purchaseRunCycle,
+    ...(planningFx ? { planningFx } : {}),
     lines: lines.map((line) => ({
       barcode: line.barcode,
       bundleUnit: normalizePurchaseBundleUnit(line.bundleUnit),
@@ -305,12 +325,6 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     }),
   };
   const draftId = `fast-purchase-draft:${hash(stable).slice(0, 20)}`;
-  const ledger = await loadChinaOrderLedger();
-  if (ledger.error) {
-    throw new Error(
-      `PURCHASE_DRAFT_REGENERATION_LEDGER_UNAVAILABLE:${ledger.error}`,
-    );
-  }
   const cycleRows = ledger.commitments.filter((row) => {
     if (row.sourceSystem !== SOURCE_SYSTEM) return false;
     const payload = object(row.latestPayload);
@@ -466,6 +480,7 @@ export async function regenerateValidatedMonthlyPurchaseDraft(input: {
     const evidence = lineEvidenceByBarcode.get(line.barcode);
     let preparedPayload: Record<string, unknown> = {
       ...preservedPayload,
+      planningFx: planningFx ?? undefined,
       ...(line.sourcingConfirmed === true
         ? { sourcingConfirmed: true }
         : {}),

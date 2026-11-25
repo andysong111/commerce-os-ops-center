@@ -117,6 +117,7 @@ export function buildInternalChinaActualPurchaseCostDraft(input: {
     totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
     lines,
     exchangeRateKrwPerCny: fx,
+    planningFx: undefined,
     paymentFeeMultiplier: 1 + purchase.paymentFeeBps / 10_000,
     actualOrderPaidKrwAtInternalFx: paidKrw,
     verifiedPayment: {

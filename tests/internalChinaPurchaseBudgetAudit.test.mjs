@@ -35,7 +35,7 @@ test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /loadCalendarMonthNormalRevenue\(cycle\.budgetMonth\)/);
   assert.match(audit, /budgetMonthRevenueKrw \/ 2/);
   assert.match(audit, /DEFAULT_PURCHASE_COST_MULTIPLIER/);
-  assert.match(audit, /DEFAULT_PAYMENT_FEE_MULTIPLIER/);
+  assert.match(audit, /const paymentFeeMultiplier = draft\.paymentFeeMultiplier/);
   assert.match(audit, /calculateProductOrderBudget/);
   assert.match(audit, /productOrderBudgetKrw/);
   assert.match(audit, /selectedDraftEstimatedProductCostKrw/);
@@ -89,7 +89,7 @@ test("other active RESERVED drafts are surfaced before the operator orders", () 
   assert.match(card, /과거 Draft는 해제/);
 });
 
-test("China draft shows the A2B rate policy without presenting the previous applied rate as a new quote", () => {
+test("China draft displays the applied ECB rate, publication date and payment-inclusive budget", () => {
   assert.match(page, /loadInternalChinaPurchaseBudgetAudit/);
   assert.match(page, /InternalChinaPurchaseBudgetAudit/);
   assert.match(page, /budgetAudit=\{budgetAudit\}/);
@@ -98,8 +98,10 @@ test("China draft shows the A2B rate policy without presenting the previous appl
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);
   assert.match(card, /A2B상사 내부 기준환율/);
-  assert.match(card, /출처 연결 대기/);
-  assert.match(card, /×1\.05 \(결제·환전비 포함\)/);
+  assert.match(card, /ECB 공시 \{audit\.planningFx\.date\}/);
+  assert.match(card, /×\{A2B_PLANNING_FX_MULTIPLIER\} \(결제·환전비 포함\)/);
+  assert.match(card, /결제액 발주한도/);
+  assert.match(audit, /budgetBasisKrwExact = draft\.planningFx\s*\? estimatedPaymentKrwExact/);
   assert.match(card, /예상 도착 총액은 구매대금/);
   assert.match(audit, /appliedKrwPerCny: draft\.exchangeRateKrwPerCny \* draft\.paymentFeeMultiplier/);
   assert.doesNotMatch(card, /내부기준원가/);
@@ -136,7 +138,7 @@ test("optional comparison sources cannot make a saved China Draft unreadable", (
 test("order workspace shows live budget usage before save and refreshes the server audit after save", () => {
   assert.match(workspace, /실시간 월간 발주예산 검증/);
   assert.match(workspace, /budgetAudit\.productOrderBudgetKrw/);
-  assert.match(workspace, /calculations\.productKrw/);
+  assert.match(workspace, /calculations\.budgetBasisKrw/);
   assert.match(workspace, /calculations\.budgetUsedPercent/);
   assert.match(workspace, /router\.refresh\(\)/);
   assert.match(workspace, /발주초안 저장/);

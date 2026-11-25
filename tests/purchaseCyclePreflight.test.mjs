@@ -384,6 +384,23 @@ test("5-1 actual yuan price and grouped freight replace estimates before budget 
   assert.ok(
     report.excluded.find((row) => row.barcode === "BAA2-1")?.reasons.includes("CASH_BUDGET_LIMIT"),
   );
+
+  const withEcb = {
+    ...actual,
+    contentFingerprint: fp("a"),
+    planningFx: { source: "ECB", date: "2026-09-30", baseKrwPerCny: 200 },
+  };
+  const ecbReport = buildPurchaseCyclePreflight({
+    ...input,
+    actualCostsBefore: withEcb,
+    actualCostsAfter: { ...withEcb },
+  });
+  assert.equal(ecbReport.paymentFeeMultiplier, 1);
+  assert.equal(
+    ecbReport.estimatedAllInSpendKrw,
+    Math.ceil(ecbReport.estimatedSpendKrw * ecbReport.purchaseCostMultiplier),
+  );
+  assert.notEqual(ecbReport.sourceFingerprint, report.sourceFingerprint);
 });
 
 test("operator quantity keeps an existing Draft line when automatic inventory and recommendation become ineligible", () => {

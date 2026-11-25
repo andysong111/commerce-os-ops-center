@@ -329,7 +329,7 @@ test("draft guide explains the operator sequence and actual-price budget gate", 
   assert.match(workspace, /stagedDraftQuantities=\{editedQuantities\}/);
   assert.match(workspace, /onStagedDraftQuantityChange=\{stageQuantity\}/);
   assert.match(workspace, /hasPendingRecalculation \|\| calculations\.budgetOverKrw > 0/);
-  assert.match(workspace, /상품대금 한도를[\s\S]*주문완료 기록을 막았습니다/);
+  assert.match(workspace, /발주 한도를[\s\S]*주문완료 기록을 막았습니다/);
   assert.match(workspace, /실제 위안단가·중국내 운임을 모두 반영했습니다/);
   assert.match(workspace, /실제 원가와 예산으로 발주 우선순위·수량을 자동 재계산합니다/);
 });

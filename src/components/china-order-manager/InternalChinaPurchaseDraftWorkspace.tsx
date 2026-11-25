@@ -94,15 +94,16 @@ export function InternalChinaPurchaseDraftWorkspace({
       internalOrderCostMultiplier: draft.internalOrderCostMultiplier,
     });
     const productKrw = costSummary.productCostKrwExact;
+    const budgetBasisKrw = draft.planningFx ? costSummary.actualOrderCostKrwExact : productKrw;
     const budgetKrw = budgetAudit.productOrderBudgetKrw;
     const budgetUsedPercent =
-      budgetKrw > 0 ? Math.round((productKrw / budgetKrw) * 10_000) / 100 : 0;
-    const budgetRemainingKrw = Math.max(0, budgetKrw - productKrw);
-    const budgetOverKrw = Math.max(0, productKrw - budgetKrw);
+      budgetKrw > 0 ? Math.round((budgetBasisKrw / budgetKrw) * 10_000) / 100 : 0;
+    const budgetRemainingKrw = Math.max(0, budgetKrw - budgetBasisKrw);
+    const budgetOverKrw = Math.max(0, budgetBasisKrw - budgetKrw);
     return {
       byBarcode,
       productCny: costSummary.productCny,
-      productKrw,
+      budgetBasisKrw,
       freightCny: costSummary.domesticChinaAdjustmentCny,
       totalCny:
         costSummary.productCny + costSummary.domesticChinaAdjustmentCny,
@@ -344,7 +345,7 @@ export function InternalChinaPurchaseDraftWorkspace({
               : "border-blue-200 bg-blue-50 text-blue-950"
           }`}
         >
-          <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 상품대금 {number.format(Math.round(calculations.productKrw))}원 · 상품대금 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}. 입력 중에는 이 값이 즉시 바뀌며, `발주초안 저장` 후 위의 월간 예산 카드에도 실제 1688 단가가 우선 반영됩니다.
+          <strong>실시간 월간 발주예산 검증</strong> · 실제 위안단가 입력 완료 {calculations.actualPriceCount}/{draft.lineCount} SKU · 현재 입력 {draft.planningFx ? "예상 결제액" : "상품대금"} {number.format(Math.round(calculations.budgetBasisKrw))}원 · {draft.planningFx ? "결제액" : "상품대금"} 한도 {number.format(budgetAudit.productOrderBudgetKrw)}원 · 사용률 {calculations.budgetUsedPercent.toLocaleString("ko-KR")}% · {calculations.budgetOverKrw > 0 ? `초과 ${number.format(Math.round(calculations.budgetOverKrw))}원` : `잔여 ${number.format(Math.round(calculations.budgetRemainingKrw))}원`}. 입력 중에는 이 값이 즉시 바뀌며, `발주초안 저장` 후 위의 월간 예산 카드에도 실제 1688 단가가 우선 반영됩니다.
         </div>
       </section>
 

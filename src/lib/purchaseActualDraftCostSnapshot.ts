@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { InternalChinaPurchaseDraft } from "./internalChinaPurchaseDraft";
+import type { PurchasePlanningFx } from "./purchasePlanningFx";
 
 export type PurchaseActualDraftCostLine = {
   barcode: string;
@@ -14,6 +15,7 @@ export type PurchaseActualDraftCostSnapshot = {
   savedAt: string | null;
   contentFingerprint: string;
   rows: PurchaseActualDraftCostLine[];
+  planningFx?: PurchasePlanningFx;
 };
 
 function decimal(value: unknown) {
@@ -72,6 +74,7 @@ export function buildPurchaseActualDraftCostSnapshot(
       draftId: draft.draftId,
       savedAt: draft.savedAt,
       exchangeRateKrwPerCny: draft.exchangeRateKrwPerCny,
+      ...(draft.planningFx ? { planningFx: draft.planningFx } : {}),
       rows,
     }))
     .digest("hex")}`;
@@ -81,5 +84,6 @@ export function buildPurchaseActualDraftCostSnapshot(
     savedAt: draft.savedAt,
     contentFingerprint,
     rows,
+    ...(draft.planningFx ? { planningFx: draft.planningFx } : {}),
   };
 }
