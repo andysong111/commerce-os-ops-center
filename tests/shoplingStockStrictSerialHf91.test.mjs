@@ -42,10 +42,12 @@ test("both Commerce OS launch surfaces send one plain B-code job per extension S
   for (const source of [direct, queue]) {
     assert.match(source, /const assignedJobs = plan\.jobs\.slice\(0, 1\)/);
     assert.match(source, /strictSingleBcodeDispatch: true/);
-    assert.match(source, /job: prepared\[0\]/);
     assert.doesNotMatch(source, /selectShoplingCoalescedJobs/);
     assert.doesNotMatch(source, /coalescedJobs: prepared/);
   }
+  assert.match(queue, /job: prepared\[0\]/);
+  assert.match(direct, /const dispatchedJobs = prepared\.map\(\(job\) => \(\{ \.\.\.job, jobId: dispatchIds\.get\(job\.jobId\)! \}\)\)/);
+  assert.match(direct, /type: SINGLE_START,\s*job: dispatchedJobs\[0\]/);
 });
 
 test("direct input removes the terminal B-code before scheduling the next idle-gated launch", async () => {

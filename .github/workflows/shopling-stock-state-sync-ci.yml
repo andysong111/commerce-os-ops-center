@@ -25,6 +25,7 @@ on:
       - "src/lib/shoplingManualFallback.ts"
       - "src/lib/shoplingStockResponsibility.ts"
       - "src/lib/shoplingStockFailureDetail.ts"
+      - "src/lib/shoplingStockRetryPolicy.*"
       - "src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx"
       - "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx"
       - "src/app/china-order-manager/stock-control/**"
@@ -82,6 +83,8 @@ on:
       - "tests/shoplingStockReadyBarrier.test.mjs"
       - "tests/shoplingDirectRunProgress.test.mjs"
       - "tests/shoplingDirectRunRecovery.test.mjs"
+      - "tests/shoplingStockRetryPolicy.test.mjs"
+      - "tests/inventoryStockUnifiedBatch.test.mjs"
       - "tests/shoplingManualFallback.test.mjs"
       - "tests/inventoryStockRetransmission.test.mjs"
       - "tests/shoplingStockWatchdogHeartbeat.test.mjs"
@@ -262,6 +265,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary
         run: node --experimental-strip-types --test tests/shoplingDirectRunProgress.test.mjs tests/shoplingDirectRunRecovery.test.mjs tests/shoplingManualFallback.test.mjs
+      - name: Regression - bounded safe automatic retries
+        run: node --test tests/shoplingStockRetryPolicy.test.mjs tests/inventoryStockUnifiedBatch.test.mjs
       - name: Regression - v0.4.1 sync
         run: node --test tests/shoplingStockStateSyncV041.test.mjs
       - name: Regression - reset-tail coverage
