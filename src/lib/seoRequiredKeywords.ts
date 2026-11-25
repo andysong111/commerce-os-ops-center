@@ -22,14 +22,18 @@ function text(value: unknown) {
 
 function inputValues(value: unknown) {
   const source = Array.isArray(value) ? value : [value];
-  return source.flatMap((entry) => text(entry).split(/[,，\r\n]+/));
+  return source.flatMap((entry) => String(entry ?? "").normalize("NFKC").split(/[,\r\n]+/));
 }
 
-export function parseSeoRequiredKeywordList(value: unknown) {
+export function compactSeoRequiredTitleInput(value: string) {
+  return value.replace(/[^\S\r\n]+/gu, "");
+}
+
+export function parseSeoRequiredKeywordList(value: unknown, field: "title" | "search" = "search") {
   const result: string[] = [];
   const seen = new Set<string>();
   for (const entry of inputValues(value)) {
-    const keyword = text(entry);
+    const keyword = field === "title" ? compactSeoRequiredTitleInput(entry) : text(entry);
     const key = keywordElonSeoCanonical(keyword);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -65,7 +69,7 @@ export function normalizeSeoRequiredKeywords(input: {
   titleKeywords?: unknown;
   searchKeywords?: unknown;
 }): SeoRequiredKeywords {
-  const titleKeywords = parseSeoRequiredKeywordList(input.titleKeywords);
+  const titleKeywords = parseSeoRequiredKeywordList(input.titleKeywords, "title");
   const searchKeywords = parseSeoRequiredKeywordList(input.searchKeywords);
 
   if (titleKeywords.length > SEO_REQUIRED_TITLE_KEYWORD_LIMIT) {
@@ -163,22 +167,36 @@ export function prioritizeSeoRequiredSearchKeywords(
 }
 
 export function seoTitleIncludesRequiredKeyword(title: unknown, keyword: unknown) {
-  const titleKey = keywordElonSeoCanonical(title);
-  const keywordKey = keywordElonSeoCanonical(keyword);
-  return Boolean(keywordKey && titleKey.includes(keywordKey));
+  const term = text(keyword).toLowerCase();
+  return Boolean(term && text(title).toLowerCase().includes(term));
+}
+
+type SeoRequiredTitleRow = { title: string; keywordMaterials: readonly string[] };
+
+function seoRequiredTitleUsage(keyword: string, rows: readonly SeoRequiredTitleRow[]) {
+  const term = text(keyword).toLowerCase();
+  return rows.filter((row) =>
+    row.keywordMaterials.some((material) => text(material).toLowerCase() === term) &&
+    seoTitleIncludesRequiredKeyword(row.title, keyword),
+  ).length;
+}
+
+export function seoTwoRequiredTitleCoverage(
+  requiredKeywords: string[],
+  rows: readonly SeoRequiredTitleRow[],
+) {
+  if (requiredKeywords.length !== 2) return 0;
+  const [first, second] = requiredKeywords.map((keyword) => seoRequiredTitleUsage(keyword, rows));
+  // Compare the less-used keyword first so neither term is starved by the other.
+  return Math.min(first, second) * (2 * rows.length + 1) + first + second;
 }
 
 export function missingSeoRequiredTitleKeywords(
   requiredKeywords: string[],
-  rows: readonly { title: string; keywordMaterials: readonly string[] }[],
+  rows: readonly SeoRequiredTitleRow[],
 ) {
   return requiredKeywords.filter((keyword) => {
-    const key = keywordElonSeoCanonical(keyword);
-    const includesKeyword = (row: (typeof rows)[number]) =>
-      row.keywordMaterials.some((material) => keywordElonSeoCanonical(material) === key) &&
-      seoTitleIncludesRequiredKeyword(row.title, keyword);
-    return requiredKeywords.length === 1
-      ? rows.length === 0 || !rows.every(includesKeyword)
-      : !rows.some(includesKeyword);
+    const usage = seoRequiredTitleUsage(keyword, rows);
+    return usage === 0 || (requiredKeywords.length === 1 && usage !== rows.length);
   });
 }

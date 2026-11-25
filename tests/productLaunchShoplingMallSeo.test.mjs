@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { PRODUCT_GROUP_MARKET_REGISTRY } from "../src/lib/productGroupMarketRegistry.ts";
 import { buildProductLaunchMallSeoPlan } from "../src/lib/productLaunchShoplingMallSeo.ts";
+import { parseKeywordShoplingDirectPlan } from "../src/lib/keywordShoplingDirectApplyRunner.ts";
 
 const goodsKeys = {
   도매1: "121467",
@@ -79,6 +80,15 @@ test("29개 상품명 재고가 부족하거나 goods_key가 없으면 실제반
   const missingGoods = readyItem();
   missingGoods.shoplingProducts.retail2.goodsKey = "";
   assert.throws(() => buildProductLaunchMallSeoPlan(missingGoods), /소매2 goods_key/);
+});
+
+test("필수 검색어 한두 개의 내부 공백을 29개 마켓의 공통 Shopling 실행 계획에 보존한다", () => {
+  const item = readyItem();
+  const keywords = ["MBTI 키보드 키링", "게임 키링", ...item.seoFinal.searchKeywords.slice(2)];
+  item.seoFinal.searchLine = ` , ${keywords.join(" , ")} , `;
+  const plan = parseKeywordShoplingDirectPlan(buildProductLaunchMallSeoPlan(item));
+  assert.equal(plan.length, 29);
+  for (const row of plan) assert.equal(row.final_site_srch, keywords.join(","));
 });
 
 test("등록 실행기는 29개 상품명을 저장하고 신규 자동후적용·기존 후적용 경로를 모두 포함한다", async () => {

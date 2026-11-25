@@ -38,7 +38,7 @@ function normalizeSearchLine(value: unknown) {
     ...new Set(
       String(value ?? "")
         .split(/[,\n;|/]+|\s{2,}/)
-        .map((entry) => entry.replace(/\s+/g, "").trim())
+        .map(text)
         .filter(Boolean),
     ),
   ].join(",");
