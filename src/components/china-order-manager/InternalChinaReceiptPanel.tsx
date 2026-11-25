@@ -663,11 +663,13 @@ export function InternalChinaReceiptPanel({
                 value={`${number.format(forwarderCost.paymentFeeCostKrw)}원`}
                 note={`내부환율 기준 · 결제원가 ${number.format(forwarderCost.orderPaymentCostKrw)}원`}
               />
-              <CostMetric
-                label={`기존 ${forwarderCost.estimatedMultiplier.toFixed(2)} 추정 배대지 비용`}
-                value={`${number.format(forwarderCost.estimatedForwarderCostKrw)}원`}
-                note={`임시 예상 총지출 ${number.format(forwarderCost.estimatedTotalOutflowKrw)}원`}
-              />
+                <CostMetric
+                  label={forwarderCost.actualCostKrw ? "확정 배송대행비" : "추정 배송대행비"}
+                  value={`${number.format(forwarderCost.actualCostKrw ?? forwarderCost.estimatedForwarderCostKrw)}원`}
+                  note={forwarderCost.actualCostKrw
+                    ? `확정 도착 총액 ${number.format(forwarderCost.actualTotalOutflowKrw ?? 0)}원`
+                    : `예상 도착 총액 ${number.format(forwarderCost.estimatedTotalOutflowKrw)}원 · 결제원가 ×${forwarderCost.estimatedMultiplier.toFixed(2)}`}
+                />
               <div className="rounded-lg border border-blue-200 bg-white p-3">
                 <label
                   htmlFor={`forwarder-cost-${draftId}`}

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
-import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import { calculateInternalChinaPurchaseCostSummary } from "@/lib/internalChinaPurchaseCostMath";
 import type {
@@ -69,10 +68,6 @@ export function InternalChinaPurchaseDraftWorkspace({
         freightPerUnitCny: number;
         finalUnitCny: number;
         actualUnitKrw: number;
-        internalStandardUnitKrw: number;
-        totalCny: number;
-        totalKrw: number;
-        internalStandardTotalKrw: number;
       }
     >();
 
@@ -81,23 +76,13 @@ export function InternalChinaPurchaseDraftWorkspace({
       const freightPerUnitCny =
         group.quantity > 0 ? group.freight / group.quantity : 0;
       const finalUnitCny = decimal(line.unitPriceCny) + freightPerUnitCny;
-      const rowTotalCny = finalUnitCny * line.quantity;
       const actualUnitKrw =
         finalUnitCny * draft.exchangeRateKrwPerCny * draft.paymentFeeMultiplier;
-      const rowTotalKrw = actualUnitKrw * line.quantity;
-      const internalStandardUnitKrw =
-        actualUnitKrw * draft.internalOrderCostMultiplier;
-      const rowInternalStandardTotalKrw =
-        rowTotalKrw * draft.internalOrderCostMultiplier;
 
       byBarcode.set(line.barcode, {
         freightPerUnitCny,
         finalUnitCny,
         actualUnitKrw,
-        internalStandardUnitKrw,
-        totalCny: rowTotalCny,
-        totalKrw: rowTotalKrw,
-        internalStandardTotalKrw: rowInternalStandardTotalKrw,
       });
 
     }
@@ -119,11 +104,9 @@ export function InternalChinaPurchaseDraftWorkspace({
       productCny: costSummary.productCny,
       productKrw,
       freightCny: costSummary.domesticChinaAdjustmentCny,
-      paymentFeeKrw: costSummary.paymentFeeKrwExact,
       totalCny:
         costSummary.productCny + costSummary.domesticChinaAdjustmentCny,
       totalKrw: costSummary.actualOrderCostKrwExact,
-      internalStandardTotalKrw: costSummary.internalBaseCostKrwExact,
       budgetUsedPercent,
       budgetRemainingKrw,
       budgetOverKrw,
@@ -261,7 +244,7 @@ export function InternalChinaPurchaseDraftWorkspace({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="상태"
           value={draft.status === "ORDERED" ? "실주문 기록" : "주문 준비"}
@@ -275,11 +258,6 @@ export function InternalChinaPurchaseDraftWorkspace({
           label="필수 확인"
           value={`${number.format(requiredIssues.length)}건`}
           danger={requiredIssues.length > 0}
-        />
-        <Metric
-          label="내부기준원가"
-          value={`${number.format(Math.round(calculations.internalStandardTotalKrw))}원`}
-          emphasized
         />
       </section>
 
@@ -301,20 +279,6 @@ export function InternalChinaPurchaseDraftWorkspace({
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[230px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-              <span className="block text-xs font-bold text-emerald-700">
-                내부기준원가
-              </span>
-              <strong className="mt-0.5 block text-right text-base font-black text-emerald-950">
-                {number.format(
-                  Math.round(calculations.internalStandardTotalKrw),
-                )}
-                원
-              </strong>
-              <span className="mt-0.5 block text-[11px] text-emerald-700">
-                {worldFirstFeeLabel(draft.paymentFeeMultiplier)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}
-              </span>
-            </div>
             <button
               type="button"
               onClick={() => void saveDraft()}
@@ -354,7 +318,7 @@ export function InternalChinaPurchaseDraftWorkspace({
           </div>
         ) : null}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SubMetric
             label="상품금액"
             value={`${cny.format(calculations.productCny)} CNY`}
@@ -364,11 +328,7 @@ export function InternalChinaPurchaseDraftWorkspace({
             value={`${cny.format(calculations.freightCny)} CNY`}
           />
           <SubMetric
-            label={worldFirstFeeLabel(draft.paymentFeeMultiplier)}
-            value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`}
-          />
-          <SubMetric
-            label="실주문 원가"
+            label="1688 예상 결제액"
             value={`${number.format(Math.round(calculations.totalKrw))}원`}
           />
           <SubMetric
@@ -402,8 +362,7 @@ export function InternalChinaPurchaseDraftWorkspace({
                 <th className="px-3 py-3 text-right">중국내 운임</th>
                 <th className="px-3 py-3 text-right">개당 운임</th>
                 <th className="px-3 py-3 text-right">최종단가 CNY</th>
-                <th className="px-3 py-3 text-right">실주문원가 KRW</th>
-                <th className="px-3 py-3 text-right">내부기준원가 KRW</th>
+                <th className="px-3 py-3 text-right">예상 결제단가 KRW</th>
                 <th className="px-3 py-3">1688 주문번호</th>
                 <th className="px-3 py-3">메모</th>
               </tr>
@@ -505,12 +464,6 @@ export function InternalChinaPurchaseDraftWorkspace({
                     </td>
                     <td className="px-3 py-3 text-right font-black text-blue-800">
                       {number.format(Math.round(calc.actualUnitKrw))}원
-                    </td>
-                    <td className="px-3 py-3 text-right font-black text-violet-800">
-                      {number.format(
-                        Math.round(calc.internalStandardUnitKrw),
-                      )}
-                      원
                     </td>
                     <td className="px-2 py-2">
                       <Input

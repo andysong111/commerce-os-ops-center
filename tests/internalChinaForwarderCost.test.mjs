@@ -250,6 +250,13 @@ test("normal receipt panel previews the actual multiplier and downstream cost se
   assert.equal(panel.includes("상품등급"), false);
 });
 
+test("the final forwarder invoice replaces the 1.50 estimate in the receipt panel", () => {
+  assert.match(panel, /actualCostKrw \? "확정 배송대행비" : "추정 배송대행비"/);
+  assert.match(panel, /actualCostKrw \?\? forwarderCost\.estimatedForwarderCostKrw/);
+  assert.match(panel, /확정 도착 총액/);
+  assert.match(engine, /orderPaymentCost \+ actualCostKrw/);
+});
+
 test("forwarder cost API reports the actual multiplier and landed receipt-cost synchronization", () => {
   assert.ok(route.includes("isSameOriginOpsRequest"));
   assert.ok(route.includes("recordInternalChinaForwarderCost"));
