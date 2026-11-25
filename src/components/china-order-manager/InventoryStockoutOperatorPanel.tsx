@@ -13,13 +13,11 @@ import {
 } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
+import { isSafeShoplingStockRetry, MAX_SHOPLING_STOCK_ATTEMPTS } from "@/lib/shoplingStockRetryPolicy.mjs";
 import {
-  canRetryShoplingDirectRun,
   finalizeShoplingDirectRun,
-  prepareShoplingDirectRunRetry,
   recordShoplingDirectRunOutcome,
   retryableShoplingDirectRunJobIds,
-  shoplingDirectRunAttempt,
   shoplingDirectRunCounts,
   shoplingDirectRunSummaryText,
   startShoplingDirectRun,
@@ -81,6 +79,7 @@ type DirectRunResultDetail = {
   marketSuccessCount: number;
   marketTotalCount: number;
   responsibilityReceiptAccepted: boolean;
+  attemptCount: number;
   failurePhaseLabel?: string;
   failureReason?: string;
   failureImpact?: string;
@@ -92,6 +91,8 @@ type ActiveBatch = {
   mode: "PARALLEL" | "SINGLE";
   batchId: string;
   jobs: DirectInventoryJob[];
+  dispatchedAt: number;
+  dispatchIds: Map<string, string>;
   startedJobIds: Set<string>;
   startRecordPromises: Map<string, Promise<void>>;
   retainedJobIds: Set<string>;
@@ -101,6 +102,7 @@ type ActiveBatch = {
 const PARALLEL_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_START";
 const PARALLEL_STATUS = "COMMERCE_OS_SHOPLING_STOCK_SYNC_PARALLEL_STATUS";
 const SINGLE_START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_START";
+const RECEIPT_MARK = "__commerceOsStockSyncBridgeHF27";
 const REFRESH_EVENT = "commerce-os:inventory-refresh";
 
 async function loadLatestPendingDirectJobs() {
@@ -431,6 +433,12 @@ function InventoryStockoutGenericPanel() {
   const directQueue = useRef<DirectInventoryJob[]>([]);
   const directRunJobs = useRef(new Map<string, DirectInventoryJob>());
   const activeBatch = useRef<ActiveBatch | null>(null);
+  const launchingNext = useRef(false);
+  const mounted = useRef(false);
+  const attemptsByJob = useRef(new Map<string, number>());
+  const safeRetryWaiting = useRef(new Set<string>());
+  const [hasResumableStoppedJobs, setHasResumableStoppedJobs] = useState(false);
+  const launchTimer = useRef<number | null>(null);
   const handledResults = useRef(new Set<string>());
   const directRunProgressRef = useRef<ShoplingDirectRunProgress | null>(null);
   const launchNextRef = useRef<() => Promise<void>>(async () => undefined);
@@ -480,6 +488,7 @@ function InventoryStockoutGenericPanel() {
         jobId: job.jobId,
         barcode: job.barcode,
         desiredStatus: job.desiredStatus,
+        attemptCount: Number(object(evidence).attempt) || 1,
         outcome,
         message,
         ...receipt,
@@ -495,11 +504,18 @@ function InventoryStockoutGenericPanel() {
     [],
   );
 
+  const getResumableDirectJobIds = useCallback((current: ShoplingDirectRunProgress) =>
+    [...directRunJobs.current.keys()].filter((jobId) =>
+      !current.outcomesByJobId[jobId]
+      && (!attemptsByJob.current.has(jobId) || safeRetryWaiting.current.has(jobId)),
+    ), []);
+
   const stopDirectRunProgress = useCallback(() => {
     const current = directRunProgressRef.current;
     if (!current) return;
+    setHasResumableStoppedJobs(getResumableDirectJobIds(current).length > 0);
     publishDirectRunProgress(finalizeShoplingDirectRun(current, true));
-  }, [publishDirectRunProgress]);
+  }, [getResumableDirectJobIds, publishDirectRunProgress]);
 
   const recordSync = useCallback(
     async (
@@ -518,7 +534,7 @@ function InventoryStockoutGenericPanel() {
         body: JSON.stringify({
           eventId:
             outcome === "STARTED"
-              ? stableEventId("shopling-stock-started", job, outcome)
+              ? stableEventId(`shopling-stock-started:${object(evidence).dispatchJobId || "initial"}`, job, outcome)
               : stableEventId(
                   "shopling-stock-result",
                   job,
@@ -564,7 +580,7 @@ function InventoryStockoutGenericPanel() {
   );
 
   const launchNext = useCallback(async () => {
-    if (activeBatch.current || !extensionReadyRef.current) return;
+    if (!mounted.current || activeBatch.current || launchingNext.current || !extensionReadyRef.current) return;
 
     const plan = planShoplingStockLaunch(
       directQueue.current,
@@ -584,12 +600,14 @@ function InventoryStockoutGenericPanel() {
       return;
     }
 
+    launchingNext.current = true;
     try {
       setSyncNotice(
         `${plan.jobs[0].barcode} · Shopling 다음 작업 가능 상태를 확인하고 있습니다.`,
       );
       await waitForShoplingStockIdle();
     } catch (error) {
+      launchingNext.current = false;
       setSyncing(false);
       stopDirectRunProgress();
       setSyncNotice(
@@ -604,8 +622,10 @@ function InventoryStockoutGenericPanel() {
     }
 
     try {
+      if (!mounted.current) return;
       await requireShoplingAuthenticatedSession();
     } catch (error) {
+      launchingNext.current = false;
       setSyncing(false);
       stopDirectRunProgress();
       setSyncNotice(
@@ -617,6 +637,7 @@ function InventoryStockoutGenericPanel() {
       return;
     }
 
+    if (!mounted.current) return;
     const batchId = randomId("stockout-direct-batch");
     // A proven one-B-code run is the only safe transport boundary. Even when
     // several option B-codes share a model number, never merge them back into
@@ -630,16 +651,21 @@ function InventoryStockoutGenericPanel() {
       parallelLane: index + 1,
       ignoreWindowClose: true as const,
     }));
+    const dispatchIds = new Map(prepared.map((job) => [job.jobId, randomId(job.jobId)]));
 
-    activeBatch.current = {
+    const batch: ActiveBatch = {
       mode: plan.mode,
       batchId,
       jobs: prepared,
+      dispatchIds,
+      dispatchedAt: 0,
       startedJobIds: new Set<string>(),
       startRecordPromises: new Map<string, Promise<void>>(),
       retainedJobIds: new Set<string>(),
       terminalJobIds: new Set<string>(),
     };
+    activeBatch.current = batch;
+    launchingNext.current = false;
     setSyncNotice(
       plan.mode === "PARALLEL"
         ? `${prepared[0].barcode} + ${prepared[1].barcode} · Shopling 재고상태 2-Lane 전송 시작`
@@ -650,10 +676,14 @@ function InventoryStockoutGenericPanel() {
 
     try {
       for (const job of prepared) {
+        const attempt = (attemptsByJob.current.get(job.jobId) || 0) + 1;
+        if (attempt > MAX_SHOPLING_STOCK_ATTEMPTS) throw new Error("Shopling 자동 시도 한도에 도달했습니다.");
+        attemptsByJob.current.set(job.jobId, attempt);
+        safeRetryWaiting.current.delete(job.jobId);
         const startRecord = recordSync(
           job,
           "STARTED",
-          `통합 재고 입력 후 Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 1건 전송 시작`,
+          `Shopling ${job.desiredStatus === "SOLD_OUT" ? "품절" : "판매중"} 전송 ${attempt}차 시도`,
           {
             directOperatorCommand: true,
             unifiedInventoryBatch: true,
@@ -662,23 +692,28 @@ function InventoryStockoutGenericPanel() {
             maxConcurrentLanes: 1,
             strictSingleBcodeDispatch: true,
             desiredSince: job.desiredSince,
+            attempt,
+            dispatchJobId: dispatchIds.get(job.jobId),
           },
         );
-        activeBatch.current.startRecordPromises.set(job.jobId, startRecord);
+        batch.startRecordPromises.set(job.jobId, startRecord);
         await startRecord;
-        activeBatch.current.startedJobIds.add(job.jobId);
+        if (!mounted.current || activeBatch.current !== batch) return;
+        batch.startedJobIds.add(job.jobId);
       }
 
+      const dispatchedJobs = prepared.map((job) => ({ ...job, jobId: dispatchIds.get(job.jobId)! }));
+      batch.dispatchedAt = Date.now();
       if (plan.mode === "PARALLEL") {
         window.postMessage(
-          { type: PARALLEL_START, batchId, jobs: prepared },
+          { type: PARALLEL_START, batchId, jobs: dispatchedJobs },
           window.location.origin,
         );
       } else {
         window.postMessage(
           {
             type: SINGLE_START,
-            job: prepared[0],
+            job: dispatchedJobs[0],
           },
           window.location.origin,
         );
@@ -706,6 +741,7 @@ function InventoryStockoutGenericPanel() {
         if (cancelled || !recovered || directRunProgressRef.current) return;
         directQueue.current = recovered.jobs;
         rememberDirectJobs(recovered.jobs, true);
+        setHasResumableStoppedJobs(true);
         publishDirectRunProgress(
           finalizeShoplingDirectRun(
             startShoplingDirectRun(recovered.jobs.length),
@@ -723,7 +759,9 @@ function InventoryStockoutGenericPanel() {
   }, [publishDirectRunProgress, rememberDirectJobs]);
 
   useEffect(() => {
+    mounted.current = true;
     const finishBatch = (batch: ActiveBatch, retainedJobIds = new Set<string>()) => {
+      if (!mounted.current || activeBatch.current !== batch) return;
       const completedIds = new Set(
         batch.jobs
           .filter((job) => !retainedJobIds.has(job.jobId))
@@ -735,7 +773,8 @@ function InventoryStockoutGenericPanel() {
       activeBatch.current = null;
 
       if (directQueue.current.length) {
-        window.setTimeout(() => {
+        launchTimer.current = window.setTimeout(() => {
+          launchTimer.current = null;
           void launchNextRef.current();
         }, 250);
       } else {
@@ -786,9 +825,11 @@ function InventoryStockoutGenericPanel() {
         const batch = activeBatch.current;
         if (!batch) return;
         const jobId = String(data.jobId || "");
-        if (!batch.jobs.some((job) => job.jobId === jobId)) return;
-        if (data.job && typeof data.job === "object") {
-          rememberDirectJobs([data.job as DirectInventoryJob]);
+        const assigned = batch.jobs.find((job) => batch.dispatchIds.get(job.jobId) === jobId);
+        if (!assigned || data[RECEIPT_MARK] !== true || data.extensionVersion !== extensionVersionRef.current) return;
+        const progressJob = data.job as DirectInventoryJob | undefined;
+        if (progressJob?.barcode === assigned.barcode && progressJob.desiredStatus === assigned.desiredStatus) {
+          rememberDirectJobs([{ ...progressJob, jobId: assigned.jobId }]);
         }
         if (data.message) setSyncNotice(String(data.message));
         return;
@@ -884,44 +925,49 @@ function InventoryStockoutGenericPanel() {
 
       const result = data as unknown as ResultMessage;
       const batch = activeBatch.current;
-      if (
-        !batch ||
-        !result.jobId ||
-        !batch.jobs.some((job) => job.jobId === result.jobId)
-      ) {
-        return;
-      }
+      if (!batch?.dispatchedAt || data[RECEIPT_MARK] !== true || data.extensionVersion !== extensionVersionRef.current
+        || !(Number(result.finishedAt) >= batch.dispatchedAt) || !["SUCCEEDED", "FAILED", "UNCERTAIN"].includes(result.outcome)) return;
+      const job = batch.jobs.find((row) => batch.dispatchIds.get(row.jobId) === result.jobId);
+      if (!job || batch.terminalJobIds.has(job.jobId)) return;
+      if (result.job && (result.job.barcode !== job.barcode || result.job.desiredStatus !== job.desiredStatus)) return;
 
       const resultKey = `${result.jobId}:${result.outcome}:${Number(
         result.finishedAt || 0,
       )}`;
       if (handledResults.current.has(resultKey)) return;
 
-      const job =
-        result.job ||
-        batch.jobs.find((row) => row.jobId === result.jobId) ||
-        null;
-      if (!job) return;
-
       handledResults.current.add(resultKey);
-      rememberDirectJobs([job]);
+      batch.terminalJobIds.add(job.jobId);
+      if (result.job?.barcode === job.barcode && result.job.desiredStatus === job.desiredStatus) {
+        rememberDirectJobs([{ ...result.job, jobId: job.jobId }]);
+      }
       void (async () => {
         try {
           await batch.startRecordPromises.get(job.jobId);
+          const attempt = attemptsByJob.current.get(job.jobId) || 1;
+          const autoRetry = attempt < MAX_SHOPLING_STOCK_ATTEMPTS && isSafeShoplingStockRetry(result);
+          const evidence = { ...object(result.evidence), attempt, dispatchJobId: result.jobId, autoRetry };
           await recordSync(
             job,
             result.outcome,
             result.message || "",
-            result.evidence,
+            evidence,
             result.finishedAt,
           );
+          if (!mounted.current || activeBatch.current !== batch) return;
           upsertDirectRunResultDetail(
             job,
             result.outcome,
             result.message || "",
-            result.evidence,
+            evidence,
           );
-          batch.terminalJobIds.add(job.jobId);
+          if (autoRetry) {
+            safeRetryWaiting.current.add(job.jobId);
+            batch.retainedJobIds.add(job.jobId);
+            setSyncNotice(`${job.barcode} · 전송 전 실패 확인 · ${attempt + 1}차 자동 시도 준비 중`);
+            if (batch.terminalJobIds.size >= batch.jobs.length) finishBatch(batch, batch.retainedJobIds);
+            return;
+          }
           const currentProgress = directRunProgressRef.current;
           if (currentProgress) {
             publishDirectRunProgress(
@@ -953,6 +999,7 @@ function InventoryStockoutGenericPanel() {
           }
         } catch (error) {
           handledResults.current.delete(resultKey);
+          if (!mounted.current || activeBatch.current !== batch) return;
           activeBatch.current = null;
           directQueue.current = [];
           setSyncing(false);
@@ -970,7 +1017,11 @@ function InventoryStockoutGenericPanel() {
       { type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING" },
       window.location.origin,
     );
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      mounted.current = false;
+      window.removeEventListener("message", onMessage);
+      if (launchTimer.current !== null) window.clearTimeout(launchTimer.current);
+    };
   }, [
     publishDirectRunProgress,
     recordSync,
@@ -1041,6 +1092,9 @@ function InventoryStockoutGenericPanel() {
       directQueue.current = jobs;
       rememberDirectJobs(jobs, true);
       handledResults.current.clear();
+      attemptsByJob.current.clear();
+      safeRetryWaiting.current.clear();
+      setHasResumableStoppedJobs(false);
       setDirectRunResultDetails([]);
       setManualCopyNotice("");
       publishDirectRunProgress(
@@ -1079,17 +1133,11 @@ function InventoryStockoutGenericPanel() {
     }
   };
 
-  const retryIncompleteDirectRun = async () => {
+  const resumeStoppedDirectRun = () => {
     setNotice("");
     const current = directRunProgressRef.current;
     const allJobs = [...directRunJobs.current.values()];
-    const allJobIds = allJobs.map((job) => job.jobId);
-    if (!current || !canRetryShoplingDirectRun(current, allJobIds)) {
-      setSyncNotice(
-        "다시 시도할 Shopling 미완료 건이 없거나 최대 3차 시도까지 끝났습니다.",
-      );
-      return;
-    }
+    if (current?.status !== "STOPPED" || activeBatch.current || launchingNext.current) return;
     if (!extensionReadyRef.current) {
       setSyncNotice(
         "Shopling 자동화 확장 v0.6.61 연결을 확인한 뒤 다시 시도해 주세요.",
@@ -1097,29 +1145,19 @@ function InventoryStockoutGenericPanel() {
       return;
     }
 
-    const retryableIds = new Set(
-      retryableShoplingDirectRunJobIds(current, allJobIds),
-    );
-    const retryJobs = allJobs.filter((job) => retryableIds.has(job.jobId));
-    if (!retryJobs.length || allJobs.length !== current.total) {
+    const pendingIds = new Set(getResumableDirectJobIds(current));
+    const pendingJobs = allJobs.filter((job) => pendingIds.has(job.jobId));
+    if (!pendingJobs.length || allJobs.length !== current.total) {
       setSyncNotice(
         "미완료 작업의 저장 정보가 화면 상태와 일치하지 않아 자동 재시도를 중단했습니다. 아래 수동 전송 목록을 확인해 주세요.",
       );
       return;
     }
 
-    const retryProgress = prepareShoplingDirectRunRetry(current, allJobIds);
-    directQueue.current = retryJobs;
-    activeBatch.current = null;
-    handledResults.current.clear();
-    setDirectRunResultDetails((currentDetails) =>
-      currentDetails.filter((row) => !retryableIds.has(row.jobId)),
-    );
-    publishDirectRunProgress(retryProgress);
+    directQueue.current = pendingJobs;
+    publishDirectRunProgress({ ...current, status: "RUNNING" });
     setSyncing(true);
-    setSyncNotice(
-      `미완료 ${retryJobs.length}건만 ${shoplingDirectRunAttempt(retryProgress)}차 시도를 시작합니다. 이미 성공한 건은 다시 보내지 않습니다.`,
-    );
+    setSyncNotice(`전송 시작을 확인할 수 있는 대기 ${pendingJobs.length}건을 이어서 처리합니다.`);
     void launchNextRef.current();
   };
 
@@ -1127,13 +1165,12 @@ function InventoryStockoutGenericPanel() {
     ? shoplingDirectRunCounts(directRunProgress)
     : null;
   const directRunJobIds = directRunJobSnapshot.map((job) => job.jobId);
-  const canRetryIncompleteRun =
-    directRunProgress !== null &&
-    canRetryShoplingDirectRun(directRunProgress, directRunJobIds);
+  const canResumeStoppedRun =
+    directRunProgress?.status === "STOPPED" && hasResumableStoppedJobs;
   const finalManualFallbackJobs =
     directRunProgress &&
     directRunProgress.status !== "RUNNING" &&
-    shoplingDirectRunAttempt(directRunProgress) >= 3
+    !canResumeStoppedRun
       ? retryableShoplingDirectRunJobIds(
           directRunProgress,
           directRunJobIds,
@@ -1347,6 +1384,7 @@ function InventoryStockoutGenericPanel() {
                           : "판매중"}
                       </span>
                       <span>· {statusLabel}</span>
+                      {detail.attemptCount > 1 ? <span>· {detail.attemptCount}차 시도</span> : null}
                     </div>
                     {successful ? (
                       <p className="mt-1 text-xs font-bold leading-5">
@@ -1387,15 +1425,15 @@ function InventoryStockoutGenericPanel() {
               })}
             </div>
           ) : null}
-          {canRetryIncompleteRun && directRunCounts ? (
+          {canResumeStoppedRun && directRunCounts ? (
             <button
               type="button"
-              data-testid="retry-incomplete-shopling-run"
-              onClick={() => void retryIncompleteDirectRun()}
+              data-testid="resume-stopped-shopling-run"
+              onClick={resumeStoppedDirectRun}
               disabled={loading || syncing || !extensionReady}
               className="mt-3 rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-black text-white hover:bg-rose-800 disabled:bg-slate-400"
             >
-              미완료 건 {shoplingDirectRunAttempt(directRunProgress) + 1}차 시도
+              대기 건 계속 처리
             </button>
           ) : null}
         </div>
@@ -1407,10 +1445,10 @@ function InventoryStockoutGenericPanel() {
           className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-4 text-rose-950"
         >
           <h3 className="text-base font-black">
-            3차 후 남은 {finalManualFallbackJobs.length}건 · 수동 전송용 목록
+            확인이 필요한 {finalManualFallbackJobs.length}건 · 수동 확인 목록
           </h3>
           <p className="mt-1 text-xs font-bold leading-5">
-            아래 GOODS KEY를 종류별로 복사해 Shopling A21에서 직접 전송하세요.
+            Shopling에서 기존 접수 결과를 먼저 확인하세요. 추가 전송이 필요한 상품은 아래 GOODS KEY를 사용할 수 있습니다.
             판매중 상품이 옵션 판매를 회복하는 경우에는 상품 판매중전송을 먼저
             끝낸 뒤 옵션전송을 진행하세요.
           </p>
