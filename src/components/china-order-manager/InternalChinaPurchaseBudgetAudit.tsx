@@ -7,6 +7,10 @@ const percent = new Intl.NumberFormat("ko-KR", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const exchangeRate = new Intl.NumberFormat("ko-KR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
 
 function tone(status: BudgetAudit["status"]) {
   if (status === "OVER_BUDGET") {
@@ -95,9 +99,9 @@ export function InternalChinaPurchaseBudgetAudit({
         />
         <Metric
           label="A2B상사 내부 기준환율"
-          value={`${percent.format(audit.appliedKrwPerCny)}원/위안`}
+          value={`${exchangeRate.format(audit.appliedKrwPerCny)}원/위안`}
           note={audit.planningFx
-            ? <><a href={ECB_REFERENCE_RATE_PAGE} target="_blank" rel="noreferrer" className="underline">ECB 공시 {audit.planningFx.date}</a> · 교차환율 {percent.format(audit.planningFx.baseKrwPerCny)} ×{A2B_PLANNING_FX_MULTIPLIER} (결제·환전비 포함)</>
+            ? <><a href={ECB_REFERENCE_RATE_PAGE} target="_blank" rel="noreferrer" className="underline">ECB 공시 {audit.planningFx.date}</a> · 교차환율 {exchangeRate.format(audit.planningFx.baseKrwPerCny)} ×{A2B_PLANNING_FX_MULTIPLIER} (결제·환전비 포함)</>
             : "기록 당시 적용값"}
         />
         <Metric

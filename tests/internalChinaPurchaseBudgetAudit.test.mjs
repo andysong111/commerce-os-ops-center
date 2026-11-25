@@ -99,6 +99,9 @@ test("China draft displays the applied ECB rate, publication date and payment-in
   assert.match(card, /현재 Draft 상품대금/);
   assert.match(card, /A2B상사 내부 기준환율/);
   assert.match(card, /ECB 공시 \{audit\.planningFx\.date\}/);
+  assert.match(card, /const exchangeRate = new Intl\.NumberFormat\("ko-KR", \{\s*minimumFractionDigits: 2,\s*maximumFractionDigits: 6/);
+  assert.match(card, /exchangeRate\.format\(audit\.appliedKrwPerCny\)/);
+  assert.match(card, /exchangeRate\.format\(audit\.planningFx\.baseKrwPerCny\)/);
   assert.match(card, /×\{A2B_PLANNING_FX_MULTIPLIER\} \(결제·환전비 포함\)/);
   assert.match(card, /결제액 발주한도/);
   assert.match(audit, /budgetBasisKrwExact = draft\.planningFx\s*\? estimatedPaymentKrwExact/);
