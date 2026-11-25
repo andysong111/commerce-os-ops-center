@@ -146,7 +146,7 @@ test("exchange input is removed and internal standard cost is system-owned", () 
   assert.match(engine, /internalOrderCostMultiplier/);
   assert.doesNotMatch(workspace, /적용 환율 KRW\/CNY/);
   assert.match(workspace, /내부기준원가/);
-  assert.match(workspace, /결제수수료 ×/);
+  assert.match(workspace, /worldFirstFeeLabel\(draft.paymentFeeMultiplier\)/);
   assert.match(workspace, /한국 도착 원가 ×/);
 });
 

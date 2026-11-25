@@ -25,12 +25,12 @@ import type { PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
 import { retryInternalChinaReceiptFollowup } from "@/lib/internalChinaReceiptFollowup";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { sourcingMetadataFromCommitmentPayload } from "@/lib/sourcingReceiptBridge";
+import { internalChinaReceiptOrderItemId, MAX_RECEIPT_LINES } from "@/lib/internalChinaReceiptFollowupCore";
 
 const SOURCE_SYSTEM = "fast-purchase-mvp";
 const RECEIPT_SOURCE = "ops-center-internal-china-receipt";
 const DRAFT_ID = /^fast-purchase-draft:[a-f0-9]{20}$/;
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
-const MAX_RECEIPT_LINES = 100;
 
 type ReceiptLineInput = { barcode?: unknown; quantity?: unknown };
 export type InternalChinaReceiptInput = {
@@ -112,9 +112,6 @@ function orderReconciliationEventId(draftId: string, code: string) {
     .update(`${draftId}:${code}:v1`)
     .digest("hex")
     .slice(0, 24)}`;
-}
-function orderItemId(draftId: string, code: string) {
-  return parseInt(createHash("sha256").update(`${draftId}:${code}`).digest("hex").slice(0, 7), 16);
 }
 function batchId(cycleMonth: string) { return Number(cycleMonth.replace("-", "")); }
 
@@ -332,10 +329,11 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
     const actualUnitCny = Math.max(0, Number(line.unitPriceCny) || 0) + freightPerUnitCny;
     // 배송대행지 청구액은 별도 원가 마감에서 처리한다. 입고 시점의 상품대금과
     // 중국내 운임·주문할인/가감에 내부 기준원가 배수를 섞지 않는다.
-    const unitCostKrw = Math.max(1, Math.round(actualUnitCny * draft.exchangeRateKrwPerCny));
+    const unitCostKrw = Math.max(1, Math.round(actualUnitCny * draft.exchangeRateKrwPerCny *
+      (draft.verifiedPayment ? draft.paymentFeeMultiplier : 1)));
     const receiptCost: PriceAdjustmentReceipt = {
       id: `china-receipt:${receiptId}:${code}`, receiptId,
-      batchId: batchId(actualCycleMonth), orderItemId: orderItemId(draftId, code),
+      batchId: batchId(actualCycleMonth), orderItemId: internalChinaReceiptOrderItemId(draftId, code),
       barcode: code, modelNumber: line.modelNo, optionName: line.saleOption,
       quantity: receivedNow, unitCostKrw, receivedAt: now,
     };

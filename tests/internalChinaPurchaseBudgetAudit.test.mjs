@@ -42,7 +42,7 @@ test("China order draft budgets from the previous full calendar month", () => {
   assert.match(audit, /selectedDraftEstimatedLandedCostKrw/);
   assert.match(portfolio, /purchaseCostPolicy\.ts/);
   assert.match(costPolicy, /DEFAULT_PURCHASE_COST_MULTIPLIER = 1\.5/);
-  assert.match(costPolicy, /DEFAULT_PAYMENT_FEE_MULTIPLIER = 1\.05/);
+  assert.match(costPolicy, /WORLDFIRST_KUAJINGBAO_FEE_BPS = 80/);
   assert.doesNotMatch(audit, /recent30RevenueKrw \/ 2/);
 });
 
@@ -98,7 +98,7 @@ test("calendar-month budget and internal standard cost are visible on the China 
   assert.match(card, /상품대금 발주한도/);
   assert.match(card, /현재 Draft 상품대금/);
   assert.match(card, /내부기준원가/);
-  assert.match(card, /결제수수료 1\.05/);
+  assert.match(card, /월드퍼스트 콰징바오 수수료 0\.8%/);
   assert.match(card, /내부기준원가 1\.50/);
   assert.match(card, /예산 초과/);
 });

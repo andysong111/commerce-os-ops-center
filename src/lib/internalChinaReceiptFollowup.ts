@@ -2,11 +2,11 @@ import { CHINA_ORDER_EVENT_OPERATION_TYPE } from "@/lib/chinaOrderLedger";
 import { readPriceAdjustmentReceiptCache, mergePriceAdjustmentReceiptCachePage, type PriceAdjustmentReceipt } from "@/lib/priceAdjustmentReceiptCache";
 import { buildProductMasterSnapshotFromTrackerState } from "@/lib/productMasterSync";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
-import { productUnitCostByBarcode } from "@/lib/internalChinaForwarderCost";
+import { loadActualPurchaseCostDraft, productUnitCostByBarcode } from "@/lib/internalChinaForwarderCost";
 import { loadInternalChinaDraftWithQuantityOverrides } from "@/lib/internalChinaDraftQuantityOverride";
 import { loadInternalChinaPurchaseDraft } from "@/lib/internalChinaPurchaseDraft";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { receiptFollowupBundle, selectReceiptFollowupCosts, compareReceiptFollowupReadback, receiptRecord, validInternalReceiptId, type ReceiptStoredRow } from "@/lib/internalChinaReceiptFollowupCore";
+import { MAX_RECEIPT_LINES, receiptFollowupBundle, selectReceiptFollowupCosts, compareReceiptFollowupReadback, receiptRecord, validInternalReceiptId, type ReceiptStoredRow } from "@/lib/internalChinaReceiptFollowupCore";
 import { missingReceiptCostRows, receiptCostOnlyPayload, validateReceiptReadbackIdentity } from "@/lib/internalChinaReceiptFollowupRepair";
 import { ensureSourcingReceiptArtifacts } from "@/lib/sourcingReceiptArtifacts";
 
@@ -45,7 +45,7 @@ async function storedRows(receiptId: string) {
   const client = await admin();
   const result = await client.from("commerce_operation_runs").select("input_snapshot,result_snapshot,started_at")
     .eq("operation_type", CHINA_ORDER_EVENT_OPERATION_TYPE).eq("source", SOURCE).eq("status", "SUCCEEDED")
-    .eq("result_snapshot->>receiptId", receiptId).order("source_event_id").limit(101);
+    .eq("result_snapshot->>receiptId", receiptId).order("source_event_id").limit(MAX_RECEIPT_LINES + 1);
   if (result.error) throw new Error("RECEIPT_FOLLOWUP_LEDGER_READ_FAILED");
   return (result.data ?? []) as ReceiptStoredRow[];
 }
@@ -58,9 +58,12 @@ async function finalizedMissingCosts(
 ) {
   const close = await loadStoredInternalChinaForwarderClose(bundle.draftId);
   if (!close?.actualMultiplier) return costs;
-  const draft = await loadInternalChinaDraftWithQuantityOverrides(
+  const draft = close.paymentEvidenceHash ? await loadActualPurchaseCostDraft(bundle.draftId, bundle.cycleMonth) : await loadInternalChinaDraftWithQuantityOverrides(
     await loadInternalChinaPurchaseDraft(bundle.draftId),
   );
+  if (close.paymentEvidenceHash && close.paymentEvidenceHash !== draft.verifiedPayment?.evidenceHash) {
+    throw new Error("RECEIPT_FOLLOWUP_FINAL_COST_SOURCE_REQUIRED");
+  }
   const unitCosts = productUnitCostByBarcode(draft, close.actualMultiplier);
   return costs.map((row) => {
     const unitCostKrw = unitCosts.get(row.barcode);

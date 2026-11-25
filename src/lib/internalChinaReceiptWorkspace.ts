@@ -57,6 +57,7 @@ type ReceiptPurchaseEvidence = {
   assignedLineCount: number;
   unassignedLineCount: number;
   lines: ReceiptPurchaseLine[];
+  paymentEvidenceHash?: string;
 };
 
 type ReceiptBarcodeCompletionEvidence = {
@@ -198,8 +199,8 @@ export function resolveInternalChinaReceiptOrderEvidence(input: {
       const code = barcode(line.barcode);
       return line.assigned &&
         BARCODE.test(code) &&
-        text(line.chinaOption) &&
-        validHttpUrl(line.supplierLink)
+        (purchase.paymentEvidenceHash ||
+          (text(line.chinaOption) && validHttpUrl(line.supplierLink)))
         ? [code]
         : [];
     }),

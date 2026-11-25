@@ -41,12 +41,12 @@ test("landed-cost formula uses the payment-fee-inclusive order cost as its multi
   assert.ok(engine.includes("(orderPaymentCost + actualForwarderCostKrw) / orderPaymentCost"));
   assert.ok(engine.includes("decimal(line.unitPriceCny) * line.quantity"));
   assert.ok(engine.includes("domesticChinaFreightKrw"));
-  assert.ok(engine.includes("preFeeUnitKrw * draft.paymentFeeMultiplier * multiplier"));
+  assert.ok(engine.includes("productUnitKrw, freightPerUnitKrw, draft.paymentFeeMultiplier, multiplier"));
 });
 
 test("China domestic freight is included before payment fee and landed-cost allocation", () => {
   assert.ok(engine.includes("function domesticChinaFreightKrw"));
-  assert.ok(engine.includes("const productCost = productPurchaseCostKrw(draft)"));
+  assert.ok(engine.includes("draft.verifiedPayment?.goodsKrw ?? productPurchaseCostKrw(draft)"));
   assert.ok(engine.includes("productCost + domesticFreight"));
   assert.ok(engine.includes("orderPaymentCost + actualCostKrw"));
   assert.ok(engine.includes("group.freightCny / group.quantity"));
@@ -65,25 +65,27 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
     previousCycleStartDate: null, revenueRangeStartDate: null, revenueRangeEndDate: null,
     cycleBootstrap: false, status: "DRAFT", exchangeRateKrwPerCny: 230,
     internalOrderCostMultiplier: 1.5, paymentFeeMultiplier: 1.05,
-    lineCount: 2, totalQuantity: 140, createdFrom: "FAST_PURCHASE_RESERVED",
+    lineCount: 3, totalQuantity: 141, createdFrom: "FAST_PURCHASE_RESERVED",
     sourceUpdatedAt: "2026-11-04T00:00:00.000Z", savedAt: null,
     metadataWarnings: [], externalOrderExecuted: false,
     lines: [
       { ...baseLine, barcode: "BBA1-1", quantity: 100, unitPriceCny: 1, domesticChinaFreightCny: 0 },
       { ...baseLine, barcode: "BBB2-1", quantity: 40, unitPriceCny: 1, domesticChinaFreightCny: 0 },
+      { ...baseLine, barcode: "BCC3-1", quantity: 1, unitPriceCny: 20, domesticChinaFreightCny: 0 },
     ],
   };
   const purchase = {
-    cycleMonth: "2026-11", draftCount: 1, orderCount: 3, lineCount: 3,
-    skuCount: 3, totalQuantity: 141, goodsPaidCny: 92,
-    domesticChinaFreightCny: 8, serviceFeeCny: 0, actualOrderPaidCny: 100,
-    actualOrderPaidKrwAtInternalFx: 23_000, exchangeRateKrwPerCny: 230,
-    assignedLineCount: 3, unassignedLineCount: 0, importedFromActualOrder: false,
+    cycleMonth: "2026-11", draftCount: 1, orderCount: 2, lineCount: 2,
+    skuCount: 2, totalQuantity: 13, goodsPaidCny: 72,
+    domesticChinaFreightCny: 8, serviceFeeCny: 1, actualOrderPaidCny: 81,
+    actualOrderPaidKrwAtInternalFx: 18_630, exchangeRateKrwPerCny: 230,
+    assignedLineCount: 2, unassignedLineCount: 0, importedFromActualOrder: true,
+    paymentEvidenceHash: `sha256:${"b".repeat(64)}`, barcodeEvidenceHash: `sha256:${"a".repeat(64)}`,
+    worldFirstFeeKrw: 149, paymentFeeBps: 80,
     cashFlowEarlyClose: false, latestRecordedAt: null,
     lines: [
-      { draftId: baseDraft.draftId, barcode: "BBA1-1", modelNo: "AAA001", modelName: "상품", saleOption: "단품", chinaOption: "黑色", orderNumber: "1", supplierLink: baseLine.supplierLink, quantity: 5, goodsPaidCny: 40, domesticChinaFreightCny: 5, serviceFeeCny: 0, actualLinePaidCny: 45, actualLinePaidKrwAtInternalFx: 10_350, assigned: true },
-      { draftId: baseDraft.draftId, barcode: "BBB2-1", modelNo: "AAA002", modelName: "상품2", saleOption: "흰색", chinaOption: "白色", orderNumber: "2", supplierLink: baseLine.supplierLink, quantity: 8, goodsPaidCny: 32, domesticChinaFreightCny: 3, serviceFeeCny: 0, actualLinePaidCny: 35, actualLinePaidKrwAtInternalFx: 8_050, assigned: true },
-      { draftId: baseDraft.draftId, barcode: "BCC3-1", modelNo: "AAA003", modelName: "제외상품", saleOption: "단품", chinaOption: "红色", orderNumber: "3", supplierLink: baseLine.supplierLink, quantity: 1, goodsPaidCny: 20, domesticChinaFreightCny: 0, serviceFeeCny: 0, actualLinePaidCny: 20, actualLinePaidKrwAtInternalFx: 4_600, assigned: true },
+      { draftId: baseDraft.draftId, barcode: "BBA1-1", orderNumber: "100001", quantity: 5, goodsPaidCny: 40, domesticChinaFreightCny: 5, serviceFeeCny: 1, assigned: true },
+      { draftId: baseDraft.draftId, barcode: "BBB2-1", orderNumber: "100002", quantity: 8, goodsPaidCny: 32, domesticChinaFreightCny: 3, serviceFeeCny: 0, assigned: true },
     ],
   };
   const result = buildInternalChinaActualPurchaseCostDraft({
@@ -94,14 +96,17 @@ test("receipt and forwarder cost use final barcode quantities with exact paid CN
       applicationNo: "1, 2", itemCount: 2, matchedItemCount: 2,
       recordUpdatedAt: "2026-11-19T00:00:00.000Z", evidenceHash: `sha256:${"a".repeat(64)}`,
       completedAt: "2026-11-21T00:00:00.000Z",
-      lines: [{ barcode: "BBA1-1", quantity: 5 }, { barcode: "BBB2-1", quantity: 8 }],
+      lines: [{ barcode: "BBA1-1", quantity: 5, orderNo: "100001" }, { barcode: "BBB2-1", quantity: 8, orderNo: "100002" }],
     },
   });
   assert.equal(result.totalQuantity, 13);
   assert.equal(result.lines[0].unitPriceCny, 8);
-  assert.equal(result.lines[0].domesticChinaFreightCny, 5);
+  assert.equal(result.lines[0].domesticChinaFreightCny, 6);
   assert.equal(result.lines.some((line) => line.barcode === "BCC3-1"), false);
-  assert.equal(result.actualOrderPaidKrwAtInternalFx, 18_400);
+  assert.equal(result.actualOrderPaidKrwAtInternalFx, 18_630);
+  assert.equal(result.verifiedPayment.worldFirstFeeKrw, 149);
+  assert.equal(result.verifiedPayment.domesticFreightKrw, 1_840);
+  assert.equal(result.verifiedPayment.serviceFeeKrw, 230);
 });
 
 test("forwarder close always uses a legal operation-ledger status even when downstream sync needs attention", () => {
@@ -120,7 +125,7 @@ test("receipt close requires the exact forwarder amount only for the final recei
 
 test("completed monthly drafts remain visible until actual landed cost is closed", () => {
   assert.ok(page.includes("hasActualOrderForReceiptWorkspace"));
-  assert.ok(page.includes(".filter(() => hasReceiptWorkspace)"));
+  assert.ok(page.includes(".filter(() => hasReceiptWorkspace && confirmedPurchase)"));
   assert.ok(page.includes("selectedDrafts"));
   assert.ok(page.includes("loadInternalChinaForwarderCostSummary"));
   assert.ok(page.includes("실제 원가 마감"));
@@ -140,7 +145,7 @@ test("recent closed monthly landed costs stay visible after the calendar month c
   assert.ok(historyPanel.includes("결제수수료"));
   assert.ok(
     historyPanel.includes(
-      "배송대행 마감 후에는 결제수수료 1.05는 유지하고 1.50만 실제 배송대행·관부가세 비용으로 교체",
+      "실제 총지출 = 1688 실결제 + 월드퍼스트 콰징바오 수수료 + 배송대행 실제비용",
     ),
   );
   assert.ok(historyPanel.includes("과거 주문 기록의 저장값은 소급 변경하지 않습니다"));
@@ -226,7 +231,7 @@ test("forwarder amount fallback remains available only as a recovery UI while th
   assert.ok(fallbackPanel.includes("배송대행 비용 · 원가 마감"));
   assert.ok(fallbackPanel.includes('/api/china-order-manager/forwarder-cost'));
   assert.ok(fallbackPanel.includes("실제 도착 원가배수 = (결제원가 + 배송대행지 실제비용) ÷ 결제원가"));
-  assert.ok(fallbackPanel.includes("결제수수료 1.05는 유지"));
+  assert.ok(fallbackPanel.includes("1688 실결제 + 월드퍼스트 콰징바오 수수료"));
   assert.ok(route.includes("loadStoredInternalChinaForwarderClose"));
   assert.equal(fallbackPanel.includes("상품등급"), false);
 });
@@ -249,7 +254,7 @@ test("forwarder cost API reports the actual multiplier and landed receipt-cost s
   assert.ok(route.includes("isSameOriginOpsRequest"));
   assert.ok(route.includes("recordInternalChinaForwarderCost"));
   assert.ok(route.includes("실제 원가배수"));
-  assert.ok(route.includes("결제수수료 ×"));
+  assert.ok(route.includes("월드퍼스트 콰징바오 수수료"));
   assert.ok(route.includes("최종 SKU 매입원가는 SKU별 결제원가 × 실제 도착 원가배수"));
   assert.ok(route.includes("이후 가격조정 판단에 사용합니다"));
   assert.equal(route.includes("상품등급"), false);

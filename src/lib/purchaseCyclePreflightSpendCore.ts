@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { read1688PaymentEvidence } from "./internalChinaPaymentEvidence.ts";
 import type { PurchaseMonthlySpendPin } from "./purchaseCyclePreflightCore";
 
 type MonthlySpendRow = {
@@ -8,6 +9,7 @@ type MonthlySpendRow = {
   result_snapshot?: unknown;
   started_at?: unknown;
   updated_at?: unknown;
+  operation_type?: unknown;
 };
 type MonthlySpendScanPage = {
   rows: unknown;
@@ -154,6 +156,70 @@ function shiftMonth(month: string, delta: number) {
 // October 2026. Earlier preview/test rows belong to the retired monthly flow
 // and must not seed or reduce the live carryover balance.
 export const PURCHASE_BUDGET_CARRYOVER_START_CYCLE = "2026-10";
+
+export function reconcilePurchaseSpendEvidence(cycleMonth: string, rows: MonthlySpendRow[]) {
+  const completions = new Map<string, Record<string, unknown>>();
+  const paid = new Map<string, ReturnType<typeof read1688PaymentEvidence>>();
+  const pending = new Set<string>();
+  const prepRows: MonthlySpendRow[] = [];
+  const inScope = (month: string) => month >= PURCHASE_BUDGET_CARRYOVER_START_CYCLE && month <= cycleMonth;
+  for (const row of rows) {
+    if (row.operation_type === "INTERNAL_CHINA_FREIGHT_BARCODE_COMPLETE") {
+      const completion = object(row.result_snapshot);
+      const draftId = text(completion.draftId);
+      if (!inScope(text(completion.cycleMonth))) continue;
+      if (!draftId || !text(completion.evidenceHash) || completions.has(draftId)) {
+        throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
+      }
+      completions.set(draftId, completion);
+      pending.add(draftId);
+      continue;
+    }
+    const result = object(row.result_snapshot);
+    const nested = object(result.snapshot);
+    const snapshot = Object.keys(nested).length ? nested : Object.keys(result).length ? result : object(row.input_snapshot);
+    const payment = read1688PaymentEvidence(snapshot, row.source_event_id);
+    if (payment) {
+      if (inScope(payment.cycleMonth)) paid.set(payment.draftId, payment);
+      continue;
+    }
+    if (inScope(text(snapshot.cycleMonth)) &&
+        (snapshot.status === "ORDERED" || snapshot.importedFromActualOrder === true)) {
+      const draftId = text(snapshot.draftId);
+      if (!draftId) throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
+      pending.add(draftId);
+    }
+    prepRows.push(row);
+  }
+  const verifiedRows: MonthlySpendRow[] = [];
+  const draftByOrder = new Map<string, string>();
+  for (const [draftId, payment] of paid) {
+    const completed = completions.get(draftId);
+    if (!payment || completed?.cycleMonth !== payment.cycleMonth ||
+        completed.evidenceHash !== payment.barcodeEvidenceHash) {
+      throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
+    }
+    for (const line of payment.rows) {
+      const previousDraft = draftByOrder.get(line.orderNo);
+      if (previousDraft && previousDraft !== draftId) {
+        throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
+      }
+      draftByOrder.set(line.orderNo, draftId);
+    }
+    pending.delete(draftId);
+    verifiedRows.push({
+      source_event_id: draftId,
+      result_snapshot: {
+        draftId, cycleMonth: payment.cycleMonth, status: "ORDERED",
+        actualOrderPaidKrwAtInternalFx: payment.budgetSpendKrw,
+        paymentEvidenceHash: payment.paymentEvidenceHash,
+        barcodeEvidenceHash: payment.barcodeEvidenceHash,
+      },
+    });
+  }
+  if (pending.size) throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
+  return [...verifiedRows, ...prepRows];
+}
 
 export function purchaseBudgetCarryoverBasis(
   cycleMonth: string,

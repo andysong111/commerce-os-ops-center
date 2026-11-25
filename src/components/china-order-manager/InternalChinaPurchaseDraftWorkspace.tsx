@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
+import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 import type { InternalChinaPurchaseBudgetAudit } from "@/lib/internalChinaPurchaseBudgetAudit";
 import { calculateInternalChinaPurchaseCostSummary } from "@/lib/internalChinaPurchaseCostMath";
 import type {
@@ -311,7 +312,7 @@ export function InternalChinaPurchaseDraftWorkspace({
                 원
               </strong>
               <span className="mt-0.5 block text-[11px] text-emerald-700">
-                결제수수료 ×{draft.paymentFeeMultiplier.toFixed(2)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}
+                {worldFirstFeeLabel(draft.paymentFeeMultiplier)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}
               </span>
             </div>
             <button
@@ -363,7 +364,7 @@ export function InternalChinaPurchaseDraftWorkspace({
             value={`${cny.format(calculations.freightCny)} CNY`}
           />
           <SubMetric
-            label={`결제수수료 ×${draft.paymentFeeMultiplier.toFixed(2)}`}
+            label={worldFirstFeeLabel(draft.paymentFeeMultiplier)}
             value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`}
           />
           <SubMetric

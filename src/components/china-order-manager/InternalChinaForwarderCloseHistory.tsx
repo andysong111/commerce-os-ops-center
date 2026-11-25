@@ -234,7 +234,7 @@ export async function InternalChinaForwarderCloseHistory({
       </div>
 
       <p className="mt-3 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs font-bold leading-5 text-indigo-950">
-        월 전체 지출가능금액 = 직전 달력월 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 차감한 뒤 ÷ 2. 주문 전에는 결제수수료 1.05와 한국 도착 내부기준원가 1.50을 분리 적용합니다. 배송대행 마감 후에는 결제수수료 1.05는 유지하고 1.50만 실제 배송대행·관부가세 비용으로 교체합니다. 실제 총지출 = (상품대금 + 중국내운임·할인/가감) × 1.05 + 실제 부대비용이며, 사용 후 남은금액 = 전체 지출가능금액 - 실제 총지출입니다. 과거 주문 기록의 저장값은 소급 변경하지 않습니다.
+        월 전체 지출가능금액 = 직전 달력월 정상매출에서 에이블리 정상 주문당 무료배송 부담 3,000원을 차감한 뒤 ÷ 2. 실제 총지출 = 1688 실결제 + 월드퍼스트 콰징바오 수수료 + 배송대행 실제비용. 사용 후 남은금액 = 전체 지출가능금액 - 실제 총지출입니다. 과거 주문 기록의 저장값은 소급 변경하지 않습니다.
       </p>
 
       {latestSummary && latestBudget?.available && (latestSummary.actualCostKrw ?? 0) > 0 ? (

@@ -46,6 +46,9 @@ export type InternalChinaForwarderFundingEvidence = {
   cycleMonth: string;
   productPurchaseCostKrw: number;
   domesticChinaFreightKrw: number;
+  actual1688PaymentKrw?: number;
+  paymentFeeCostKrw?: number;
+  orderPaymentCostKrw?: number;
   actualCostKrw: number | null;
   actualTotalOutflowKrw: number | null;
   closedAt: string | null;
@@ -203,8 +206,9 @@ export function internalChinaFundingCloseMatchesForwarder(
   const actualTotalOutflowKrw = integer(
     forwarderClose.actualTotalOutflowKrw,
   );
-  const calculatedTotal =
-    productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw;
+  const calculatedTotal = forwarderClose.actual1688PaymentKrw === undefined
+    ? productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw
+    : validatedForwarderPaymentBase(forwarderClose) + actualForwarderCostKrw;
   if (
     productPurchaseCostKrw <= 0 ||
     actualForwarderCostKrw <= 0 ||
@@ -234,13 +238,26 @@ export function internalChinaFundingCloseMatchesForwarder(
   return fundingClose.koreaAccountSpentKrw >= actualForwarderCostKrw;
 }
 
+function validatedForwarderPaymentBase(snapshot: {
+  actual1688PaymentKrw?: unknown;
+  paymentFeeCostKrw?: unknown;
+  orderPaymentCostKrw?: unknown;
+}) {
+  const paid = Number(snapshot.actual1688PaymentKrw);
+  const fee = Number(snapshot.paymentFeeCostKrw);
+  const cost = Number(snapshot.orderPaymentCostKrw);
+  return Number.isSafeInteger(paid) && paid > 0 && Number.isSafeInteger(fee) && fee >= 0 &&
+    cost === paid + fee ? cost : Number.NaN;
+}
+
 function validatedForwarderOutflow(snapshot: Record<string, unknown>) {
   const productPurchaseCostKrw = integer(snapshot.productPurchaseCostKrw);
   const domesticChinaFreightKrw = integer(snapshot.domesticChinaFreightKrw);
   const actualForwarderCostKrw = integer(snapshot.actualCostKrw);
   const actualTotalOutflowKrw = integer(snapshot.actualTotalOutflowKrw);
-  const calculatedTotal =
-    productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw;
+  const calculatedTotal = snapshot.actual1688PaymentKrw === undefined
+    ? productPurchaseCostKrw + domesticChinaFreightKrw + actualForwarderCostKrw
+    : validatedForwarderPaymentBase(snapshot) + actualForwarderCostKrw;
   if (
     productPurchaseCostKrw <= 0 ||
     actualForwarderCostKrw <= 0 ||

@@ -81,11 +81,11 @@ export async function InternalChinaCurrentPurchaseBudget({
           <BudgetMetric
             label="상품대금 발주한도"
             value={`${money.format(productOrderBudgetKrw)}원`}
-            note={`전체 지출가능금액 ÷ ${DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(2)} ÷ ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`}
+            note={`전체 지출가능금액 ÷ ${DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(3)} ÷ ${DEFAULT_PURCHASE_COST_MULTIPLIER.toFixed(2)}`}
           />
           <BudgetMetric
-            label="결제수수료 배수"
-            value={DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(2)}
+            label="월드퍼스트 콰징바오 적용 배수"
+            value={DEFAULT_PAYMENT_FEE_MULTIPLIER.toFixed(3)}
             note="현금 결제에 실제 적용"
           />
           <BudgetMetric

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { internalChinaOrderEvidenceIssues } from "@/lib/internalChinaOrderEvidence";
+import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 import {
   InternalChinaManualDraftLineAdder,
   type StagedDraftAddition,
@@ -1202,7 +1203,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
               <strong className="mt-0.5 block text-right text-base font-black text-emerald-950">
                 {number.format(Math.round(calculations.internalStandardTotalKrw))}원
               </strong>
-              <span className="mt-0.5 block text-[11px] text-emerald-700">결제수수료 ×{draft.paymentFeeMultiplier.toFixed(2)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}</span>
+              <span className="mt-0.5 block text-[11px] text-emerald-700">{worldFirstFeeLabel(draft.paymentFeeMultiplier)} · 한국 도착 원가 ×{draft.internalOrderCostMultiplier.toFixed(2)}</span>
             </div>
             <a href="https://commerce-os-product-master.vercel.app/purchase-metadata" target="_blank" rel="noreferrer" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-800 hover:bg-slate-50">상품마스터 최신 원장</a>
             <button type="button" onClick={() => void open1688Workflow("cost-capture")} disabled={automationPreparing !== null || saving || draft.status !== "DRAFT" || !draft.lines.length || hasPendingCostCaptureBlockingEdits} title={hasPendingCostCaptureBlockingEdits ? "수량·제외·추가·단종 변경을 먼저 저장하거나 취소하세요." : stockBandUpdates.length > 0 ? "대략 재고 변경은 보류하고 현재 발주안의 원가·운임만 기록합니다." : "실제 위안단가·중국내 운임만 기록하며 주문·결제는 실행하지 않습니다."} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">{automationPreparing === "COST" ? "5-1 여는 중..." : "5-1 원가·운임 기록"}</button>
@@ -1228,7 +1229,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <SubMetric label="상품금액" value={`${cny.format(calculations.productCny)} CNY`} />
           <SubMetric label="중국내 운임·할인/가감" value={`${cny.format(calculations.freightCny)} CNY`} />
-          <SubMetric label={`결제수수료 ×${draft.paymentFeeMultiplier.toFixed(2)}`} value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`} />
+          <SubMetric label={worldFirstFeeLabel(draft.paymentFeeMultiplier)} value={`${number.format(Math.round(calculations.paymentFeeKrw))}원`} />
           <SubMetric label="실주문 원가" value={`${number.format(Math.round(calculations.totalKrw))}원`} />
           <SubMetric label="중국옵션 확인 필요" value={`${number.format(optionReviewCount)} SKU`} />
         </div>

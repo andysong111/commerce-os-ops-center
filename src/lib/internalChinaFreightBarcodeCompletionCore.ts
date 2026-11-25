@@ -27,6 +27,7 @@ export type InternalChinaFreightBarcodeReceiptEvidence =
       orderNo: string;
       barcode: string;
       quantity: number;
+      declaredUnitPriceCny?: number;
       modelNo: string;
       modelName: string;
       saleOption: string;
@@ -187,6 +188,7 @@ export function buildInternalChinaFreightBarcodeReceiptEvidence(
       orderNo: text(item?.orderNo),
       barcode,
       quantity,
+      ...(typeof item?.unitPrice === "number" ? { declaredUnitPriceCny: item.unitPrice } : {}),
       modelNo: text(match.matchedModelNo) || text(item?.modelNo),
       modelName:
         text(match.matchedModelName) ||
