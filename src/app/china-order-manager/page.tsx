@@ -435,6 +435,9 @@ export default async function ChinaOrderManagerPage({
   const receiptDone = orderedQuantity > 0 && inboundOpenQuantity === 0;
   const barcodeStageDone = Boolean(barcodeCompletion) || receiptDone;
   const forwarderDone = selectedForwarderCloses.length > 0;
+  const paymentEvidenceForEntry = !confirmedPurchase && !forwarderDone
+    ? barcodeReceiptEvidence
+    : null;
   const fundingDone = selectedFundingCloses.length > 0;
   const currentFundingTarget = costRows.find(
     (row) => (row.summary?.actualCostKrw ?? 0) > 0,
@@ -658,14 +661,14 @@ export default async function ChinaOrderManagerPage({
             id="purchase-run-input-workspace"
             className={`mt-4 scroll-mt-6 space-y-4 ${styles.inputScope}`}
           >
-            {barcodeReceiptEvidence && !confirmedPurchase && !forwarderDone ? (
+            {paymentEvidenceForEntry ? (
               <InternalChinaPaymentEvidencePanel
                 key={selectedDraftId}
                 draftId={selectedDraftId}
-                barcodeEvidenceHash={barcodeReceiptEvidence.evidenceHash}
+                barcodeEvidenceHash={paymentEvidenceForEntry.evidenceHash}
                 goodsEstimateCny={barcodeGoodsEstimateCny}
                 orderCount={barcodeOrderCount}
-                orderTemplate={build1688PaymentOrderTemplate(barcodeReceiptEvidence.lines)}
+                orderTemplate={build1688PaymentOrderTemplate(paymentEvidenceForEntry.lines)}
               />
             ) : null}
             {costRows.map((row) => {
@@ -785,21 +788,25 @@ export default async function ChinaOrderManagerPage({
                   ? "추적 품목 입고 완료"
                   : !barcodeCompletion
                     ? "바코드 업무 종결 후 진행"
-                    : !confirmedPurchase
-                      ? "1688 실결제 원본 등록 후 진행"
-                    : !receiptOrderEvidence.ok
-                      ? "실주문·B-code·수량 원장 대조 필요"
-                    : inboundOpenQuantity
-                  ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
-                  : "입고 수량 입력 대기"
+                    : paymentEvidenceForEntry
+                      ? "1688 실결제 자료를 저장하면 입고 입력이 열립니다."
+                      : !confirmedPurchase || !receiptOrderEvidence.ok
+                        ? "실결제·바코드·수량 원장 대조 필요"
+                        : inboundOpenQuantity
+                          ? `남은 미입고 ${money.format(inboundOpenQuantity)}개`
+                          : "입고 수량 입력 대기"
               }
               href={
-                barcodeCompletion && hasOrder
-                  ? "#purchase-run-input-workspace"
-                  : undefined
+                paymentEvidenceForEntry
+                  ? "#purchase-run-payment-evidence-rows"
+                  : barcodeCompletion && hasOrder && costRows.length > 0
+                    ? "#purchase-run-input-workspace"
+                    : undefined
               }
               actionLabel={
-                receiptDone ? "입고·원가 입력 보기" : "입고 처리로 이동"
+                paymentEvidenceForEntry
+                  ? "1688 실결제 등록으로 이동"
+                  : receiptDone ? "입고·원가 입력 보기" : "입고 처리로 이동"
               }
             />
             <FlowStep
@@ -1271,6 +1278,8 @@ function FlowStep({
       : state === "active"
         ? "border-amber-800/60"
         : "border-slate-800";
+  // Let the browser reveal an anchor inside closed disclosure content.
+  const ActionLink = href?.startsWith("#") ? "a" : Link;
   return (
     <div className={`flex gap-3 rounded-xl border bg-slate-900 p-3 ${border}`}>
       <span className={`grid size-8 shrink-0 place-items-center rounded-lg text-sm font-black ${marker}`}>
@@ -1280,12 +1289,12 @@ function FlowStep({
         <strong className="text-sm text-white">{title}</strong>
         <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
         {href && actionLabel ? (
-          <Link
+          <ActionLink
             href={href}
             className="mt-2 inline-flex rounded-lg border border-cyan-500/60 bg-cyan-400/10 px-3 py-1.5 text-xs font-black text-cyan-200 hover:bg-cyan-400/20"
           >
             {actionLabel} →
-          </Link>
+          </ActionLink>
         ) : null}
       </div>
     </div>
