@@ -89,6 +89,19 @@ export function createOpsCenterDraftClient(config, dependencies = {}) {
     return body.draft;
   }
 
+  async function load1688PaymentContext(draftId) {
+    const url = `${origin}/api/china-order-manager/payment-evidence?draftId=${encodeURIComponent(draftId)}`;
+    const headers = requestHeaders(config, draftId);
+    try {
+      const response = await fetchImpl(url, { method: "GET", headers, cache: "no-store" });
+      return (await parseResponse(response)).context;
+    } catch (error) {
+      if (!browserFallbackAllowed(error)) throw error;
+      const response = await browserRequest(config, { url, method: "GET", headers }, dependencies.browserOptions || {});
+      return parseBody(response.body, response.status, response.ok).context;
+    }
+  }
+
   async function saveDraftLines(draftId, lines) {
     const body = await requestDraft(draftId, "PUT", JSON.stringify({ lines }));
     if (!body.draft || body.externalOrderExecuted !== false) {
@@ -130,5 +143,5 @@ export function createOpsCenterDraftClient(config, dependencies = {}) {
     return verified;
   }
 
-  return { loadDraft, saveDraftLines, saveAndVerifyDraftLines, syncPurchaseMetadata };
+  return { loadDraft, load1688PaymentContext, saveDraftLines, saveAndVerifyDraftLines, syncPurchaseMetadata };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "../src/lib/internalChinaPaymentEvidence.ts";
+import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "../src/lib/internalChinaPaymentEvidence.ts";
 import { purchaseBudgetCarryoverBasis, reconcilePurchaseSpendEvidence } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
 import { worldFirstFeeAtInternalFx } from "../src/lib/productDecisionEngine/purchaseCostPolicy.ts";
 import { loadPurchaseCycleModule } from "./helpers/purchaseCycleHarness.mjs";
@@ -25,6 +25,43 @@ const prep = {
   result_snapshot: { snapshot: { draftId, cycleMonth, status: "DRAFT", externalOrderExecuted: false } },
 };
 const sourceEventId = INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + draftId;
+
+test("paid import excludes cancelled old orders and verifies the replacement by its barcode order number", () => {
+  const paidOrders = [
+    { orderNo: "123456789012345677", status: "CANCELLED" },
+    { orderNo: "123456789012345678", status: "PAID", paidTotalCny: "97.70" },
+    { orderNo: "123456789012345679", status: "PAID", paidTotalCny: "29.50" },
+  ];
+  assert.deepEqual(create1688ImportedPaymentEvidence(input, paidOrders), create1688PaymentEvidence(input));
+  assert.throws(
+    () => create1688ImportedPaymentEvidence(input, [
+      { ...paidOrders[1], status: "CANCELLED" },
+      paidOrders[2],
+      { ...paidOrders[1], orderNo: "123456789012345677" },
+    ]),
+    /PAYMENT_PAID_ORDER_NOT_SETTLED:123456789012345678/,
+  );
+  assert.throws(
+    () => create1688ImportedPaymentEvidence(input, paidOrders.slice(0, 2)),
+    /PAYMENT_PAID_ORDER_MISSING:123456789012345679/,
+  );
+});
+
+test("paid import rejects offsetting order-total discrepancies and repeated or unrelated paid orders", () => {
+  const first = { orderNo: "123456789012345678", status: "PAID", paidTotalCny: "97.70" };
+  const second = { orderNo: "123456789012345679", status: "PAID", paidTotalCny: "29.50" };
+  assert.throws(
+    () => create1688ImportedPaymentEvidence(input, [
+      { ...first, paidTotalCny: "97.60" }, { ...second, paidTotalCny: "29.60" },
+    ]),
+    /PAYMENT_PAID_ORDER_TOTAL_CONFLICT/,
+  );
+  assert.throws(() => create1688ImportedPaymentEvidence(input, [first, first, second]), /PAYMENT_PAID_ORDER_INVALID/);
+  assert.throws(
+    () => create1688ImportedPaymentEvidence(input, [first, second, { ...first, orderNo: "123456789012345677" }]),
+    /PAYMENT_PAID_ORDER_UNEXPECTED/,
+  );
+});
 
 test("WorldFirst screenshot shows 0.8% after currency rounding", () => {
   assert.equal(worldFirstFeeAtInternalFx(59_893), 479);
@@ -78,10 +115,10 @@ test("the payment endpoint validates before writing, independently reads persist
   let written = 0;
   let authenticated = false;
   const api = loadPurchaseCycleModule("src/app/api/china-order-manager/payment-evidence/route.ts", {
-    "@/lib/internalChinaPaymentEvidence": { create1688PaymentEvidence, read1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX },
+    "@/lib/internalChinaPaymentEvidence": { create1688ImportedPaymentEvidence, create1688PaymentEvidence, read1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX },
     "@/lib/internalChinaFreightBarcodeCompletion": {
       loadInternalChinaFreightBarcodeCompletion: async () => ({ cycleMonth, evidenceHash: barcodeEvidenceHash }),
-      loadInternalChinaFreightBarcodeReceiptEvidence: async () => ({ lines: expected }),
+      loadInternalChinaFreightBarcodeReceiptEvidence: async () => ({ lines: expected, evidenceHash: barcodeEvidenceHash }),
     },
     "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: async () => null },
     "@/lib/internalChinaMonthlyPurchaseSummary": { INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE: "INTERNAL_CHINA_PURCHASE_PREP" },
@@ -111,13 +148,29 @@ test("the payment endpoint validates before writing, independently reads persist
     method: "POST", body: JSON.stringify({ draftId, barcodeEvidenceHash, rows: originalRows, grandTotalCny: "127.20", ...patch }),
   });
   assert.equal((await api.POST(request())).status, 403);
+  const contextRequest = new Request(`https://fixture.test/api/china-order-manager/payment-evidence?draftId=${encodeURIComponent(draftId)}`);
+  assert.equal((await api.GET(contextRequest)).status, 403);
   authenticated = true;
+  const context = await api.GET(contextRequest);
+  assert.equal(context.status, 200);
+  assert.deepEqual((await context.json()).context, { draftId, evidenceHash: barcodeEvidenceHash, expectedRows: expected });
   assert.equal((await api.POST(request({ grandTotalCny: "127.21" }))).status, 409);
   assert.equal((await api.POST(request({ barcodeEvidenceHash: "stale" }))).status, 409);
+  const paidOrders = [
+    { orderNo: "123456789012345678", status: "PAID", paidTotalCny: "97.70" },
+    { orderNo: "123456789012345679", status: "PAID", paidTotalCny: "29.50" },
+  ];
+  const cancelled = await api.POST(request({
+    paidOrders: [{ ...paidOrders[0], status: "CANCELLED" }, paidOrders[1]],
+  }));
+  assert.equal(cancelled.status, 409);
+  assert.equal((await cancelled.json()).code, "PAYMENT_PAID_ORDER_NOT_SETTLED");
+  assert.equal((await api.POST(request({ paidOrders: [] }))).status, 409);
   assert.equal(written, 0);
-  assert.equal((await api.POST(request())).status, 200);
+  assert.equal((await api.POST(request({ paidOrders }))).status, 200);
   assert.equal((await api.POST(request())).status, 200);
   assert.equal((await api.POST(request({ rows: originalRows.replace("100.00", "101.00"), grandTotalCny: "128.20" }))).status, 409);
   assert.equal(written, 1);
+  assert.equal(stored.input_snapshot.paidOrderTotalsVerified, true);
   assert.equal(stored.result_snapshot.paidTotalFen, 12_720);
 });

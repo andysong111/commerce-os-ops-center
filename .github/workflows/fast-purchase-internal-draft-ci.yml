@@ -28,6 +28,7 @@ jobs:
           tests/internalChinaManualBulkAdd.test.mjs
           tests/internalChinaManualDraftSearchCore.test.mjs
           tests/alibaba1688CartPlan.test.mjs
+          tests/alibaba1688BuyerOrderApi.test.mjs
           tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs
           tests/purchaseAutomationServer.test.mjs
@@ -48,6 +49,8 @@ jobs:
           src/components/china-order-manager/InternalChinaPurchaseDraftGuide.tsx
           src/components/china-order-manager/InternalChinaManualDraftLineAdder.tsx
           local-agent/src/alibaba1688-cart-browser-adapter.mjs
+          local-agent/src/alibaba1688-buyer-order-api.mjs
+          local-agent/scripts/run-1688-buyer-order-check.mjs
           local-agent/src/alibaba1688-cart-plan.mjs
           local-agent/src/alibaba1688-cart-staging.mjs
           local-agent/src/ops-center-browser-transport.mjs
@@ -61,6 +64,7 @@ jobs:
           tests/internalChinaManualBulkAdd.test.mjs
           tests/internalChinaManualDraftSearchCore.test.mjs
           tests/alibaba1688CartPlan.test.mjs
+          tests/alibaba1688BuyerOrderApi.test.mjs
           tests/alibaba1688CartStaging.test.mjs
           tests/alibaba1688DraftWorkspace.test.mjs
           tests/purchaseAutomationServer.test.mjs

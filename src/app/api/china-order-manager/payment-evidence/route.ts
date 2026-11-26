@@ -1,12 +1,33 @@
 import { loadInternalChinaFreightBarcodeCompletion, loadInternalChinaFreightBarcodeReceiptEvidence } from "@/lib/internalChinaFreightBarcodeCompletion";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
 import { INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE } from "@/lib/internalChinaMonthlyPurchaseSummary";
-import { create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "@/lib/internalChinaPaymentEvidence";
+import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "@/lib/internalChinaPaymentEvidence";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 
 export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  const identity = await resolveProductLaunchIdentity(request);
+  if (!identity.ok) return Response.json(identity.body, { status: identity.status });
+  const draftId = new URL(request.url).searchParams.get("draftId") ?? "";
+  const headers = { "cache-control": "no-store" };
+  if (!/^fast-purchase-draft:[a-f0-9]{20}$/.test(draftId)) {
+    return Response.json({ ok: false, message: "발주차시 번호를 확인해 주세요." }, { status: 400, headers });
+  }
+  try {
+    const completion = await loadInternalChinaFreightBarcodeCompletion(draftId);
+    if (!completion) {
+      return Response.json({ ok: false, message: "이 차시의 바코드 출력 완료 내역이 필요합니다." }, { status: 409, headers });
+    }
+    const evidence = await loadInternalChinaFreightBarcodeReceiptEvidence(completion);
+    const expectedRows = evidence.lines.map(({ orderNo, barcode, quantity }) => ({ orderNo, barcode, quantity }));
+    return Response.json({ ok: true, context: { draftId, evidenceHash: evidence.evidenceHash, expectedRows } }, { headers });
+  } catch {
+    return Response.json({ ok: false, message: "바코드 원본을 다시 조회해 주세요." }, { status: 503, headers });
+  }
+}
 
 export async function POST(request: Request) {
   const identity = await resolveProductLaunchIdentity(request);
@@ -35,14 +56,18 @@ export async function POST(request: Request) {
     }
 
     if (!admin) throw new Error("PAYMENT_STORE_UNAVAILABLE");
-    const evidence = create1688PaymentEvidence({
+    const evidenceInput = {
       draftId,
       cycleMonth: completion.cycleMonth,
       barcodeEvidenceHash: completion.evidenceHash,
       originalRows: body.rows,
       grandTotalCny: body.grandTotalCny,
       expected: barcodeEvidence.lines,
-    });
+    };
+    const hasPaidOrderProof = body.paidOrders !== undefined;
+    const evidence = hasPaidOrderProof
+      ? create1688ImportedPaymentEvidence(evidenceInput, body.paidOrders)
+      : create1688PaymentEvidence(evidenceInput);
     const sourceEventId = INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + draftId;
     const now = new Date().toISOString();
     const write = await admin.from("commerce_operation_runs").upsert({
@@ -52,7 +77,12 @@ export async function POST(request: Request) {
         source_event_id: sourceEventId,
         correlation_id: `purchase-run:${draftId}`,
         actor_type: "OPS_OPERATOR",
-        input_snapshot: { draftId, cycleMonth: evidence.cycleMonth, paymentEvidenceHash: evidence.paymentEvidenceHash },
+        input_snapshot: {
+          draftId,
+          cycleMonth: evidence.cycleMonth,
+          paymentEvidenceHash: evidence.paymentEvidenceHash,
+          ...(hasPaidOrderProof ? { paidOrderTotalsVerified: true } : {}),
+        },
         result_snapshot: evidence,
         started_at: now,
         updated_at: now,
@@ -83,11 +113,18 @@ export async function POST(request: Request) {
       PAYMENT_ROWS_INVALID: "결제 자료를 붙여넣고 다시 확인하세요.",
       PAYMENT_CNY_INVALID: "1688 실결제 총액을 위안으로 입력하세요.",
       PAYMENT_GRAND_TOTAL_CONFLICT: "각 행의 상품대금·운임·1688 서비스비 합계가 입력한 실결제 총액과 다릅니다.",
+      PAYMENT_PAID_ORDERS_REQUIRED: "결제 완료 원본의 주문별 금액이 필요합니다.",
+      PAYMENT_PAID_ORDER_INVALID: `주문번호가 잘못됐거나 결제 기록이 중복됐습니다. ${detail ?? ""}`,
+      PAYMENT_PAID_ORDER_UNEXPECTED: `이 차시의 바코드 원본에 없는 결제 주문입니다. ${detail ?? ""}`,
+      PAYMENT_PAID_ORDER_NOT_SETTLED: `결제 완료가 확인되지 않은 주문입니다. 취소와 환불 여부를 확인하세요. ${detail ?? ""}`,
+      PAYMENT_PAID_ORDER_TOTAL_CONFLICT: `주문별 결제 합계가 1688 원본과 다릅니다. ${detail ?? ""}`,
+      PAYMENT_PAID_ORDER_MISSING: `결제 완료 자료에서 이 차시 주문을 찾지 못했습니다. ${detail ?? ""}`,
       PAYMENT_ALREADY_CLOSED: "배송대행 비용이 마감된 차시입니다. 기존 원가를 확인하세요.",
       PAYMENT_ALREADY_RECORDED: "이 발주차시에 다른 내용의 실결제 자료가 이미 기록되어 있습니다.",
     };
     return Response.json({
       ok: false,
+      code,
       message: messages[code] ?? "실결제 자료를 확인하지 못했습니다. 새로고침 후 등록 상태를 확인하세요.",
     }, { status: messages[code] ? 409 : 503 });
   }
