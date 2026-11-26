@@ -815,6 +815,9 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
         <ChinaLinkFields value={form.chinaLinkUsage} onChange={(value) => updateForm("chinaLinkUsage", value)} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="font-black">상세페이지 이미지</h2>
+          <div className="mt-4">
+            <Field label="상세페이지 이미지 URL" value={text(item.detailPageAsset.detailImageUrl)} readOnly />
+          </div>
           <label className="mt-4 block space-y-1">
             <span className="text-xs font-black text-slate-600">대표이미지 URL</span>
             <input value={form.mainImageUrl} onChange={(event) => updateForm("mainImageUrl", event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
