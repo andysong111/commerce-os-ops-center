@@ -149,6 +149,44 @@ export function create1688PaymentEvidence(input: {
   return build1688PaymentEvidence({ ...input, rows, paidTotalFen });
 }
 
+/** Match independent, per-order paid amounts before the existing receipt can be stored. */
+export function create1688ImportedPaymentEvidence(
+  input: Parameters<typeof create1688PaymentEvidence>[0],
+  paidOrders: unknown,
+) {
+  const evidence = create1688PaymentEvidence(input);
+  if (!Array.isArray(paidOrders) || !paidOrders.length || paidOrders.length > 2000) {
+    throw new Error("PAYMENT_PAID_ORDERS_REQUIRED");
+  }
+  const expectedByOrder = new Map<string, number>();
+  for (const line of evidence.rows) {
+    expectedByOrder.set(line.orderNo, (expectedByOrder.get(line.orderNo) ?? 0) + totalFen(line));
+  }
+  const seen = new Set<string>();
+  for (const raw of paidOrders) {
+    if (!raw || typeof raw !== "object") throw new Error("PAYMENT_PAID_ORDER_INVALID");
+    const order = raw as Record<string, unknown>;
+    const orderNo = typeof order.orderNo === "string" ? order.orderNo.trim() : "";
+    if (!ORDER_NO.test(orderNo) || seen.has(orderNo)) {
+      throw new Error(`PAYMENT_PAID_ORDER_INVALID:${orderNo}`);
+    }
+    seen.add(orderNo);
+    const expected = expectedByOrder.get(orderNo);
+    if (expected === undefined) {
+      if (order.status === "CANCELLED") continue;
+      throw new Error(`PAYMENT_PAID_ORDER_UNEXPECTED:${orderNo}`);
+    }
+    if (order.status !== "PAID") throw new Error(`PAYMENT_PAID_ORDER_NOT_SETTLED:${orderNo}`);
+    const amount = moneyFen(String(order.paidTotalCny ?? "").trim());
+    if (amount !== expected) throw new Error(`PAYMENT_PAID_ORDER_TOTAL_CONFLICT:${orderNo}`);
+    expectedByOrder.delete(orderNo);
+  }
+  if (expectedByOrder.size) {
+    throw new Error(`PAYMENT_PAID_ORDER_MISSING:${expectedByOrder.keys().next().value}`);
+  }
+  return evidence;
+}
+
 export function read1688PaymentEvidence(snapshot: Record<string, unknown>, sourceEventId: unknown) {
   if (typeof sourceEventId !== "string" || !sourceEventId.startsWith(INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX)) return null;
   const evidence = build1688PaymentEvidence({

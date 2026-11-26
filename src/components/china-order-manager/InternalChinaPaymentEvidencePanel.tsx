@@ -18,6 +18,7 @@ export function InternalChinaPaymentEvidencePanel({
   const [grandTotalCny, setGrandTotalCny] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const workCenterUrl = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(draftId)}&workspace=purchase`;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,6 +48,17 @@ export function InternalChinaPaymentEvidencePanel({
       <p className="mt-2 leading-6">
         주문 {orderCount.toLocaleString("ko-KR")}건의 1688 결제 자료를 저장하면 입고 수량을 입력할 수 있습니다.
       </p>
+      <p className="mt-2 text-sm font-bold">
+        구매자 주문 조회 권한을 연결한 뒤 업무센터에서 5-5번 업무를 실행해 주세요.
+      </p>
+      <a
+        href={workCenterUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 inline-block text-sm font-bold text-blue-800 underline"
+      >
+        업무센터 발주·입고 열기
+      </a>
       {goodsEstimateCny === null ? null : (
         <p className="mt-1 text-xs text-slate-700">
           온돌패스 상품 참고액 {goodsEstimateCny.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}위안
