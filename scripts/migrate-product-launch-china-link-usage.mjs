@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
+  MAX_CHINA_PRODUCT_LINKS,
   normalizeChinaProductUrl,
+  readChinaLinkUsage,
   readLegacyChinaLinkUsage,
 } from "../public/product-launch-tracker-app/lib/china-product-links.mjs";
 
@@ -10,7 +12,7 @@ const DEFAULT_ORIGIN = "https://commerce-os-ops-center.vercel.app";
 const API_PATH = "/api/product-launch-tracker/optimized";
 const DIRECT_DETAIL_API_PATH = "/api/product-launch-tracker/item-editor";
 const RECEIPT_VERSION = 1;
-const BATCH_SIZE = 75;
+const BATCH_SIZE = 30;
 
 const isRecord = (value) => value && typeof value === "object" && !Array.isArray(value);
 const text = (value) => typeof value === "string" ? value.trim() : "";
@@ -187,29 +189,85 @@ async function readDetailBatch(query, batch) {
   return items;
 }
 
+function isVerifiedHistoricalPurchaseWrite(raw, detail, rawUsage, detailUsage) {
+  const receipt = raw.purchaseMetadataLastWrite;
+  const savedAt = Date.parse(receipt?.savedAt);
+  const writeDelay = Date.parse(raw.updatedAt) - savedAt;
+  const rawLinks = [rawUsage.commonUrl, ...rawUsage.purchaseAlternates].filter(Boolean);
+  const detailLinks = [detailUsage.commonUrl, ...detailUsage.purchaseAlternates].filter(Boolean);
+  const source = raw.detailPageSource;
+  const model = text(raw.modelNumber);
+  const barcodes = receipt?.barcodes;
+  if (
+    !model || model !== text(detail.modelNumber) || model !== text(receipt?.modelNo) ||
+    raw.updatedBy !== "중국 발주초안 구매정보 역저장" ||
+    receipt?.field !== "MODEL_LINK_AND_BCODE_CHINA_OPTION" ||
+    receipt.source !== "CHINA_ORDER_DRAFT" || receipt.savedBy !== "승준" ||
+    !/^fast-purchase-draft:[a-f0-9]{20}$/.test(text(receipt.draftId)) ||
+    !Array.isArray(barcodes) || !barcodes.length || new Set(barcodes).size !== barcodes.length ||
+    !barcodes.every((value) => /^B[A-Z]{2}\d+-\d+$/.test(value)) ||
+    !Number.isFinite(savedAt) || writeDelay < 0 || writeDelay > 1_000 || Date.parse(detail.updatedAt) >= savedAt ||
+    !rawLinks[0] || !detailLinks[0] ||
+    raw.primaryChinaProductLink !== rawLinks[0] || source?.primaryUrl !== rawLinks[0] ||
+    source?.pinnedIndex !== 0 || hash(source?.urls ?? null) !== hash(rawLinks) ||
+    hash(raw.chinaProductLinks ?? null) !== hash(rawLinks)
+  ) return false;
+
+  if (rawLinks[0] !== detailLinks[0]) {
+    // The historical draft writer set the new first URL and kept old URLs in order.
+    const promoted = [rawLinks[0], ...detailLinks.filter((url) => url !== rawLinks[0])];
+    return hash(rawLinks) === hash(promoted.slice(0, MAX_CHINA_PRODUCT_LINKS));
+  }
+
+  // The first URL is identical and every old candidate survives in order.
+  // Accept exactly one added candidate, never replacement of an existing one.
+  return rawLinks.length === detailLinks.length + 1 &&
+    hash(rawLinks.filter((url) => detailLinks.includes(url))) === hash(detailLinks);
+}
+
 async function verifyBeforeWrite(query, batch, snapshot) {
   const details = await readDetailBatch(query, batch);
-  for (const { itemId } of batch) {
+  const guarded = [];
+  let recognizedHistoricalWrites = 0;
+  let newerMatchingDetails = 0;
+  for (const entry of batch) {
+    const { itemId } = entry;
     const raw = snapshot.items.get(itemId);
     const detail = details.get(itemId);
     const rawDate = Date.parse(raw.updatedAt);
     const detailDate = Date.parse(detail.updatedAt);
-    const usagesMatch = ownsLinkUsage(raw)
+    const rawHasCanonical = ownsLinkUsage(raw);
+    const detailHasCanonical = ownsLinkUsage(detail);
+    const rawUsage = rawHasCanonical ? raw.chinaLinkUsage : readLegacyChinaLinkUsage(raw);
+    const detailUsage = detailHasCanonical ? detail.chinaLinkUsage : readLegacyChinaLinkUsage(detail);
+    const usagesMatch = rawHasCanonical
       ? isRecord(detail.chinaLinkUsage) && hash(detail.chinaLinkUsage) === hash(raw.chinaLinkUsage)
-      : !ownsLinkUsage(detail) &&
-        hash(readLegacyChinaLinkUsage(detail)) === hash(readLegacyChinaLinkUsage(raw));
-    if (!Number.isFinite(rawDate) || !Number.isFinite(detailDate) || detailDate > rawDate || !usagesMatch) {
+      : !detailHasCanonical && hash(detailUsage) === hash(rawUsage);
+    const knownHistoricalWrite = !usagesMatch && !rawHasCanonical && !detailHasCanonical &&
+      isVerifiedHistoricalPurchaseWrite(raw, detail, rawUsage, detailUsage);
+    if (!Number.isFinite(rawDate) || !Number.isFinite(detailDate) || (!usagesMatch && !knownHistoricalWrite)) {
       throw new Error(`상품 상세에 아직 동기화되지 않은 변경이 있습니다. 상품 ID: ${itemId}`);
     }
+    if (knownHistoricalWrite) recognizedHistoricalWrites++;
+    if (usagesMatch && detailDate > rawDate) newerMatchingDetails++;
+    guarded.push({
+      ...entry,
+      expectedNormalizedUpdatedAt: detail.updatedAt,
+      expectedNormalizedLinkUsage: readChinaLinkUsage(detail),
+    });
   }
+  return { guarded, details, recognizedHistoricalWrites, newerMatchingDetails };
 }
 
-async function verifyDetailRead(query, batch) {
+async function verifyDetailRead(query, batch, previousDetails) {
   const items = await readDetailBatch(query, batch);
   for (const entry of batch) {
     const current = items.get(entry.itemId);
     if (!matchesStoredUsage(current, entry.patch.chinaLinkUsage)) {
       throw new Error("실제 상품 상세 조회의 중국 링크가 저장한 값과 일치하지 않습니다.");
+    }
+    if (hash(withoutChinaLinkUsage(current)) !== hash(withoutChinaLinkUsage(previousDetails.get(entry.itemId)))) {
+      throw new Error("상품 상세의 기존 데이터가 이관 이전과 일치하지 않습니다.");
     }
   }
 }
@@ -219,11 +277,11 @@ export async function applyChinaLinkUsageBatches(query, patches, initial, onBatc
   let normalizedBatches = 0;
   for (let offset = 0; offset < patches.length; offset += BATCH_SIZE) {
     const batch = patches.slice(offset, offset + BATCH_SIZE);
-    await verifyBeforeWrite(query, batch, before);
+    const { guarded, details } = await verifyBeforeWrite(query, batch, before);
     const saved = await query("", {
       operation: "bulk_patch_items",
       expectedStateUpdatedAt: before.updatedAt,
-      patches: batch,
+      patches: guarded,
     });
     assertSamePatchIds(saved.changedIds, batch);
     const after = readSnapshot(await query("?mode=export"));
@@ -236,7 +294,7 @@ export async function applyChinaLinkUsageBatches(query, patches, initial, onBatc
     if (saved.normalizedSynced !== true) {
       throw new Error("원본 저장은 확인했으나 상품 상세 동기화가 실패했습니다. 영수증으로 진행 상태를 확인하세요.");
     }
-    await verifyDetailRead(query, batch);
+    await verifyDetailRead(query, batch, details);
     normalizedBatches++;
     before = after;
     onBatch(Math.min(offset + BATCH_SIZE, patches.length), patches.length);
@@ -316,10 +374,16 @@ async function main(args) {
   }
   const plan = planChinaLinkUsageMigration(body);
   if (mode === "--dry-run") {
+    let recognizedHistoricalWrites = 0;
+    let newerMatchingDetails = 0;
     for (let offset = 0; offset < plan.patches.length; offset += BATCH_SIZE) {
-      await verifyBeforeWrite(query, plan.patches.slice(offset, offset + BATCH_SIZE), plan.snapshot);
+      const proof = await verifyBeforeWrite(query, plan.patches.slice(offset, offset + BATCH_SIZE), plan.snapshot);
+      recognizedHistoricalWrites += proof.recognizedHistoricalWrites;
+      newerMatchingDetails += proof.newerMatchingDetails;
     }
-    console.log(JSON.stringify({ ...plan.report, candidates: plan.patches.length, digest: plan.digest }));
+    console.log(JSON.stringify({
+      ...plan.report, candidates: plan.patches.length, recognizedHistoricalWrites, newerMatchingDetails, digest: plan.digest,
+    }));
     return;
   }
   if (plan.digest !== digest) {

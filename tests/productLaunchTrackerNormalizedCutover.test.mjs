@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { stripTypeScriptTypes } from "node:module";
+import {
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from "../public/product-launch-tracker-app/lib/china-product-links.mjs";
 
 const files = {
   config: new URL("../next.config.ts", import.meta.url),
@@ -115,4 +120,41 @@ test("cutover requires item and option count parity before enabling reads", () =
   assert.match(source.cutover, /setProductLaunchNormalizedReadEnabled/);
   assert.match(source.cutover, /countMatch && fresh/);
   assert.match(source.migration, /normalized_read_enabled boolean not null default false/);
+});
+
+test("China link migration preserves newer normalized edits and guards each row revision", async () => {
+  const text = source.store.replace(/^import[\s\S]*?from ["'][^"']+["'];\s*/gm, "");
+  const exported = stripTypeScriptTypes(text).replace(/^export /gm, "");
+  const buildPatch = new Function(
+    "readChinaLinkUsage",
+    "readChinaPurchaseLink",
+    exported + "\nreturn buildProductLaunchNormalizedLinkPatch;",
+  )(readChinaLinkUsage, readChinaPurchaseLink);
+  const originalLink = "https://detail.1688.com/offer/100.html";
+  const latestLink = "https://detail.1688.com/offer/200.html";
+  const row = {
+    updated_at: "2026-11-26T03:01:00.003000+00:00",
+    item_payload: { updatedAt: "2026-11-26T03:01:00.003Z", notes: "newer notes", chinaProductLinks: [originalLink] },
+    summary_payload: { chinaProductLinks: [originalLink], orderOptions: [{ barcode: "BBC1-2" }] },
+  };
+  const entry = {
+    itemId: "item-1",
+    expectedNormalizedUpdatedAt: row.item_payload.updatedAt,
+    expectedNormalizedLinkUsage: readChinaLinkUsage(row.item_payload),
+    nextLinkUsage: readChinaLinkUsage({ chinaProductLinks: [latestLink, originalLink] }),
+  };
+  const plan = buildPatch(row, entry);
+  assert.equal(plan.rowRevision, row.updated_at);
+  assert.deepEqual(plan.patch, {
+    item_payload: { ...row.item_payload, chinaLinkUsage: entry.nextLinkUsage },
+    summary_payload: {
+      ...row.summary_payload, chinaProductLinks: [latestLink, originalLink], chinaLinkUsage: entry.nextLinkUsage,
+    },
+  });
+  assert.throws(() => buildPatch(row, { ...entry, expectedNormalizedUpdatedAt: "different" }), /동시에 수정/);
+  assert.throws(() => buildPatch(row, { ...entry, expectedNormalizedLinkUsage: entry.nextLinkUsage }), /동시에 수정/);
+  assert.deepEqual(buildPatch({ ...row, ...plan.patch }, {
+    ...entry, expectedNormalizedLinkUsage: entry.nextLinkUsage, nextLinkUsage: null,
+  }).patch, { item_payload: row.item_payload, summary_payload: row.summary_payload });
+  assert.match(source.store, /updated_at: `eq\.\$\{rowRevision\}`/);
 });
