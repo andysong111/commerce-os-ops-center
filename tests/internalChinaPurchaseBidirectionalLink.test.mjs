@@ -37,19 +37,17 @@ const [
 test("Draft page exposes a model-level supplier link editor without changing reserved quantity", () => {
   assert.match(draftPage, /InternalChinaDraftBatchEditor/);
   assert.match(workspace, /updateModelSupplierLink/);
-  assert.match(workspace, /모델 고정 1번 1688 링크/);
+  assert.match(workspace, /모델 발주용 링크/);
   assert.match(workspace, /상품마스터 최신 원장/);
   assert.match(workspace, /supplierLink: line\.supplierLink/);
 });
 
-test("Draft link writeback updates product launch fixed first link and Product Master latest ledger", () => {
+test("Draft supplier writeback uses the purchase-only patch and updates the Product Master latest ledger", () => {
   assert.match(draftRoute, /export async function PATCH/);
   assert.match(draftRoute, /updateModelFixedSupplierLink/);
   assert.match(draftRoute, /source: "CHINA_ORDER_DRAFT"/);
-  assert.match(writeBridge, /chinaProductLinks/);
-  assert.match(writeBridge, /primaryChinaProductLink/);
-  assert.match(writeBridge, /detailPageSource/);
-  assert.match(writeBridge, /pinnedIndex: 0/);
+  assert.match(writeBridge, /buildPurchaseChinaLinkPatch\(item, supplierLink\)/);
+  assert.match(writeBridge, /syncProductLaunchNormalizedChangedItems/);
   assert.match(writeBridge, /purchaseMetadataLastWrite/);
   assert.match(writeBridge, /pushCanonicalProductMasterSnapshotFromTrackerState/);
   assert.match(writeBridge, /updated_at: `eq\.\$\{expectedUpdatedAt\}`/);

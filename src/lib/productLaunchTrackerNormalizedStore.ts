@@ -579,6 +579,7 @@ export async function syncProductLaunchNormalizedChangedItems(
   state: ProductLaunchTrackerState,
   sourceStateUpdatedAt: unknown,
   changedIds: string[],
+  { linkMetadataOnly = false } = {},
 ) {
   const existing = await readProductLaunchNormalizedWorkspace(config, identity.userId);
   if (!existing) return { synced: false, reason: "not_initialized" as const };
@@ -596,11 +597,13 @@ export async function syncProductLaunchNormalizedChangedItems(
 
   if (itemRows.length) {
     await upsertRows(config, ITEM_TABLE, itemRows, "owner_id,item_id");
-    for (const itemId of existingItemIds) {
-      await deleteItemOptions(config, identity.userId, itemId);
+    if (!linkMetadataOnly) {
+      for (const itemId of existingItemIds) {
+        await deleteItemOptions(config, identity.userId, itemId);
+      }
+      const optionRows = prepared.options.filter((row) => existingItemIds.has(text(row.item_id)));
+      await upsertRows(config, OPTION_TABLE, optionRows, "owner_id,item_id,option_id");
     }
-    const optionRows = prepared.options.filter((row) => existingItemIds.has(text(row.item_id)));
-    await upsertRows(config, OPTION_TABLE, optionRows, "owner_id,item_id,option_id");
   }
   for (const itemId of deletedIds) {
     await deleteItem(config, identity.userId, itemId);

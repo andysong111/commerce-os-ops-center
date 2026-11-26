@@ -13,9 +13,10 @@ import {
 } from "./lib/tracker-core.mjs";
 import {
   MAX_CHINA_PRODUCT_LINKS,
-  normalizeChinaProductLinks,
+  chinaLinkUsagePatch,
   normalizeChinaProductUrl,
-  promoteChinaProductLink,
+  readChinaLinkUsage,
+  setChinaLinkUsageInput,
 } from "./lib/china-product-links.mjs";
 import {
   availableProductLaunchPriorityBatches,
@@ -1118,7 +1119,7 @@ function fillDetailForm(item, mode) {
     form.elements.additionalImageUrls.value = (item.detailPageAsset?.additionalImageUrls ?? []).join("\n");
   }
   renderOptionEditor();
-  renderChinaProductLinks(item.chinaProductLinks ?? []);
+  renderChinaProductLinks(readChinaLinkUsage(item));
   updateChinaSyncStatus(item);
   elements.detailTitle.textContent =
     mode === "create" ? "새 상품 추가" : `${item.modelNumber} · ${item.productName}`;
@@ -1187,10 +1188,11 @@ function collectDetailDraft() {
     showToast("모델번호와 모델명은 필수입니다.");
     return null;
   }
-  let chinaProductLinks;
+  let linkPatch;
   try {
-    chinaProductLinks = readChinaProductLinkInputs();
-  } catch {
+    linkPatch = chinaLinkUsagePatch(current, readChinaProductLinkInputs());
+  } catch (error) {
+    setChinaLinkStatus(error instanceof Error ? error.message : "중국 상품링크를 확인하세요.", "error");
     return null;
   }
   const stages = Object.fromEntries(
@@ -1215,7 +1217,7 @@ function collectDetailDraft() {
     selfCodeBase: String(data.get("selfCodeBase") ?? "").trim(),
     notes: String(data.get("notes") ?? "").trim(),
     orderOptions: normalizeOrderOptions(state.detailDraftOptions),
-    chinaProductLinks,
+    ...linkPatch,
     detailPageAsset: {
       ...(current.detailPageAsset ?? {}),
       html: String(data.get("detailHtml") ?? ""),
@@ -1241,7 +1243,7 @@ function ensureChinaProductLinksSection() {
     <div class="section-title-row">
       <div>
         <h3>중국 상품링크</h3>
-        <p>최대 5개까지 저장합니다. 1번 링크가 상세페이지 엔진의 기준 링크입니다.</p>
+        <p>한 링크를 발주와 상세페이지 제작에 함께 쓰려면 공통 사용 링크에 입력하세요.</p>
       </div>
       <span id="optimized-china-product-links-status" class="optimized-china-link-status"></span>
     </div>
@@ -1251,73 +1253,96 @@ function ensureChinaProductLinksSection() {
   return section;
 }
 
-function renderChinaProductLinks(values) {
+function renderChinaProductLinks(usage) {
   const section = ensureChinaProductLinksSection();
   const list = section?.querySelector("#optimized-china-product-links-list");
   if (!list) return;
-  let normalized = [];
-  try {
-    normalized = normalizeChinaProductLinks(values);
-  } catch {
-    normalized = Array.isArray(values) ? values.map((value) => String(value ?? "").trim()) : [];
-  }
-  const padded = [
-    ...normalized,
-    ...Array(Math.max(0, MAX_CHINA_PRODUCT_LINKS - normalized.length)).fill(""),
-  ].slice(0, MAX_CHINA_PRODUCT_LINKS);
-  list.innerHTML = padded.map((value, index) => `
-    <div class="optimized-china-link-row" data-index="${index}">
-      <span class="optimized-china-link-number ${index === 0 ? "is-primary" : ""}">${index === 0 ? "1번 · 엔진 기준" : `${index + 1}번 링크`}</span>
-      <input class="optimized-china-link-input" data-china-link-input data-index="${index}" type="url" inputmode="url" autocomplete="off" placeholder="https://detail.1688.com/offer/..." value="${escapeAttribute(value)}" />
-      <button class="optimized-china-link-action" type="button" data-china-link-action="open" data-index="${index}" ${value ? "" : "disabled"}>열기</button>
-      <button class="optimized-china-link-action ${index === 0 ? "is-primary" : ""}" type="button" data-china-link-action="pin" data-index="${index}" ${index === 0 ? "disabled" : ""}>${index === 0 ? "1번 고정됨" : "1번으로 고정"}</button>
+  const row = (role, label, value) => `
+    <div class="optimized-china-link-row">
+      <label class="optimized-china-link-number" for="china-link-${role}">${label}</label>
+      <input class="optimized-china-link-input" id="china-link-${role}" data-china-link-input="${role}" type="text" inputmode="url" autocomplete="off" placeholder="https://detail.1688.com/offer/..." value="${escapeAttribute(value)}" />
+      <button class="optimized-china-link-action" type="button" data-china-link-action="open" aria-label="${label} 열기">열기</button>
     </div>
-  `).join("");
-  setChinaLinkStatus(normalized.length ? "1번 링크를 기준으로 저장합니다." : "최대 5개까지 입력할 수 있습니다.");
+  `;
+  list.innerHTML = `
+    ${row("commonUrl", "공통 사용 링크", usage.commonUrl)}
+    ${row("purchaseUrl", "발주용 링크", usage.purchaseUrl)}
+    ${row("detailPageUrl", "상세페이지 제작용 링크", usage.detailPageUrl)}
+    <div><button class="optimized-china-link-action" type="button" data-china-link-action="common">공통 링크 다시 사용</button></div>
+    <details ${usage.purchaseAlternates.length ? "open" : ""}>
+      <summary>추가 발주 후보 링크</summary>
+      <p>기존 발주 우선순위대로 보관합니다. 발주초안에는 위 발주용 링크가 들어갑니다.</p>
+      ${Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) =>
+        row(`alternate-${index}`, `발주 후보 ${index + 2}번`, usage.purchaseAlternates[index] ?? ""),
+      ).join("")}
+    </details>
+  `;
+  syncChinaLinkControls();
+  setChinaLinkStatus("");
 }
 
 function handleChinaLinkInput(event) {
   if (!(event.target instanceof HTMLInputElement) || !event.target.matches("[data-china-link-input]")) return;
-  const row = event.target.closest(".optimized-china-link-row");
-  const openButton = row?.querySelector("[data-china-link-action='open']");
-  if (openButton) openButton.disabled = !event.target.value.trim();
+  const role = event.target.dataset.chinaLinkInput;
+  const usage = readChinaProductLinkInputs();
+  const commonInput = chinaLinkInput("commonUrl");
+  if (commonInput && !commonInput.disabled && (role === "purchaseUrl" || role === "detailPageUrl")) {
+    const next = setChinaLinkUsageInput(
+      { ...usage, [role]: "" },
+      role,
+      event.target.value,
+    );
+    chinaLinkInput("purchaseUrl").value = next.purchaseUrl;
+    chinaLinkInput("detailPageUrl").value = next.detailPageUrl;
+  }
+  syncChinaLinkControls();
   setChinaLinkStatus("상품 저장 버튼을 누르면 함께 저장됩니다.", "dirty");
 }
 
 function handleChinaLinkAction(event) {
   const button = event.target.closest?.("button[data-china-link-action]");
   if (!button) return;
-  const action = button.dataset.chinaLinkAction;
-  const index = Number(button.dataset.index);
-  if (action === "open") {
+  if (button.dataset.chinaLinkAction === "open") {
     try {
-      const url = normalizeChinaProductUrl(readChinaProductLinkInputs({ normalize: false })[index] ?? "");
-      if (!url) throw new Error("열어볼 링크를 먼저 입력하세요.");
-      window.open(url, "_blank", "noopener,noreferrer");
+      const url = normalizeChinaProductUrl(button.closest(".optimized-china-link-row")?.querySelector("input")?.value);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       setChinaLinkStatus(error instanceof Error ? error.message : "링크를 열지 못했습니다.", "error");
     }
-    return;
-  }
-  if (action === "pin") {
-    try {
-      renderChinaProductLinks(promoteChinaProductLink(readChinaProductLinkInputs(), index));
-      setChinaLinkStatus("선택한 링크를 1번으로 이동했습니다. 상품 저장 버튼을 누르세요.", "dirty");
-    } catch (error) {
-      setChinaLinkStatus(error instanceof Error ? error.message : "링크 순서를 바꾸지 못했습니다.", "error");
-    }
+  } else if (button.dataset.chinaLinkAction === "common") {
+    chinaLinkInput("purchaseUrl").value = "";
+    chinaLinkInput("detailPageUrl").value = "";
+    syncChinaLinkControls();
+    chinaLinkInput("commonUrl").focus();
+    setChinaLinkStatus("상품 저장 버튼을 누르면 공통 링크가 적용됩니다.", "dirty");
   }
 }
 
-function readChinaProductLinkInputs(options = { normalize: true }) {
-  const values = [...(elements.detailForm?.querySelectorAll("[data-china-link-input]") ?? [])]
-    .map((input) => input.value);
-  if (options.normalize === false) return values;
-  try {
-    return normalizeChinaProductLinks(values);
-  } catch (error) {
-    setChinaLinkStatus(error instanceof Error ? error.message : "중국 상품링크를 확인하세요.", "error");
-    throw error;
+function chinaLinkInput(role) {
+  return elements.detailForm?.querySelector(`[data-china-link-input="${role}"]`);
+}
+
+function readChinaProductLinkInputs() {
+  return {
+    commonUrl: chinaLinkInput("commonUrl")?.value ?? "",
+    purchaseUrl: chinaLinkInput("purchaseUrl")?.value ?? "",
+    detailPageUrl: chinaLinkInput("detailPageUrl")?.value ?? "",
+    purchaseAlternates: Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) =>
+      chinaLinkInput(`alternate-${index}`)?.value ?? "",
+    ),
+  };
+}
+
+function syncChinaLinkControls() {
+  const scope = elements.detailForm?.querySelector("#optimized-china-product-links-list");
+  if (!scope) return;
+  const usage = readChinaProductLinkInputs();
+  const split = Boolean(usage.purchaseUrl.trim() || usage.detailPageUrl.trim());
+  chinaLinkInput("commonUrl").disabled = split;
+  scope.querySelector("[data-china-link-action='common']").hidden = !split;
+  for (const row of scope.querySelectorAll(".optimized-china-link-row")) {
+    const input = row.querySelector("input");
+    row.querySelector("button").disabled = input.disabled || !input.value.trim();
   }
 }
 
@@ -2146,7 +2171,9 @@ function installStyles() {
     .inline-option-location-input[data-empty="true"] { border-color:#f97316; background:#fff7ed; }
     .category-ai-suggestion-badge { margin:4px 0 0 4px; border:1px solid #f59e0b; border-radius:999px; background:#fffbeb; color:#92400e; padding:2px 7px; font-size:10px; font-weight:800; }
     .optimized-china-link-list { display:grid; gap:10px; margin-top:14px; }
-    .optimized-china-link-row { display:grid; grid-template-columns:minmax(105px,140px) minmax(260px,1fr) auto auto; gap:8px; align-items:center; }
+    .optimized-china-link-row { display:grid; grid-template-columns:minmax(105px,150px) minmax(0,1fr) auto; gap:8px; align-items:center; }
+    .optimized-china-link-list details > .optimized-china-link-row { margin-top:8px; }
+    .optimized-china-link-input:disabled { background:#f1f5f9; color:#64748b; }
     .optimized-china-link-number { font-size:12px; font-weight:900; color:#475569; }
     .optimized-china-link-number.is-primary { color:#1d4ed8; }
     .optimized-china-link-input { width:100%; min-width:0; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; font-size:13px; background:#fff; }

@@ -91,7 +91,7 @@ async function renderCurrentItemMapping(serial) {
     renderMappings(readChinaOrderOptionMappings(item));
     updateSectionHeading();
     setStatus(
-      "1688 주문링크는 이 모델의 고정 1번 중국 상품링크를 자동 사용합니다. B-code별로는 실제 중국옵션명만 저장하세요.",
+      "1688 주문에는 이 모델의 발주용 링크를 사용합니다. B-code별로는 실제 중국옵션명만 저장하세요.",
     );
   } catch (error) {
     setStatus(
@@ -112,7 +112,7 @@ function ensureMappingPanel() {
   panel.dataset.dirty = "false";
   panel.innerHTML = `
     <h4 class="optimized-china-order-map-title">B-code별 중국옵션</h4>
-    <p class="optimized-china-order-map-help">판매옵션과 B-code는 기준값입니다. 주문링크는 모델번호 기준 1번 중국 상품링크를 공통 사용하므로 여기서는 중국 판매자의 실제 옵션명만 입력합니다.</p>
+    <p class="optimized-china-order-map-help">같은 모델은 발주용 링크를 공유합니다. 여기서는 중국 판매자의 실제 옵션명을 입력하세요.</p>
     <div id="optimized-china-order-map-list" class="optimized-china-order-map-list"></div>
     <div id="optimized-china-order-map-status" class="optimized-china-order-status"></div>
   `;

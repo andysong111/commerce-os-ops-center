@@ -1,3 +1,11 @@
+import {
+  chinaLinkUsagePatch,
+  normalizeChinaProductUrl,
+  readChinaDetailPageLink,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
+
 const BARCODE_PATTERN = /^[A-Z]{3}\d+-\d+$/;
 
 export type ProductLaunchPurchaseMetadata = {
@@ -5,6 +13,7 @@ export type ProductLaunchPurchaseMetadata = {
   modelNumber: string;
   productName: string;
   supplierLink: string;
+  supplierLinkFromTracker?: true;
   saleOption: string;
   chinaOption: string;
   shoplingQuantity: number | null;
@@ -14,23 +23,54 @@ export type ProductLaunchPurchaseMetadata = {
 
 type Candidate = Omit<ProductLaunchPurchaseMetadata, "conflict">;
 
+export function buildPurchaseChinaLinkPatch(
+  item: Record<string, unknown>,
+  supplierLink: string,
+) {
+  const previous = readChinaPurchaseLink(item);
+  if (previous === supplierLink) return {};
+  const usage = readChinaLinkUsage(item);
+  return chinaLinkUsagePatch(item, {
+    ...usage,
+    purchaseUrl: supplierLink,
+    detailPageUrl: readChinaDetailPageLink(item),
+    purchaseAlternates: [previous, ...usage.purchaseAlternates]
+      .filter((link) => link && link !== supplierLink),
+  });
+}
+
+export function resolveDraftSupplierLink(
+  tracker: ProductLaunchPurchaseMetadata | null | undefined,
+  fallback: unknown,
+) {
+  if (tracker?.supplierLinkFromTracker) {
+    return tracker.conflict ? "" : tracker.supplierLink;
+  }
+  return (!tracker?.conflict && tracker?.supplierLink) || text(fallback);
+}
+
 export function buildProductLaunchPurchaseMetadataMap(
   summaries: Array<{
     barcode?: unknown;
     modelNumber?: unknown;
     productName?: unknown;
     chinaProductLinks?: unknown;
+    chinaLinkUsage?: unknown;
     orderOptions?: unknown;
   }>,
 ) {
   const candidates = new Map<string, Candidate[]>();
   for (const summary of summaries) {
-    const summaryLinks = Array.isArray(summary.chinaProductLinks)
-      ? summary.chinaProductLinks.map(normalizeSupplierLink).filter(Boolean)
-      : [];
-    // Purchase policy: all B-codes under the same model use the product-level
-    // fixed #1 China link. Per-B-code supplier links are intentionally ignored.
-    const fixedFirstSupplierLink = summaryLinks[0] ?? "";
+    // All B-codes of the model share the same purchase source.
+    let fixedFirstSupplierLink = "";
+    try {
+      fixedFirstSupplierLink = normalizeChinaProductUrl(readChinaPurchaseLink(summary));
+    } catch {
+      // A malformed historical configuration cannot be used as a supplier URL.
+    }
+    const supplierLinkAuthority = isRecord(summary.chinaLinkUsage)
+      ? { supplierLinkFromTracker: true as const }
+      : {};
     const modelNumber = text(summary.modelNumber);
     const productName = text(summary.productName);
     const options = Array.isArray(summary.orderOptions)
@@ -47,6 +87,7 @@ export function buildProductLaunchPurchaseMetadataMap(
         modelNumber,
         productName,
         supplierLink: fixedFirstSupplierLink,
+        ...supplierLinkAuthority,
         saleOption: text(option.saleOption),
         chinaOption: text(option.chinaOption),
         shoplingQuantity: shoplingQuantity(option.shoplingOptionSync),
@@ -62,6 +103,7 @@ export function buildProductLaunchPurchaseMetadataMap(
         modelNumber,
         productName,
         supplierLink: fixedFirstSupplierLink,
+        ...supplierLinkAuthority,
         saleOption: text(only?.saleOption),
         chinaOption: text(only?.chinaOption),
         shoplingQuantity: shoplingQuantity(only?.shoplingOptionSync),
@@ -74,7 +116,10 @@ export function buildProductLaunchPurchaseMetadataMap(
     [...candidates.entries()].map(([barcode, rows]) => {
       const modelNumbers = uniqueNonEmpty(rows.map((row) => row.modelNumber));
       const productNames = uniqueNonEmpty(rows.map((row) => row.productName));
-      const supplierLinks = uniqueNonEmpty(rows.map((row) => row.supplierLink));
+      const trackerSupplierRows = rows.filter((row) => row.supplierLinkFromTracker);
+      const supplierLinks = trackerSupplierRows.length
+        ? [...new Set(trackerSupplierRows.map((row) => row.supplierLink))]
+        : uniqueNonEmpty(rows.map((row) => row.supplierLink));
       const saleOptions = uniqueNonEmpty(rows.map((row) => row.saleOption));
       const chinaOptions = uniqueNonEmpty(rows.map((row) => row.chinaOption));
       const shoplingQuantities = [
@@ -89,6 +134,7 @@ export function buildProductLaunchPurchaseMetadataMap(
       ).sort();
       const conflict =
         supplierLinks.length > 1 ||
+        uniqueNonEmpty(rows.map((row) => row.supplierLink)).length > 1 ||
         saleOptions.length > 1 ||
         chinaOptions.length > 1;
       return [
@@ -98,6 +144,7 @@ export function buildProductLaunchPurchaseMetadataMap(
           modelNumber: modelNumbers.length === 1 ? modelNumbers[0] : "",
           productName: productNames.length === 1 ? productNames[0] : "",
           supplierLink: supplierLinks.length === 1 ? supplierLinks[0] : "",
+          ...(trackerSupplierRows.length ? { supplierLinkFromTracker: true as const } : {}),
           saleOption: saleOptions.length === 1 ? saleOptions[0] : "",
           chinaOption: chinaOptions.length === 1 ? chinaOptions[0] : "",
           shoplingQuantity:
@@ -112,17 +159,6 @@ export function buildProductLaunchPurchaseMetadataMap(
 
 function addCandidate(map: Map<string, Candidate[]>, candidate: Candidate) {
   map.set(candidate.barcode, [...(map.get(candidate.barcode) ?? []), candidate]);
-}
-
-function normalizeSupplierLink(value: unknown) {
-  const candidate = text(value);
-  if (!candidate || candidate.length > 4000) return "";
-  try {
-    const url = new URL(candidate);
-    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
-  } catch {
-    return "";
-  }
 }
 
 function shoplingQuantity(value: unknown) {

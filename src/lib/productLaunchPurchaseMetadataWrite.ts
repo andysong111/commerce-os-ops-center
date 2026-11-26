@@ -14,6 +14,11 @@ import {
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
 import { pushCanonicalProductMasterSnapshotFromTrackerState } from "@/lib/productMasterCanonicalSync";
+import { buildPurchaseChinaLinkPatch } from "@/lib/productLaunchPurchaseMetadataCore";
+import {
+  setProductLaunchNormalizedReadEnabled,
+  syncProductLaunchNormalizedChangedItems,
+} from "@/lib/productLaunchTrackerNormalizedStore";
 
 type R = Record<string, unknown>;
 
@@ -71,32 +76,6 @@ function normalizeSupplierLink(value: unknown) {
   }
 }
 
-function readChinaLinks(item: R) {
-  const detailSource = object(item.detailPageSource);
-  const raw = [
-    item.primaryChinaProductLink,
-    detailSource.primaryUrl,
-    ...(Array.isArray(item.chinaProductLinks) ? item.chinaProductLinks : []),
-    ...(Array.isArray(detailSource.urls) ? detailSource.urls : []),
-  ];
-  const links: string[] = [];
-  for (const value of raw) {
-    const candidate = text(
-      value && typeof value === "object" && !Array.isArray(value)
-        ? object(value).url ?? object(value).href ?? object(value).value
-        : value,
-    );
-    if (!candidate || links.includes(candidate)) continue;
-    try {
-      const url = new URL(candidate);
-      if (["http:", "https:"].includes(url.protocol)) links.push(url.toString());
-    } catch {
-      // Ignore an old malformed fallback while preserving valid links.
-    }
-  }
-  return links.slice(0, 5);
-}
-
 function purchaseMetadataPatch(
   item: R,
   supplierLink: string,
@@ -104,21 +83,8 @@ function purchaseMetadataPatch(
   savedAt: string,
   draftId?: string,
 ) {
-  const previous = readChinaLinks(item);
-  const chinaProductLinks = [
-    supplierLink,
-    ...previous.filter((value) => value !== supplierLink),
-  ].slice(0, 5);
-  const detailPageSource = object(item.detailPageSource);
   return {
-    chinaProductLinks,
-    primaryChinaProductLink: supplierLink,
-    detailPageSource: {
-      ...detailPageSource,
-      primaryUrl: supplierLink,
-      urls: chinaProductLinks,
-      pinnedIndex: 0,
-    },
+    ...buildPurchaseChinaLinkPatch(item, supplierLink),
     purchaseMetadataLastWrite: {
       field: "MODEL_FIXED_FIRST_SUPPLIER_LINK",
       supplierLink,
@@ -130,11 +96,12 @@ function purchaseMetadataPatch(
   };
 }
 
-async function conditionalWriteProductLaunchState(
+export async function conditionalWriteProductLaunchState(
   config: { supabaseUrl: string; secretKey: string },
   identity: ProductLaunchIdentity,
   state: ProductLaunchTrackerState,
   expectedUpdatedAt: string,
+  changedIds: string[],
 ) {
   const persistedState = withProductLaunchListSnapshot(state);
   const now = new Date().toISOString();
@@ -170,7 +137,26 @@ async function conditionalWriteProductLaunchState(
       `PRODUCT_LAUNCH_PURCHASE_METADATA_WRITE_FAILED:${response.status}:${JSON.stringify(body).slice(0, 400)}`,
     );
   }
-  return Array.isArray(body) && body.length > 0;
+  if (!Array.isArray(body) || !body.length) return false;
+
+  try {
+    const sync = await syncProductLaunchNormalizedChangedItems(
+      config,
+      identity,
+      persistedState,
+      text(body[0]?.updated_at) || now,
+      changedIds,
+    );
+    if (sync.synced || sync.reason === "not_initialized") return true;
+  } catch (error) {
+    console.error("Product Launch purchase metadata mirror sync failed", error);
+  }
+  try {
+    await setProductLaunchNormalizedReadEnabled(config, identity.userId, false);
+  } catch (error) {
+    console.error("Product Launch normalized read disable failed", error);
+  }
+  return true;
 }
 
 async function syncSingleItemToProductMaster(item: R) {
@@ -265,6 +251,7 @@ export async function updateModelFixedSupplierLink(input: {
       input.identity,
       mutation.state,
       expectedUpdatedAt,
+      mutation.changedIds,
     );
     if (!written) continue;
 

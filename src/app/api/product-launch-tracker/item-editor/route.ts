@@ -10,6 +10,7 @@ import { reconcileProductLaunchNormalizedAfterLegacyItems } from "@/lib/productL
 import { roundUpProductLaunchPriceKrw } from "@/lib/productLaunchPricePolicy";
 import {
   readProductLaunchNormalizedItem,
+  readProductLaunchNormalizedItems,
   readProductLaunchNormalizedWorkspace,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import {
@@ -35,6 +36,35 @@ export async function GET(request: NextRequest) {
   if (!identity.ok) return Response.json(identity.body, { status: identity.status });
   const config = getProductLaunchAdminConfig();
   if (!config.ok) return Response.json(config.body, { status: config.status });
+
+  if (request.nextUrl.searchParams.get("mode") === "items-direct") {
+    const itemIds = request.nextUrl.searchParams.getAll("id").map(text);
+    if (
+      !itemIds.length || itemIds.length > 100 ||
+      itemIds.some((id) => !id) || new Set(itemIds).size !== itemIds.length
+    ) {
+      return Response.json(
+        {
+          ok: false,
+          code: "PRODUCT_LAUNCH_TRACKER_ITEM_IDS_INVALID",
+          message: "서로 다른 상품 ID를 1~100개 지정해 주세요.",
+        },
+        { status: 400 },
+      );
+    }
+    const items = await readProductLaunchNormalizedItems(config.value, identity.value.userId, itemIds);
+    if (items.length !== itemIds.length) {
+      return Response.json(
+        {
+          ok: false,
+          code: "PRODUCT_LAUNCH_TRACKER_ITEMS_NOT_FOUND",
+          message: "정규화 상품 상세에서 일부 상품을 찾지 못했습니다.",
+        },
+        { status: 404 },
+      );
+    }
+    return Response.json({ ok: true, items, itemSource: "normalized-direct" });
+  }
 
   const itemId = text(request.nextUrl.searchParams.get("id"));
   if (!itemId) {
@@ -159,6 +189,14 @@ export async function PATCH(request: NextRequest) {
     const bCodeChange = detectExistingBCodeChange(asRecord(current), next);
     await applyCanonicalBCodeChange(inputRecord, bCodeChange);
     await writeNormalizedItem(config.value, identity.value, next, afterSummary);
+    const linkUsage = Object.hasOwn(asRecord(inputRecord.patch), "chinaLinkUsage")
+      ? afterSummary?.chinaLinkUsage
+      : undefined;
+    // The purchase-draft reader uses the legacy tracker state. Confirm both stores
+    // before returning success when explicitly saving a link used by that reader.
+    if (linkUsage) {
+      await mirrorToLegacy(legacyRequest, config.value, identity.value, itemId, linkUsage);
+    }
 
     after(async () => {
       await Promise.allSettled([
@@ -168,12 +206,12 @@ export async function PATCH(request: NextRequest) {
           beforeSummary,
           afterSummary,
         ),
-        mirrorToLegacy(
+        ...(!linkUsage ? [mirrorToLegacy(
           legacyRequest,
           config.value,
           identity.value,
           itemId,
-        ),
+        )] : []),
       ]);
     });
 
@@ -183,7 +221,7 @@ export async function PATCH(request: NextRequest) {
       changedIds: [itemId],
       items: [stripSearchText(afterSummary)],
       normalizedDirect: true,
-      legacyMirrorQueued: true,
+      legacyMirrorQueued: !linkUsage,
       canonicalBCodeChanged: Boolean(bCodeChange),
     });
   } catch (error) {
@@ -461,13 +499,24 @@ async function mirrorToLegacy(
   config: Config,
   identity: Identity,
   itemId: string,
+  expectedLinkUsage?: ProductLaunchTrackerSummary["chinaLinkUsage"],
 ) {
   try {
     const response = await legacyPatch(request);
     if (!response.ok) {
       const body = await response.clone().json().catch(() => null as unknown);
+      if (expectedLinkUsage) throw new Error("발주용 링크 저장 확인에 실패했습니다. 다시 저장해 주세요.");
       console.error("[product-launch-direct-item] legacy mirror failed", body);
       return;
+    }
+    if (expectedLinkUsage) {
+      const body = asRecord(await response.json());
+      const result = Array.isArray(body.items)
+        ? body.items.find((item) => text(asRecord(item).id) === itemId)
+        : null;
+      if (JSON.stringify(asRecord(result).chinaLinkUsage) !== JSON.stringify(expectedLinkUsage)) {
+        throw new Error("발주초안에서 읽는 링크가 저장한 값과 일치하지 않습니다.");
+      }
     }
     await reconcileProductLaunchNormalizedAfterLegacyItems(
       config,
@@ -475,6 +524,7 @@ async function mirrorToLegacy(
       [itemId],
     );
   } catch (error) {
+    if (expectedLinkUsage) throw error;
     console.error("[product-launch-direct-item] legacy mirror failed", error);
   }
 }

@@ -34,7 +34,7 @@ function installButton() {
   button.type = "button";
   button.className = "button button-ghost";
   button.textContent = "1688 링크 진단 열기";
-  button.title = "필요할 때만 중국 고정링크 상태 진단을 불러옵니다.";
+  button.title = "발주용 1688 링크 상태를 확인합니다.";
   button.addEventListener("click", () => {
     void loadFullPanel(button).then(() => {
       button.remove();

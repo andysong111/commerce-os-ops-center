@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  chinaLinkUsagePatch,
+  readChinaDetailPageLink,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+  readLegacyChinaLinkUsage,
+  setChinaLinkUsageInput,
   applyChinaProductLinks,
   MAX_CHINA_PRODUCT_LINKS,
   normalizeChinaProductLinks,
@@ -9,6 +15,43 @@ import {
   readChinaProductLinks,
   sameChinaProductLinks,
 } from "../public/product-launch-tracker-app/lib/china-product-links.mjs";
+
+test("기존 1번 링크는 공통으로 사용하고 나머지는 발주 후보 순서로 보존한다", () => {
+  const one = "https://detail.1688.com/offer/100.html";
+  const two = "https://detail.1688.com/offer/200.html";
+  const three = "https://detail.1688.com/offer/300.html";
+  const legacy = { chinaProductLinks: [one, two, three], primaryChinaProductLink: two };
+  assert.deepEqual(readLegacyChinaLinkUsage(legacy), {
+    commonUrl: one, purchaseUrl: "", detailPageUrl: "", purchaseAlternates: [two, three],
+  });
+  assert.equal(readChinaPurchaseLink(legacy), one);
+  assert.equal(readChinaDetailPageLink(legacy), one);
+  assert.deepEqual(readChinaLinkUsage({ chinaProductLinks: [one] }).purchaseAlternates, []);
+  assert.equal(readLegacyChinaLinkUsage({ chinaProductLinks: ["v", one] }).commonUrl, one);
+  assert.equal(readLegacyChinaLinkUsage({ chinaProductLinks: ["ᄆ"] }).commonUrl, "");
+  assert.throws(() => readLegacyChinaLinkUsage({ chinaProductLinks: [one, "invalid"] }));
+});
+
+test("용도별 값을 처음 입력하면 다른 용도에는 공통 링크를 복사하고, 이후에는 독립적으로 읽는다", () => {
+  const common = "https://detail.1688.com/offer/100.html";
+  const purchase = "https://detail.1688.com/offer/200.html";
+  const detail = "https://detail.1688.com/offer/300.html";
+  const base = readChinaLinkUsage({ chinaProductLinks: [common, purchase] });
+  const split = setChinaLinkUsageInput(base, "detailPageUrl", detail);
+  assert.equal(split.purchaseUrl, common);
+  const patched = chinaLinkUsagePatch({ detailPageSource: { resultId: "saved" } }, { ...split, purchaseUrl: purchase });
+  assert.deepEqual(patched.chinaProductLinks, [purchase]);
+  assert.equal(patched.detailPageSource.primaryUrl, detail);
+  assert.equal(patched.detailPageSource.resultId, "saved");
+  assert.equal(readChinaPurchaseLink(patched), purchase);
+  assert.equal(readChinaDetailPageLink(patched), detail);
+
+  const detailOnly = chinaLinkUsagePatch({}, { ...split, purchaseUrl: "" });
+  assert.equal(readChinaPurchaseLink(detailOnly), "");
+  assert.deepEqual(detailOnly.chinaProductLinks, []);
+  assert.deepEqual(detailOnly.chinaLinkUsage.purchaseAlternates, [purchase]);
+  assert.equal(readChinaDetailPageLink(detailOnly), detail);
+});
 import {
   applyChinaOrderOptionMappings,
   readChinaOrderOptionMappings,
@@ -190,7 +233,7 @@ test("중국 링크 UI는 5칸·1번 고정을 유지하고 active B-code UI는 
   assert.match(activeUi, /B-code별 중국옵션/);
   assert.doesNotMatch(activeUi, /data-optimized-china-order-link-select/);
   assert.match(activeUi, /data-optimized-china-order-option-input/);
-  assert.match(activeUi, /고정 1번 중국 상품링크/);
+  assert.match(activeUi, /이 모델의 발주용 링크를 사용합니다/);
   assert.match(activeUi, /applyChinaOrderOptionMappings/);
   assert.match(activeUi, /mode: "item"/);
   assert.match(activeUi, /operation: "patch_item"/);

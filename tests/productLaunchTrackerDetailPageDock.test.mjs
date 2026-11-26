@@ -92,11 +92,11 @@ test("Detail Page Studio is exposed as separate SaaS and internal launch cards",
   );
 });
 
-test("selected launch rows run from China primary link and expose background progress controls", () => {
+test("selected launch rows run from the detail-purpose China link and expose background progress controls", () => {
   assert.match(trackerEntry, /detail-page-dock\.js/);
   assert.match(dockSource, /선택 상세페이지 생성/);
-  assert.match(dockSource, /primaryChinaProductLink/);
-  assert.match(dockSource, /detailPageSource\?\.primaryUrl/);
+  assert.match(dockSource, /sourceUrl: readChinaDetailPageLink\(item\)/);
+  assert.match(dockSource, /const sourceUrl = readChinaDetailPageLink\(latestItem\)/);
   assert.match(dockSource, /ops_dock/);
   assert.match(dockSource, /source_url/);
   assert.match(dockSource, /detail-page-dock-monitor/);
@@ -268,7 +268,7 @@ test("checkpointed server-generation failures resume without recollecting or dis
   assert.match(dockSource, /await startWorker\(resumed\.jobId\)/);
   assert.ok(
     dockSource.indexOf("if (checkpointed)") <
-      dockSource.indexOf("const sourceUrl = readPrimaryChinaLink(item);", dockSource.indexOf("async function retryItem")),
+      dockSource.indexOf("const sourceUrl = readChinaDetailPageLink(latestItem);", dockSource.indexOf("async function retryItem")),
   );
   assert.match(workAssistant, /canResumeCheckpoint/);
   assert.match(workAssistant, /"이어서 생성"/);

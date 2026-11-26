@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  MAX_CHINA_PRODUCT_LINKS,
+  chinaLinkUsagePatch,
+  normalizeChinaLinkUsage,
+  readChinaLinkUsage,
+  setChinaLinkUsageInput,
+  type ChinaLinkUsage,
+} from "../../../public/product-launch-tracker-app/lib/china-product-links.mjs";
+import {
   productLaunchSalePriceFromUnitCostKrw,
   roundUpProductLaunchPriceKrw,
 } from "@/lib/productLaunchPricePolicy";
@@ -46,7 +54,6 @@ type EditorItem = UnknownRecord & {
   requiredTitleKeywords: string[];
   requiredSearchKeywords: string[];
   orderOptions: OrderOption[];
-  chinaProductLinks: string[];
   detailPageAsset: UnknownRecord;
 };
 
@@ -61,7 +68,7 @@ type FormState = {
   notes: string;
   requiredTitleKeywords: string;
   requiredSearchKeywords: string;
-  chinaProductLinks: string;
+  chinaLinkUsage: ChinaLinkUsage;
   detailHtml: string;
   mainImageUrl: string;
   additionalImageUrls: string;
@@ -118,9 +125,6 @@ function normalizeOption(value: unknown, index: number): OrderOption {
 function normalizeItem(value: unknown): EditorItem {
   const row = record(value);
   const asset = record(row.detailPageAsset);
-  const links = Array.isArray(row.chinaProductLinks)
-    ? row.chinaProductLinks.map(text).filter(Boolean).slice(0, 5)
-    : [];
   return {
     ...row,
     id: text(row.id),
@@ -137,7 +141,6 @@ function normalizeItem(value: unknown): EditorItem {
     orderOptions: Array.isArray(row.orderOptions)
       ? row.orderOptions.map(normalizeOption)
       : [],
-    chinaProductLinks: links,
     detailPageAsset: asset,
   };
 }
@@ -155,7 +158,7 @@ function formFromItem(item: EditorItem): FormState {
     notes: item.notes,
     requiredTitleKeywords: item.requiredTitleKeywords.join(","),
     requiredSearchKeywords: item.requiredSearchKeywords.join(","),
-    chinaProductLinks: item.chinaProductLinks.join("\n"),
+    chinaLinkUsage: readChinaLinkUsage(item),
     detailHtml: String(asset.html ?? ""),
     mainImageUrl: text(asset.mainImageUrl),
     additionalImageUrls: Array.isArray(asset.additionalImageUrls)
@@ -249,6 +252,9 @@ function verifySaved(expectedForm: FormState, expectedOptions: OrderOption[], ac
   for (const [label, expected, saved] of scalarPairs) {
     if (expected !== saved) throw new Error(`${label} 저장 확인 실패`);
   }
+  if (JSON.stringify(normalizeChinaLinkUsage(expectedForm.chinaLinkUsage)) !== JSON.stringify(readChinaLinkUsage(actual))) {
+    throw new Error("중국 상품링크 저장 확인 실패");
+  }
 
   if (expectedOptions.length !== actual.orderOptions.length) {
     throw new Error(`옵션 개수 저장 확인 실패 · 입력 ${expectedOptions.length} / 저장 ${actual.orderOptions.length}`);
@@ -293,12 +299,14 @@ function Field({
   value,
   onChange,
   readOnly = false,
+  disabled = false,
   span = false,
 }: {
   label: string;
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
+  disabled?: boolean;
   span?: boolean;
 }) {
   return (
@@ -307,10 +315,46 @@ function Field({
       <input
         value={value}
         readOnly={readOnly}
+        disabled={disabled}
         onChange={(event) => onChange?.(event.target.value)}
-        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${readOnly ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white"}`}
+        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${readOnly || disabled ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white"}`}
       />
     </label>
+  );
+}
+
+function ChinaLinkFields({ value, onChange }: {
+  value: ChinaLinkUsage;
+  onChange: (value: ChinaLinkUsage) => void;
+}) {
+  const split = Boolean(value.purchaseUrl.trim() || value.detailPageUrl.trim());
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="font-black">중국 상품링크</h2>
+      <p className="mt-1 text-xs text-slate-500">발주와 상세페이지 제작에 같은 링크를 쓰려면 공통 사용 링크에 입력하세요.</p>
+      <div className="mt-4 grid gap-3">
+        <Field label="공통 사용 링크" value={value.commonUrl} disabled={split} onChange={(commonUrl) => onChange({ ...value, commonUrl })} />
+        <Field label="발주용 링크" value={value.purchaseUrl} onChange={(url) => onChange(setChinaLinkUsageInput(value, "purchaseUrl", url))} />
+        <Field label="상세페이지 제작용 링크" value={value.detailPageUrl} onChange={(url) => onChange(setChinaLinkUsageInput(value, "detailPageUrl", url))} />
+        {split ? (
+          <button type="button" className="justify-self-start rounded-lg border px-3 py-1.5 text-xs font-bold" onClick={() => onChange({ ...value, purchaseUrl: "", detailPageUrl: "" })}>
+            공통 링크 다시 사용
+          </button>
+        ) : null}
+        <details open={value.purchaseAlternates.some(Boolean) || undefined} className="space-y-3 rounded-xl border border-slate-200 p-3">
+          <summary className="cursor-pointer text-sm font-semibold">추가 발주 후보 링크</summary>
+          <p className="text-xs text-slate-500">기존 우선순위대로 보관합니다. 발주초안에는 위 발주용 링크가 들어갑니다.</p>
+          {Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) => (
+            <Field key={index} label={`발주 후보 ${index + 2}번`} value={value.purchaseAlternates[index] ?? ""} onChange={(url) => {
+              const purchaseAlternates = Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, i) =>
+                i === index ? url : value.purchaseAlternates[i] ?? "",
+              );
+              onChange({ ...value, purchaseAlternates });
+            }} />
+          ))}
+        </details>
+      </div>
+    </div>
   );
 }
 
@@ -387,7 +431,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
     return () => window.clearTimeout(timerId);
   }, [load]);
 
-  const updateForm = (key: keyof FormState, value: string) => {
+  const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
     setSuccess("");
   };
@@ -462,6 +506,14 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
     const expectedOptions = options.map((option, index) => normalizeOption(option, index));
     const bCodeChange = bCodeChanges[0];
     const existingAsset = record(item.detailPageAsset);
+    let chinaLinks;
+    try {
+      chinaLinks = chinaLinkUsagePatch(item, form.chinaLinkUsage);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "중국 상품링크를 확인하세요.");
+      setSaving(false);
+      return;
+    }
     const patch = {
       workBatch: form.workBatch.trim(),
       warehouseLocation: form.warehouseLocation.trim(),
@@ -474,7 +526,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
       requiredTitleKeywords: requiredKeywords.titleKeywords,
       requiredSearchKeywords: requiredKeywords.searchKeywords,
       orderOptions: expectedOptions,
-      chinaProductLinks: splitLines(form.chinaProductLinks, 5),
+      ...(JSON.stringify(chinaLinks.chinaLinkUsage) === JSON.stringify(readChinaLinkUsage(item)) ? {} : chinaLinks),
       detailPageAsset: {
         ...existingAsset,
         html: form.detailHtml,
@@ -696,11 +748,7 @@ export default function ProductLaunchStandaloneEditor({ itemId }: { itemId: stri
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="font-black">중국 상품링크</h2>
-          <p className="mt-1 text-xs text-slate-500">최대 5개 · 줄바꿈으로 입력</p>
-          <textarea value={form.chinaProductLinks} onChange={(event) => updateForm("chinaProductLinks", event.target.value)} rows={8} className="mt-4 w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" />
-        </div>
+        <ChinaLinkFields value={form.chinaLinkUsage} onChange={(value) => updateForm("chinaLinkUsage", value)} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="font-black">상세페이지 이미지</h2>
           <label className="mt-4 block space-y-1">

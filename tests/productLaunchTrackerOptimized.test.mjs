@@ -17,6 +17,31 @@ const stageKeys = [
   "inventoryReflection",
 ];
 
+test("China link backfill and rollback change only the role metadata on the targeted item", () => {
+  const oldItem = item(1, {
+    updatedAt: "2026-11-25T00:00:00.000Z",
+    chinaProductLinks: ["https://detail.1688.com/offer/100.html"],
+  });
+  const original = { schemaVersion: 3, items: [oldItem, item(2)] };
+  const usage = {
+    commonUrl: oldItem.chinaProductLinks[0],
+    purchaseUrl: "",
+    detailPageUrl: "",
+    purchaseAlternates: [],
+  };
+  const patch = (chinaLinkUsage, expectedStateUpdatedAt) => ({
+    operation: "bulk_patch_items",
+    expectedStateUpdatedAt,
+    patches: [{ itemId: oldItem.id, expectedUpdatedAt: oldItem.updatedAt, patch: { chinaLinkUsage } }],
+  });
+  assert.throws(() => applyProductLaunchTrackerMutation(original, patch(usage, "")), /상태 버전/);
+  const migrated = applyProductLaunchTrackerMutation(original, patch(usage, oldItem.updatedAt));
+  assert.deepEqual(migrated.changedIds, [oldItem.id]);
+  assert.deepEqual(migrated.state.items, [{ ...oldItem, chinaLinkUsage: usage }, original.items[1]]);
+  const rollback = applyProductLaunchTrackerMutation(migrated.state, patch(null, oldItem.updatedAt));
+  assert.deepEqual(rollback.state.items, original.items);
+});
+
 function item(index, overrides = {}) {
   const stages = Object.fromEntries(
     stageKeys.map((key) => [key, { status: "미시작", assignee: index % 2 ? "승준" : "경주" }]),

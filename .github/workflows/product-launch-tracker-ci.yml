@@ -56,6 +56,7 @@ on:
       - 'tests/seoGroundedReservoirV11.test.mjs'
       - 'tests/detailPageAssetStorageRetry.test.mjs'
       - 'tests/detailPageManualDecision.test.mjs'
+      - 'tests/detailPageOpsV260807Connection.test.mjs'
       - 'tests/shoplingCategory*.test.mjs'
       - 'tsconfig.json'
       - 'next.config.ts'
@@ -113,6 +114,7 @@ jobs:
           tests/seoGroundedReservoirV11.test.mjs
           tests/detailPageAssetStorageRetry.test.mjs
           tests/detailPageManualDecision.test.mjs
+          tests/detailPageOpsV260807Connection.test.mjs
           tests/shoplingCategoryCatalog.test.mjs
           tests/shoplingCategoryRunStatus.test.mjs
           tests/shoplingCategoryLocalUpdate.test.mjs

@@ -5,6 +5,12 @@ import { stripTypeScriptTypes } from 'node:module';
 import { createHash } from 'node:crypto';
 import { internalChinaReceiptOrderItemId, MAX_RECEIPT_LINES } from '../src/lib/internalChinaReceiptFollowupCore.ts';
 import {
+  MAX_CHINA_PRODUCT_LINKS,
+  normalizeChinaProductUrl,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from '../public/product-launch-tracker-app/lib/china-product-links.mjs';
+import {
   summarizeStoredReceiptReplay,
   validReceiptRequestId,
 } from '../src/domain/china-receipt-request.ts';
@@ -29,6 +35,10 @@ async function launchBackend(options = {}) {
   const normalized = new Map(), calls = [];
   let lost = options.loseWriteOnce, syncFailure = options.failSyncOnce, numberFailure = options.failNumberOnce, injected = false;
   const dependencies = {
+    MAX_CHINA_PRODUCT_LINKS,
+    normalizeChinaProductUrl,
+    readChinaLinkUsage,
+    readChinaPurchaseLink,
     temporaryOpsIdentity: () => ({userId:ownerId,email:'fixture@example.test'}),
     getProductLaunchAdminConfig: () => ({ok:true,value:{supabaseUrl:'https://fixture.test',secretKey:'synthetic-only'}}),
     readProductLaunchState: async () => options.missingState ? null : clone(stored),
@@ -129,6 +139,37 @@ test('actual materializer recovers an optimistic-lock collision without deleting
   assert.equal(b.stored.state_payload.items.find(i=>i.id==='unrelated').notes,'동시 사용자 편집 보존');
   assert.equal(b.normalized.get(intakeId).trackerRowNumber,8);
   assert.equal(b.calls.filter(x=>x==='compare-swap').length,2);
+});
+
+test('adding a sourcing option appends its supplier URL as a purchase alternate and retains the explicit detail source', async () => {
+  const backend = await launchBackend();
+  await backend.runReserved({ ...input(), receiptId: undefined, outboxId });
+  const row = backend.normalized.get(intakeId);
+  const purchase = input().supplierLink;
+  const detailPageUrl = 'https://detail.1688.com/offer/123457.html';
+  const originalAlternate = 'https://detail.1688.com/offer/123458.html';
+  const newAlternate = 'https://detail.1688.com/offer/123459.html';
+  const detailSource = { primaryUrl: detailPageUrl, urls: [detailPageUrl], resultId: 'existing-result' };
+  row.chinaLinkUsage = { commonUrl: '', purchaseUrl: purchase, detailPageUrl, purchaseAlternates: [originalAlternate] };
+  row.chinaProductLinks = [purchase, originalAlternate];
+  row.detailPageSource = detailSource;
+  const newIntake = {
+    ...input(),
+    intakeId: '55555555-5555-4555-8555-555555555555',
+    outboxId: '66666666-6666-4666-8666-666666666666',
+    receiptId: undefined,
+    barcode: 'BBA1-1',
+    saleOption: '대형 블랙',
+    supplierLink: newAlternate,
+  };
+  await backend.runReserved(newIntake);
+  await backend.runReserved(newIntake);
+  const saved = backend.normalized.get(intakeId);
+  assert.deepEqual(saved.chinaLinkUsage, {
+    commonUrl: '', purchaseUrl: purchase, detailPageUrl, purchaseAlternates: [originalAlternate, newAlternate],
+  });
+  assert.deepEqual(saved.chinaProductLinks, [purchase, originalAlternate, newAlternate]);
+  assert.deepEqual(saved.detailPageSource, detailSource);
 });
 test('actual materializer serializes two concurrent new source items through compare-and-swap',async()=>{
   const b=await launchBackend();

@@ -110,7 +110,7 @@ export function detailPageSourceLinkFailureDetail(jobValue: unknown) {
   if (raw && raw !== "1688 상품정보·이미지 수집에 실패했습니다.") {
     return raw;
   }
-  return "1688 고정링크 1번에서 정상 판매 상품의 형상·실루엣·구조를 확인할 수 있는 원본을 확보하지 못했습니다. 링크를 교체한 뒤 다시 생성하세요.";
+  return "상세페이지 제작용 1688 링크에서 상품 형태를 확인할 원본을 확보하지 못했습니다. 상품 상세에서 제작용 링크를 바꾼 뒤 다시 생성하세요.";
 }
 
 function array(value: unknown): unknown[] {

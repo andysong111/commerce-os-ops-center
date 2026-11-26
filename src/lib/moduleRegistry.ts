@@ -215,12 +215,12 @@ export const moduleRegistry: readonly CommerceModule[] = [
     title: "Commerce OS Detail Page Studio · 내부 상품출시진행관리 연결본",
     navigationLabel: "상세페이지 스튜디오 · 내부 연결본",
     description:
-      "상품출시진행관리에서 선택한 제품의 중국링크 고정1번을 사용해 상세페이지와 대표·부가 이미지를 만들고, 승인 결과를 해당 상품의 이미지 필드에 자동 연결합니다.",
+      "상품출시진행관리에서 선택한 상품의 상세페이지 제작용 1688 링크를 사용해 상세페이지와 대표·부가 이미지를 만들고, 승인 결과를 해당 상품의 이미지 필드에 자동 연결합니다.",
     status: "available",
     route: "/product-launch-tracker?detailPageDock=1",
     category: "detail-page",
     inputType:
-      "상품출시진행관리 선택 행, 중국링크 고정1번, 판매 옵션, 문구 언어",
+      "상품출시진행관리 선택 행, 상세페이지 제작용 또는 공통 1688 링크, 판매 옵션, 문구 언어",
     outputType:
       "검수 통과 상세페이지 HTML, 대표이미지 URL, 추가이미지 URL, 생성 진행·재생성 이력",
     historySupport: true,

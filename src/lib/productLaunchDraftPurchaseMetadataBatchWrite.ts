@@ -1,16 +1,16 @@
-import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   applyProductLaunchTrackerMutation,
   buildProductLaunchTrackerIndex,
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
-import { withProductLaunchListSnapshot } from "@/lib/productLaunchTrackerListSnapshot";
 import {
   getProductLaunchAdminConfig,
   readProductLaunchState,
   type ProductLaunchIdentity,
 } from "@/lib/productLaunchTrackerServer";
 import { pushCanonicalProductMasterSnapshotFromTrackerState } from "@/lib/productMasterCanonicalSync";
+import { buildPurchaseChinaLinkPatch } from "@/lib/productLaunchPurchaseMetadataCore";
+import { conditionalWriteProductLaunchState } from "@/lib/productLaunchPurchaseMetadataWrite";
 
 type R = Record<string, unknown>;
 
@@ -58,32 +58,6 @@ function normalizeSupplierLink(value: unknown) {
   }
 }
 
-function readChinaLinks(item: R) {
-  const detailSource = object(item.detailPageSource);
-  const raw = [
-    item.primaryChinaProductLink,
-    detailSource.primaryUrl,
-    ...(Array.isArray(item.chinaProductLinks) ? item.chinaProductLinks : []),
-    ...(Array.isArray(detailSource.urls) ? detailSource.urls : []),
-  ];
-  const links: string[] = [];
-  for (const value of raw) {
-    const candidate = text(
-      value && typeof value === "object" && !Array.isArray(value)
-        ? object(value).url ?? object(value).href ?? object(value).value
-        : value,
-    );
-    if (!candidate || links.includes(candidate)) continue;
-    try {
-      const url = new URL(candidate);
-      if (["http:", "https:"].includes(url.protocol)) links.push(url.toString());
-    } catch {
-      // Ignore malformed historical links while keeping valid values.
-    }
-  }
-  return links.slice(0, 5);
-}
-
 function normalizeLines(value: unknown): DraftPurchaseMetadataLine[] {
   if (!Array.isArray(value)) return [];
   const rows = value
@@ -98,49 +72,6 @@ function normalizeLines(value: unknown): DraftPurchaseMetadataLine[] {
   const byBarcode = new Map<string, DraftPurchaseMetadataLine>();
   for (const row of rows) byBarcode.set(row.barcode, row);
   return [...byBarcode.values()];
-}
-
-async function conditionalWriteProductLaunchState(
-  config: { supabaseUrl: string; secretKey: string },
-  identity: ProductLaunchIdentity,
-  state: ProductLaunchTrackerState,
-  expectedUpdatedAt: string,
-) {
-  const persistedState = withProductLaunchListSnapshot(state);
-  const now = new Date().toISOString();
-  const params = new URLSearchParams({
-    owner_id: `eq.${identity.userId}`,
-    updated_at: `eq.${expectedUpdatedAt}`,
-    select: "updated_at,schema_version",
-  });
-  const response = await fetch(
-    `${config.supabaseUrl}/rest/v1/product_launch_tracker_states?${params.toString()}`,
-    {
-      method: "PATCH",
-      headers: {
-        ...createSupabaseAdminHeaders(config.secretKey),
-        "content-type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        owner_email: identity.email,
-        schema_version: Math.max(
-          3,
-          Math.floor(Number(persistedState.schemaVersion) || 3),
-        ),
-        state_payload: persistedState,
-        updated_at: now,
-      }),
-      cache: "no-store",
-    },
-  );
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(
-      `PRODUCT_LAUNCH_PURCHASE_METADATA_WRITE_FAILED:${response.status}:${JSON.stringify(body).slice(0, 400)}`,
-    );
-  }
-  return Array.isArray(body) && body.length > 0;
 }
 
 export async function syncDraftPurchaseMetadataToProductLaunch(input: {
@@ -224,19 +155,7 @@ export async function syncDraftPurchaseMetadataToProductLaunch(input: {
       const modelLink = [...new Set(rows.map((row) => row.supplierLink).filter(Boolean))][0] ?? "";
       const patch: R = { orderOptions };
       if (modelLink) {
-        const previous = readChinaLinks(item);
-        const chinaProductLinks = [
-          modelLink,
-          ...previous.filter((link) => link !== modelLink),
-        ].slice(0, 5);
-        patch.chinaProductLinks = chinaProductLinks;
-        patch.primaryChinaProductLink = modelLink;
-        patch.detailPageSource = {
-          ...object(item.detailPageSource),
-          primaryUrl: modelLink,
-          urls: chinaProductLinks,
-          pinnedIndex: 0,
-        };
+        Object.assign(patch, buildPurchaseChinaLinkPatch(item, modelLink));
         syncedLinks += 1;
       }
       const savedAt = new Date().toISOString();
@@ -280,6 +199,7 @@ export async function syncDraftPurchaseMetadataToProductLaunch(input: {
       input.identity,
       nextState,
       expectedUpdatedAt,
+      changedIds,
     );
     if (!written) continue;
 
