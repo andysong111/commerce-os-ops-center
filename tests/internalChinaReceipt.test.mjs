@@ -182,6 +182,22 @@ test("active receipt and actual-cost steps link to the visible purchase-run inpu
   assert.ok(panel.includes("모델명 ·"));
   assert.equal(panel.includes("상품정보 확인 중"), false);
 });
+
+test("stage 4 opens the payment form when evidence is pending and links to receipt input when ready", async () => {
+  const paymentPanel = await readFile(
+    "src/components/china-order-manager/InternalChinaPaymentEvidencePanel.tsx",
+    "utf8",
+  );
+  assert.match(page, /const paymentEvidenceForEntry = !confirmedPurchase && !forwarderDone\s*\? barcodeReceiptEvidence/);
+  assert.match(page, /paymentEvidenceForEntry\s*\? "#purchase-run-payment-evidence-rows"\s*:\s*barcodeCompletion && hasOrder && costRows\.length > 0\s*\? "#purchase-run-input-workspace"/);
+  assert.match(page, /paymentEvidenceForEntry\s*\? "1688 실결제 등록으로 이동"/);
+  assert.match(page, /const ActionLink = href\?\.startsWith\("#"\) \? "a" : Link/);
+  assert.match(paymentPanel, /<details[\s\S]*?<textarea id="purchase-run-payment-evidence-rows"/);
+  assert.match(paymentPanel, /1688 실결제 합계 \(위안\)/);
+  assert.match(paymentPanel, /aria-describedby="purchase-run-payment-total-help"/);
+  assert.match(paymentPanel, /월드퍼스트 수수료와 배송대행비는 별도 항목/);
+});
+
 test("receipt engine never receives more than the current open quantity", () => {
   assert.ok(engine.includes("receivedNow > effectiveOrder.openQuantity"));
   assert.ok(engine.includes("CHINA_RECEIPT_QUANTITY_EXCEEDED"));
