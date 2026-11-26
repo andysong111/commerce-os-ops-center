@@ -82,6 +82,32 @@ test("does not mistake dimensions for bundle quantities", () => {
   assert.equal(inferUnitsPerOrder("단품"), 1);
 });
 
+test("publishes the purchase source to Product Master and leaves a detail-only SKU unlinked", () => {
+  const commonUrl = "https://detail.1688.com/offer/11.html";
+  const purchaseUrl = "https://detail.1688.com/offer/22.html";
+  const detailPageUrl = "https://detail.1688.com/offer/33.html";
+  const result = buildProductMasterSnapshotFromTrackerState({
+    items: [
+      {
+        modelNumber: "AAA011",
+        productName: "분리 상품",
+        primaryChinaProductLink: detailPageUrl,
+        chinaLinkUsage: { commonUrl, purchaseUrl, detailPageUrl, purchaseAlternates: [] },
+        orderOptions: [{ saleOption: "단품", barcode: "BAA1-1" }],
+      },
+      {
+        modelNumber: "AAA012",
+        productName: "상세 전용 상품",
+        primaryChinaProductLink: detailPageUrl,
+        chinaLinkUsage: { commonUrl, purchaseUrl: "", detailPageUrl, purchaseAlternates: [] },
+        orderOptions: [{ saleOption: "단품", barcode: "BAA1-2" }],
+      },
+    ],
+  });
+  assert.equal(result.payload.skus.find((sku) => sku.barcode === "BAA1-1").supplierUrl, purchaseUrl);
+  assert.equal(result.payload.skus.find((sku) => sku.barcode === "BAA1-2").supplierUrl, null);
+});
+
 test("does not activate a Product Master SKU before sourcing receipt confirmation", () => {
   const result = buildProductMasterSnapshotFromTrackerState({
     items: [

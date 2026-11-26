@@ -7,6 +7,12 @@ import { legacySeoRegistrationExclusion } from "./legacySeoRegistrationPolicy.ts
 import { roundUpProductLaunchPriceKrw } from "./productLaunchPricePolicy.ts";
 import { normalizeSeoRequiredKeywords } from "./seoRequiredKeywords.ts";
 import {
+  chinaLinkUsagePatch,
+  normalizeChinaLinkUsage,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
+import {
   sourcingReceiptStatus,
   type SourcingReceiptStatus,
 } from "./sourcingReceiptGate.ts";
@@ -54,6 +60,7 @@ export type ProductLaunchTrackerSummary = {
   source: UnknownRecord;
   shoplingProducts: UnknownRecord;
   chinaProductLinks: string[];
+  chinaLinkUsage?: ReturnType<typeof readChinaLinkUsage>;
   detailPageAsset: UnknownRecord;
   readiness: {
     ready: boolean;
@@ -320,23 +327,9 @@ export function summarizeProductLaunchTrackerItem(
       : [],
     syncedAt: nullableText(detailPageAssetSource.syncedAt),
   };
-  const detailPageSource = asRecord(item.detailPageSource);
-  const rawChinaProductLinks = [
-    item.primaryChinaProductLink,
-    detailPageSource.primaryUrl,
-    ...(Array.isArray(item.chinaProductLinks) ? item.chinaProductLinks : []),
-    ...(Array.isArray(detailPageSource.urls) ? detailPageSource.urls : []),
-  ];
-  const chinaProductLinks = [
-    ...new Set(
-      rawChinaProductLinks
-        .map((entry) => {
-          if (!isRecord(entry)) return text(entry);
-          return text(entry.url ?? entry.href ?? entry.value);
-        })
-        .filter(Boolean),
-    ),
-  ].slice(0, 5);
+  const chinaLinkUsage = readChinaLinkUsage(item);
+  const purchaseLink = readChinaPurchaseLink(item);
+  const chinaProductLinks = purchaseLink ? [purchaseLink, ...chinaLinkUsage.purchaseAlternates] : [];
   const goodsKeys = Object.values(shoplingProducts)
     .map((value) => text(asRecord(value).goodsKey))
     .filter(Boolean);
@@ -377,6 +370,7 @@ export function summarizeProductLaunchTrackerItem(
     source,
     shoplingProducts,
     chinaProductLinks,
+    ...(isRecord(item.chinaLinkUsage) ? { chinaLinkUsage } : {}),
     detailPageAsset,
     readiness,
     seoExclusion,
@@ -441,6 +435,21 @@ export function applyProductLaunchTrackerMutation(
         throw new Error(
           `${text(items[index].modelNumber) || itemId} 상품이 미리보기 뒤 동시에 수정되었습니다.`,
         );
+      }
+      if (isChinaLinkUsageMigrationPatch(patch)) {
+        if (!text(input.expectedStateUpdatedAt)) {
+          throw new Error("중국 상품링크 이관에는 상태 버전 확인이 필요합니다.");
+        }
+        const next = { ...items[index] };
+        if (patch.chinaLinkUsage === null) {
+          delete next.chinaLinkUsage;
+        } else {
+          if (!isRecord(patch.chinaLinkUsage)) throw new Error("중국 상품링크 이관 값이 올바르지 않습니다.");
+          next.chinaLinkUsage = normalizeChinaLinkUsage(patch.chinaLinkUsage);
+        }
+        items[index] = next;
+        changedIds.add(itemId);
+        continue;
       }
       items[index] = patchItem(
         items[index],
@@ -669,6 +678,11 @@ export function applyProductLaunchTrackerMutation(
   return { state, changedIds: [...changedIds], createdIds };
 }
 
+export function isChinaLinkUsageMigrationPatch(patch: unknown) {
+  return isRecord(patch) && Object.keys(patch).length === 1 &&
+    Object.hasOwn(patch, "chinaLinkUsage");
+}
+
 function patchItem(item: UnknownRecord, input: UnknownRecord, now: string) {
   const patch = isRecord(input.patch) ? { ...input.patch } : {};
   delete patch.id;
@@ -750,6 +764,7 @@ function normalizeWholeItem(item: UnknownRecord, now: string) {
   if (orderOptions.length === 1 && barcode) orderOptions[0].barcode = barcode;
   return {
     ...item,
+    ...(isRecord(item.chinaLinkUsage) ? chinaLinkUsagePatch(item, item.chinaLinkUsage) : {}),
     id: text(item.id) || randomId(),
     workBatch: text(item.workBatch),
     warehouseLocation: text(item.warehouseLocation),

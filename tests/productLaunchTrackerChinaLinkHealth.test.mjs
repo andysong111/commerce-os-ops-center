@@ -3,13 +3,16 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  applyChinaProductLinks,
-  readChinaProductLinks,
+  chinaLinkUsagePatch,
+  readChinaDetailPageLink,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
 } from "../public/product-launch-tracker-app/lib/china-product-links.mjs";
+import { shiftProductLaunchPurchaseLink } from "../src/lib/productLaunchTrackerPurchaseLinkHealth.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("고정링크 1 삭제 후 후순위 링크가 순서대로 승격된다", () => {
+test("기존 공통 링크의 2번부터 발주 후보로 승격하며 제작용 링크는 유지한다", () => {
   const item = {
     primaryChinaProductLink: "https://detail.1688.com/offer/111.html",
     chinaProductLinks: [
@@ -26,17 +29,49 @@ test("고정링크 1 삭제 후 후순위 링크가 순서대로 승격된다", 
       ],
     },
   };
-  const shifted = applyChinaProductLinks(
+  const shifted = shiftProductLaunchPurchaseLink(
     item,
-    readChinaProductLinks(item).slice(1),
-    { now: new Date("2026-08-22T00:00:00.000Z") },
+    "https://detail.1688.com/offer/111.html",
+    "2026-08-22T00:00:00.000Z",
+    "링크 오류",
   );
   assert.equal(shifted.primaryChinaProductLink, "https://detail.1688.com/offer/222.html");
   assert.deepEqual(shifted.chinaProductLinks, [
     "https://detail.1688.com/offer/222.html",
     "https://detail.1688.com/offer/333.html",
   ]);
-  assert.equal(shifted.detailPageSource.pinnedIndex, 0);
+  assert.equal(readChinaDetailPageLink(shifted), "https://detail.1688.com/offer/111.html");
+});
+
+test("발주 후보가 없으면 제작용 링크가 발주에 유입되지 않는다", () => {
+  const removedUrl = "https://detail.1688.com/offer/111.html";
+  const detailPageUrl = "https://detail.1688.com/offer/222.html";
+  const item = chinaLinkUsagePatch({ id: "launch-a" }, {
+    commonUrl: "https://detail.1688.com/offer/333.html",
+    purchaseUrl: removedUrl,
+    detailPageUrl,
+    purchaseAlternates: [],
+  });
+  assert.throws(() => shiftProductLaunchPurchaseLink(item, detailPageUrl, "2026-11-26", ""), /변경되었습니다/);
+  assert.throws(() => shiftProductLaunchPurchaseLink(item, "", "2026-11-26", ""), /필요합니다/);
+  const shifted = shiftProductLaunchPurchaseLink(item, removedUrl, "2026-11-26", "");
+  assert.equal(readChinaPurchaseLink(shifted), "");
+  assert.equal(readChinaDetailPageLink(shifted), detailPageUrl);
+  assert.equal(readChinaLinkUsage(shifted).purchaseAlternates.length, 0);
+});
+
+test("발주 전용 링크가 없어져 두 용도 모두 비면 비활성 공통 링크도 비운다", () => {
+  const removedUrl = "https://detail.1688.com/offer/111.html";
+  const item = chinaLinkUsagePatch({}, {
+    commonUrl: "https://detail.1688.com/offer/333.html",
+    purchaseUrl: removedUrl,
+    detailPageUrl: "",
+    purchaseAlternates: [],
+  });
+  const shifted = shiftProductLaunchPurchaseLink(item, removedUrl, "2026-11-26", "");
+  assert.equal(readChinaPurchaseLink(shifted), "");
+  assert.equal(readChinaDetailPageLink(shifted), "");
+  assert.equal(readChinaLinkUsage(shifted).commonUrl, "");
 });
 
 test("링크 검사는 페이지 로딩과 분리된 단일창 저속 배치 방식이다", async () => {
@@ -118,11 +153,17 @@ test("오류 링크 일괄 승격은 동시변경을 차단하고 한 번 저장
   const route = await read(
     "src/app/api/product-launch-tracker/china-link-health/shift/route.ts",
   );
-  assert.match(route, /expectedPrimaryUrl && currentPrimary !== expectedPrimaryUrl/);
-  assert.match(route, /const remaining = links\.slice\(1\)/);
+  assert.match(route, /shiftProductLaunchPurchaseLink\(item, expected\[itemId\], now, reason\)/);
   assert.match(route, /conditionalWrite/);
   assert.match(route, /syncProductLaunchNormalizedChangedItems/);
   assert.match(route, /CHINA_LINK_SHIFT_CONCURRENT_UPDATE/);
+});
+
+test("링크 진단은 제작 전용 링크를 발주 검사 후보에서 제외한다", async () => {
+  const route = await read("src/app/api/product-launch-tracker/china-link-health/route.ts");
+  assert.match(route, /"item_payload->chinaLinkUsage": "not\.is\.null"/);
+  assert.match(route, /missingPurchaseIds\.has\(row\.item_id\)[\s\S]*?primary_url: ""[\s\S]*?health_status: "missing"/);
+  assert.match(route, /if \(!current \|\| !url \|\| current\.primary_url !== url\)/);
 });
 
 test("링크 상태 원장은 RLS와 서비스 역할 전용 권한을 사용한다", async () => {

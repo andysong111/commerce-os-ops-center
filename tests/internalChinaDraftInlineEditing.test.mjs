@@ -41,7 +41,7 @@ test("supplier link and China option are editable inline and included in save pa
   assert.match(workspace, /updateModelSupplierLink/);
   assert.match(workspace, /supplierLink: line\.supplierLink/);
   assert.match(workspace, /chinaOption: line\.chinaOption/);
-  assert.match(workspace, /상품출시 1번 링크로 역저장/);
+  assert.match(workspace, /상품출시 발주용 링크에 반영/);
   assert.match(workspace, /해당 B-code로 상품출시·상품마스터에 역저장/);
   assert.match(workspace, /\/purchase-metadata/);
   assert.doesNotMatch(workspace, /상품출시진행관리에서 이 모델의 1번 중국 상품링크를 입력하세요/);
@@ -57,8 +57,7 @@ test("purchase metadata endpoint locks input to the current draft and uses same-
 });
 
 test("batch reverse sync updates product launch and the Product Master latest ledger without ordering", () => {
-  assert.match(writer, /chinaProductLinks/);
-  assert.match(writer, /primaryChinaProductLink/);
+  assert.match(writer, /buildPurchaseChinaLinkPatch\(item, modelLink\)/);
   assert.match(writer, /orderOptions/);
   assert.match(writer, /chinaOption/);
   assert.match(writer, /conditionalWriteProductLaunchState/);

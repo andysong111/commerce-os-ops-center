@@ -1,3 +1,5 @@
+import { readChinaDetailPageLink } from "./lib/china-product-links.mjs";
+
 const STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 const OPTIMIZED_TRACKER_API = "/api/product-launch-tracker/optimized";
 const ENGINE_CONFIG_API = "/api/product-launch-tracker/detail-page-engine-config";
@@ -221,9 +223,9 @@ async function enqueueSelected() {
       return;
     }
     const selected = await loadAuthoritativeSelectedItems(state, selectedIds);
-    const invalid = selected.filter((item) => !readPrimaryChinaLink(item));
+    const invalid = selected.filter((item) => !readChinaDetailPageLink(item));
     if (invalid.length) {
-      const message = `${invalid.map((item) => item.modelNumber || item.productName || item.id).join(", ")} 상품에 중국링크 고정1번이 없습니다. 상품 상세에서 링크를 입력한 뒤 다시 실행하세요.`;
+      const message = `${invalid.map((item) => item.modelNumber || item.productName || item.id).join(", ")} 상품에 상세페이지 제작용 1688 링크가 없습니다. 상품 상세에서 제작용 또는 공통 링크를 입력하세요.`;
       showRunStatus(message, "error");
       showMessage(message, 15_000);
       return;
@@ -271,7 +273,7 @@ async function enqueueSelected() {
       const job = {
         itemId,
         jobId: crypto.randomUUID(),
-        sourceUrl: readPrimaryChinaLink(item),
+        sourceUrl: readChinaDetailPageLink(item),
         productName: String(item.productName || item.modelNumber || "상품"),
         salesOptions: readSalesOptions(item),
         attempt: Number(item.detailPageAutomation?.attempt || 0) + 1,
@@ -825,24 +827,19 @@ async function retryItem(itemId, options = {}) {
       retryingItems.delete(normalizedItemId);
     }
   }
-  const sourceUrl = readPrimaryChinaLink(item);
-  if (!sourceUrl) {
-    retryingItems.delete(normalizedItemId);
-    const message = "중국링크 고정1번을 확인한 뒤 다시 생성하세요.";
-    showMessage(message);
-    announceReviewRegeneration(options, "error", message);
-    return;
-  }
-  const job = {
-    itemId: normalizedItemId,
-    jobId: crypto.randomUUID(),
-    sourceUrl,
-    productName: String(item.productName || item.modelNumber || "상품"),
-    salesOptions: readSalesOptions(item),
-    attempt: Number(item.detailPageAutomation?.attempt || 0) + 1,
-    sourceRunId: "",
-  };
   try {
+    const [latestItem] = await loadAuthoritativeSelectedItems(state, [normalizedItemId]);
+    const sourceUrl = readChinaDetailPageLink(latestItem);
+    if (!sourceUrl) throw new Error("상품 상세에서 상세페이지 제작용 또는 공통 1688 링크를 확인하세요.");
+    const job = {
+      itemId: normalizedItemId,
+      jobId: crypto.randomUUID(),
+      sourceUrl,
+      productName: String(latestItem.productName || latestItem.modelNumber || "상품"),
+      salesOptions: readSalesOptions(latestItem),
+      attempt: Number(item.detailPageAutomation?.attempt || 0) + 1,
+      sourceRunId: "",
+    };
     await ensureDetailPageDependencies();
     const created = await createServerJob(job);
     jobsById.set(job.jobId, created);
@@ -1320,10 +1317,6 @@ function selectedRowIds() {
   return [...document.querySelectorAll("#launch-table-body tr[data-id] input.row-check:checked")]
     .map((input) => String(input.closest("tr[data-id]")?.dataset.id || ""))
     .filter(Boolean);
-}
-
-function readPrimaryChinaLink(item) {
-  return String(item?.primaryChinaProductLink || item?.detailPageSource?.primaryUrl || item?.chinaProductLinks?.[0] || "").trim();
 }
 
 function readSalesOptions(item) {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { DETAIL_PAGE_COMPILER_WORKER_POOL_SIZE } from "@/lib/detailPageCompilerWorkerPool";
+import { readChinaDetailPageLink } from "../../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 
 const STORAGE_KEY = "commerce-os-product-launch-tracker:v2";
 const JOBS_API = "/api/product-launch-tracker/detail-page-jobs";
@@ -12,9 +13,6 @@ type LaunchItem = {
   id?: unknown;
   productName?: unknown;
   modelNumber?: unknown;
-  primaryChinaProductLink?: unknown;
-  detailPageSource?: unknown;
-  chinaProductLinks?: unknown;
   orderOptions?: unknown;
   detailPageAutomation?: unknown;
   [key: string]: unknown;
@@ -94,7 +92,7 @@ export function ProductLaunchEvidenceCompilerCanary() {
       const authoritative = await authoritativeItems(state, selectedIds, localItems);
       const prepared: PreparedItem[] = localItems.map(({ itemId, localItem }) => {
         const item = authoritative.get(itemId) ?? localItem;
-        const sourceUrl = primaryChinaLink(item);
+        const sourceUrl = readChinaDetailPageLink(item);
         const salesOptions = saleOptions(item);
         const productName = String(
           item.productName || item.modelNumber || itemId || "상품",
@@ -107,7 +105,7 @@ export function ProductLaunchEvidenceCompilerCanary() {
       if (missingLinks.length || missingOptions.length) {
         const reasons = [
           missingLinks.length
-            ? `중국링크 없음: ${missingLinks.map((entry) => entry.productName).join(", ")}`
+            ? `상세페이지 제작용 1688 링크 없음: ${missingLinks.map((entry) => entry.productName).join(", ")}`
             : "",
           missingOptions.length
             ? `옵션 없음: ${missingOptions.map((entry) => entry.productName).join(", ")}`
@@ -351,14 +349,6 @@ async function authoritativeItems(
       .map((item) => [String(item?.id ?? ""), item] as const)
       .filter(([itemId]) => itemIds.includes(itemId)),
   );
-}
-
-function primaryChinaLink(item: LaunchItem) {
-  const source = record(item.detailPageSource);
-  const links = Array.isArray(item.chinaProductLinks) ? item.chinaProductLinks : [];
-  return String(
-    item.primaryChinaProductLink || source.primaryUrl || links[0] || "",
-  ).trim();
 }
 
 function saleOptions(item: LaunchItem) {

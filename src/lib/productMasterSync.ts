@@ -1,4 +1,5 @@
 import { isSourcingReceiptPending } from "./sourcingReceiptGate.ts";
+import { readChinaPurchaseLink } from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 
 type R = Record<string, unknown>;
 
@@ -167,7 +168,7 @@ export function buildProductMasterSnapshotFromTrackerState(
           option.cartonQuantity ?? item.cartonQuantity,
           1,
         ),
-        supplierUrl: supplierUrl(item),
+        supplierUrl: optional(readChinaPurchaseLink(item)),
         leadTimeDays: nonNegative(item.leadTimeDays, 14),
         targetStockDays: nonNegative(item.targetStockDays, 30),
         memo: optional(item.notes),
@@ -331,14 +332,6 @@ function productStatus(item: R, archived: boolean): Product["status"] {
   return statuses.length && statuses.every((status) => COMPLETED.has(status))
     ? "ACTIVE"
     : "LAUNCHING";
-}
-
-function supplierUrl(item: R) {
-  const primary = text(item.primaryChinaProductLink);
-  if (primary) return primary;
-  const candidate = list(item.chinaProductLinks).map(text).find(Boolean);
-  if (candidate) return candidate;
-  return optional(object(item.detailPageSource).primaryUrl);
 }
 
 function object(value: unknown): R {

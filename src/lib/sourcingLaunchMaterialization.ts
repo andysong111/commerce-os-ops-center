@@ -5,6 +5,12 @@ import { normalizeNewProductLaunchState } from "@/lib/productLaunchOptionNames";
 import { withProductLaunchListSnapshot } from "@/lib/productLaunchTrackerListSnapshot";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import type { ProductLaunchTrackerState } from "@/lib/productLaunchTrackerOptimized";
+import {
+  MAX_CHINA_PRODUCT_LINKS,
+  normalizeChinaProductUrl,
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type R = Record<string, unknown>;
@@ -38,6 +44,32 @@ function assertSameIdentity(item: R, intakeId: string, modelNumber: string) {
   if (text(item.modelNumber).toUpperCase() !== modelNumber || !ownsSourcingIntake(item, intakeId)) {
     throw new Error("SOURCING_LAUNCH_IDEMPOTENCY_CONFLICT");
   }
+}
+
+function sourcingSupplierLinkPatch(item: R, supplierLink: string) {
+  const legacyLinks = Array.isArray(item.chinaProductLinks)
+    ? item.chinaProductLinks.map(text).filter(Boolean)
+    : [];
+  if (!Object.hasOwn(record(item.chinaLinkUsage), "commonUrl")) {
+    return {
+      chinaProductLinks: supplierLink && !legacyLinks.includes(supplierLink)
+        ? [...legacyLinks, supplierLink]
+        : legacyLinks,
+    };
+  }
+  if (!supplierLink) return {};
+  const url = normalizeChinaProductUrl(supplierLink);
+  const usage = readChinaLinkUsage(item);
+  const purchaseUrl = readChinaPurchaseLink(item);
+  if (
+    url === purchaseUrl || usage.purchaseAlternates.includes(url) ||
+    usage.purchaseAlternates.length >= MAX_CHINA_PRODUCT_LINKS - 1
+  ) return {};
+
+  return {
+    chinaLinkUsage: { ...usage, purchaseAlternates: [...usage.purchaseAlternates, url] },
+    chinaProductLinks: legacyLinks.includes(url) ? legacyLinks : [...legacyLinks, url],
+  };
 }
 
 export async function materializeSourcingLaunchItem(input: SourcingLaunchMaterializationInput) {
@@ -140,17 +172,15 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
     } else if (!currentOption) {
       const source = record(canonicalItem?.source);
       const intakeIds = Array.isArray(source.sourcingIntakeIds) ? source.sourcingIntakeIds.map(text) : [text(source.sourcingIntakeId)].filter(Boolean);
-      const links = Array.isArray(canonicalItem?.chinaProductLinks) ? canonicalItem.chinaProductLinks.map(text).filter(Boolean) : [];
       const optionNames = Array.isArray(canonicalItem?.options) ? canonicalItem.options.map(text).filter(Boolean) : [];
       const optionLabels = Array.isArray(canonicalItem?.optionLabels) ? canonicalItem.optionLabels.map(text).filter(Boolean) : [];
-      if (supplierLink && !links.includes(supplierLink)) links.push(supplierLink);
       item = {
         ...canonicalItem,
         source: { ...source, sourcingIntakeIds: [...new Set([...intakeIds, intakeId])] },
         options: [...new Set([...optionNames, saleOption])],
         optionLabels: [...new Set([...optionLabels, saleOption])],
         orderOptions: [...canonicalOptions, optionPayload],
-        chinaProductLinks: links,
+        ...sourcingSupplierLinkPatch(canonicalItem ?? {}, supplierLink),
         updatedAt: now,
         updatedBy: "신규소싱 옵션 자동등록",
       };

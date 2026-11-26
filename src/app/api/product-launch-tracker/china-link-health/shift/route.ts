@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import { withProductLaunchListSnapshot } from "@/lib/productLaunchTrackerListSnapshot";
+import { shiftProductLaunchPurchaseLink } from "@/lib/productLaunchTrackerPurchaseLinkHealth";
 import {
   setProductLaunchNormalizedReadEnabled,
   syncProductLaunchNormalizedChangedItems,
@@ -56,68 +57,6 @@ function itemIds(value: unknown) {
     if (output.length >= MAX_SHIFT_ITEMS) break;
   }
   return output;
-}
-
-function chinaLinks(item: UnknownRecord) {
-  const detailSource = record(item.detailPageSource);
-  const values = [
-    item.primaryChinaProductLink,
-    detailSource.primaryUrl,
-    ...(Array.isArray(item.chinaProductLinks) ? item.chinaProductLinks : []),
-    ...(Array.isArray(detailSource.urls) ? detailSource.urls : []),
-  ];
-  const output: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of values) {
-    const url = text(entry, 4000);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    output.push(url);
-    if (output.length >= 5) break;
-  }
-  return output;
-}
-
-function shiftPrimaryLink(
-  item: UnknownRecord,
-  expectedPrimaryUrl: string,
-  now: string,
-  reason: string,
-) {
-  const links = chinaLinks(item);
-  const currentPrimary = links[0] || "";
-  if (!currentPrimary) {
-    throw new Error(`${text(item.modelNumber, 120) || text(item.id, 180)}: 삭제할 고정링크 1번이 없습니다.`);
-  }
-  if (expectedPrimaryUrl && currentPrimary !== expectedPrimaryUrl) {
-    throw new Error(
-      `${text(item.modelNumber, 120) || text(item.id, 180)}: 검사 이후 고정링크 1번이 변경되었습니다. 목록을 새로고침해 주세요.`,
-    );
-  }
-  const remaining = links.slice(1);
-  const nextPrimary = remaining[0] || "";
-  return {
-    ...item,
-    chinaProductLinks: remaining,
-    primaryChinaProductLink: nextPrimary,
-    detailPageSource: {
-      ...record(item.detailPageSource),
-      primaryUrl: nextPrimary,
-      urls: remaining,
-      pinnedIndex: nextPrimary ? 0 : null,
-      source: "product_launch_tracker",
-      updatedAt: now,
-    },
-    chinaLinkMaintenance: {
-      ...record(item.chinaLinkMaintenance),
-      lastRemovedPrimaryUrl: currentPrimary,
-      lastPromotedPrimaryUrl: nextPrimary,
-      shiftedAt: now,
-      reason,
-    },
-    updatedAt: now,
-    updatedBy: "승준",
-  };
 }
 
 async function conditionalWrite(input: {
@@ -178,7 +117,7 @@ export async function POST(request: NextRequest) {
   const ids = itemIds(input.itemIds);
   if (!ids.length) {
     return Response.json(
-      { ok: false, code: "CHINA_LINK_SHIFT_ITEMS_REQUIRED", message: "고정링크를 정리할 상품을 선택하세요." },
+      { ok: false, code: "CHINA_LINK_SHIFT_ITEMS_REQUIRED", message: "발주용 링크를 정리할 상품을 선택하세요." },
       { status: 400 },
     );
   }
@@ -187,7 +126,7 @@ export async function POST(request: NextRequest) {
     ids.map((id) => [id, text(expectedRaw[id], 4000)]),
   ) as Record<string, string>;
   const reason =
-    text(input.reason, 300) || "고정링크1 오류 삭제 후 후순위 링크 승격";
+    text(input.reason, 300) || "발주용 링크 오류 삭제 후 다음 발주 후보 적용";
 
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -209,7 +148,7 @@ export async function POST(request: NextRequest) {
         const itemId = text(item.id, 180);
         if (!idSet.has(itemId)) return raw;
         found.add(itemId);
-        return shiftPrimaryLink(item, expected[itemId], now, reason);
+        return shiftProductLaunchPurchaseLink(item, expected[itemId], now, reason);
       });
       const missing = ids.filter((id) => !found.has(id));
       if (missing.length) {
@@ -274,7 +213,7 @@ export async function POST(request: NextRequest) {
     const message =
       error instanceof Error
         ? error.message
-        : "고정링크 1번을 정리하지 못했습니다.";
+        : "발주용 링크를 정리하지 못했습니다.";
     const status = /변경되었습니다|동시에/.test(message)
       ? 409
       : /선택|없습니다|찾지 못|필요/.test(message)

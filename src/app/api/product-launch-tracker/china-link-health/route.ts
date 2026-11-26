@@ -105,11 +105,43 @@ async function readHealthRows(
     limit: "1000",
   });
   if (itemIds.length) params.set("item_id", `in.(${itemIds.join(",")})`);
-  const rows = await storageRequest<HealthRow[]>(
-    config,
-    `product_launch_primary_link_health?${params.toString()}`,
+  // The legacy view falls through to the detail-page URL when the purchase
+  // alias is blank. Ignore that fallback for items with explicit link roles.
+  const usageParams = new URLSearchParams({
+    select: "item_id,purchase_primary:item_payload->>primaryChinaProductLink",
+    owner_id: `eq.${ownerId}`,
+    archived_at: "is.null",
+    "item_payload->chinaLinkUsage": "not.is.null",
+    order: "tracker_row_number.asc.nullslast,model_number.asc",
+    limit: "1000",
+  });
+  if (itemIds.length) usageParams.set("item_id", `in.(${itemIds.join(",")})`);
+  const [rows, roleRows] = await Promise.all([
+    storageRequest<HealthRow[]>(config, `product_launch_primary_link_health?${params}`),
+    storageRequest<Array<{ item_id: string; purchase_primary: string | null }>>(
+      config, `product_launch_items?${usageParams}`,
+    ),
+  ]);
+  const missingPurchaseIds = new Set(
+    roleRows.filter((row) => !row.purchase_primary).map((row) => row.item_id),
   );
-  return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).map((row): HealthRow =>
+    missingPurchaseIds.has(row.item_id)
+      ? {
+        ...row,
+        primary_url: "",
+        fallback_url: "",
+        link_count: 0,
+        has_fallback: false,
+        health_status: "missing",
+        error_code: "",
+        error_message: "",
+        final_url: "",
+        collector_version: "",
+        checked_at: null,
+      }
+      : row,
+  );
 }
 
 function healthSummary(rows: HealthRow[]) {
@@ -195,7 +227,7 @@ export async function GET(request: NextRequest) {
         message:
           error instanceof Error
             ? error.message
-            : "중국 고정링크 상태를 불러오지 못했습니다.",
+            : "중국 발주용 링크 상태를 불러오지 못했습니다.",
       },
       { status: 500 },
     );
@@ -237,7 +269,7 @@ export async function POST(request: NextRequest) {
         {
           ok: false,
           code: "CHINA_LINK_HEALTH_ACTION_INVALID",
-          message: "지원하지 않는 고정링크 상태 작업입니다.",
+          message: "지원하지 않는 발주용 링크 상태 작업입니다.",
         },
         { status: 400 },
       );
@@ -327,7 +359,7 @@ export async function POST(request: NextRequest) {
         message:
           error instanceof Error
             ? error.message
-            : "중국 고정링크 상태를 저장하지 못했습니다.",
+            : "중국 발주용 링크 상태를 저장하지 못했습니다.",
       },
       { status: 500 },
     );

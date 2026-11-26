@@ -80,7 +80,7 @@ export async function queueFastPurchaseDraftForChina(rawDraftId: unknown) {
         quantity: quantity(line.openQuantity),
         unitCostKrw: 0,
         reason: `빠른 발주안 내부 Draft ${draftId} · 사용자 확정 RESERVED${
-          supplierLink ? " · 상품출시진행관리 1번 중국링크 자동연결" : ""
+          supplierLink ? " · 상품출시진행관리 발주용 링크 자동연결" : ""
         }`,
       };
     })

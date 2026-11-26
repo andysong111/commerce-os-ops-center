@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 
 async function source(path) {
@@ -17,7 +18,7 @@ test("독립 상품 편집기는 최초 조회는 normalized authority, 저장/�
   assert.match(transport, /window\.fetch = routedFetch/);
 });
 
-test("direct item API는 정규화 item\/options를 먼저 저장하고 legacy mirror는 응답 밖에서 실행한다", async () => {
+test("direct item API는 링크 변경 시 발주 원장까지 확인하고 다른 변경은 기존 백그라운드 저장을 사용한다", async () => {
   const route = await source("src/app/api/product-launch-tracker/item-editor/route.ts");
   assert.match(route, /readProductLaunchNormalizedItem/);
   assert.match(route, /applyProductLaunchTrackerMutation/);
@@ -26,7 +27,92 @@ test("direct item API는 정규화 item\/options를 먼저 저장하고 legacy m
   assert.match(route, /product_launch_options/);
   assert.match(route, /after\(async \(\) =>/);
   assert.match(route, /mirrorToLegacy/);
-  assert.match(route, /legacyMirrorQueued: true/);
+  assert.match(route, /if \(linkUsage\) \{\s*await mirrorToLegacy\(legacyRequest, config\.value, identity\.value, itemId, linkUsage\)/);
+  assert.match(route, /legacyMirrorQueued: !linkUsage/);
+  assert.match(route, /JSON\.stringify\(asRecord\(result\)\.chinaLinkUsage\) !== JSON\.stringify\(expectedLinkUsage\)/);
+});
+
+test("normalized-direct batch checks owner identity, rejects ambiguous reads, and never falls back to legacy", async () => {
+  const route = await source("src/app/api/product-launch-tracker/item-editor/route.ts");
+  const code = stripTypeScriptTypes(
+    route.replace(/^import[\s\S]*?from ["'][^"']+["'];\s*/gm, ""),
+  ).replace(/^export /gm, "");
+  let ownerAuthenticated = true;
+  const owner = "fixture-owner";
+  const calls = [];
+  const get = new Function(
+    "resolveProductLaunchIdentity",
+    "getProductLaunchAdminConfig",
+    "readProductLaunchNormalizedItems",
+    code + "\nreturn GET;",
+  )(
+    async () => ownerAuthenticated
+      ? { ok: true, value: { userId: owner } }
+      : { ok: false, status: 401, body: { ok: false } },
+    () => ({ ok: true, value: {} }),
+    async (_config, userId, ids) => {
+      calls.push([userId, ids]);
+      return ids.filter((id) => id !== "missing").map((id) => ({ id }));
+    },
+  );
+  const read = (ids) => get({
+    nextUrl: new URL("https://ops.example/item-editor?" + new URLSearchParams([
+      ["mode", "items-direct"],
+      ...ids.map((id) => ["id", id]),
+    ])),
+  });
+  assert.deepEqual(await (await read(["one", "two"])).json(), {
+    ok: true,
+    items: [{ id: "one" }, { id: "two" }],
+    itemSource: "normalized-direct",
+  });
+  assert.equal((await read(["missing"])).status, 404);
+  for (const invalid of [[], ["one", "one"], [""], Array.from({ length: 101 }, (_, i) => String(i))]) {
+    assert.equal((await read(invalid)).status, 400);
+  }
+  ownerAuthenticated = false;
+  assert.equal((await read(["one"])).status, 401);
+  assert.deepEqual(calls, [[owner, ["one", "two"]], [owner, ["missing"]]]);
+});
+
+test("synchronous link mirror accepts only the exact saved role receipt for the requested item", async () => {
+  const route = await source("src/app/api/product-launch-tracker/item-editor/route.ts");
+  const code = stripTypeScriptTypes(
+    route.replace(/^import[\s\S]*?from ["'][^"']+["'];\s*/gm, ""),
+  ).replace(/^export /gm, "");
+  const expectedUsage = {
+    commonUrl: "",
+    purchaseUrl: "https://detail.1688.com/offer/10.html",
+    detailPageUrl: "https://detail.1688.com/offer/20.html",
+    purchaseAlternates: ["https://detail.1688.com/offer/30.html"],
+  };
+  let responseFactory;
+  let reconciled = 0;
+  const mirror = new Function(
+    "legacyPatch",
+    "reconcileProductLaunchNormalizedAfterLegacyItems",
+    code + "\nreturn mirrorToLegacy;",
+  )(
+    async () => responseFactory(),
+    async () => { reconciled += 1; },
+  );
+  const save = () => mirror({}, {}, {}, "target", expectedUsage);
+  const success = (items) => Response.json({ ok: true, items });
+
+  responseFactory = () => success([{ id: "other", chinaLinkUsage: expectedUsage }]);
+  await assert.rejects(save, /저장한 값과 일치하지 않습니다/);
+  responseFactory = () => success([{ id: "target", chinaLinkUsage: {
+    ...expectedUsage,
+    purchaseUrl: expectedUsage.detailPageUrl,
+  } }]);
+  await assert.rejects(save, /저장한 값과 일치하지 않습니다/);
+  responseFactory = () => Response.json({ ok: false }, { status: 503 });
+  await assert.rejects(save, /다시 저장해 주세요/);
+  assert.equal(reconciled, 0);
+
+  responseFactory = () => success([{ id: "target", chinaLinkUsage: expectedUsage }]);
+  await save();
+  assert.equal(reconciled, 1);
 });
 
 test("direct item API는 기준판매가와 원가를 option 정규화 행에 직접 기록한다", async () => {

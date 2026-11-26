@@ -14,6 +14,7 @@ import {
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { normalizePurchaseBundleUnit } from "@/lib/purchaseDraftQuantityRounding";
 import { loadProductLaunchPurchaseMetadataByBarcode } from "@/lib/productLaunchPurchaseMetadata";
+import { resolveDraftSupplierLink } from "@/lib/productLaunchPurchaseMetadataCore";
 import { loadShoplingCurrentModelSnapshot } from "@/lib/shopling/shoplingCurrentModelIdentity";
 import { seoulCalendarMonth } from "@/lib/monthlyPurchasePolicy";
 import {
@@ -68,6 +69,7 @@ export type InternalChinaPurchaseDraftLine = {
   saleOption: string;
   chinaOption: string;
   supplierLink: string;
+  supplierLinkFromTracker?: true;
   quantity: number;
   unitPriceCny: number;
   freightGroupId: string;
@@ -418,13 +420,12 @@ async function buildBaseDraft(
       const profile = metadataCandidates
         .map((candidate) => planningByBarcode.get(candidate))
         .find(Boolean);
-      const trackerRow = metadataCandidates
-        .map((candidate) => tracker?.byBarcode.get(candidate))
-        .find((candidate) => candidate && !candidate.conflict);
+      const trackerRows = metadataCandidates.map((candidate) => tracker?.byBarcode.get(candidate));
+      const trackerUsable = trackerRows.find((candidate) => candidate && !candidate.conflict);
+      const purchaseLinkRow = trackerRows.find((candidate) => candidate?.supplierLinkFromTracker) ?? trackerUsable;
       const live = metadataCandidates
         .map((candidate) => liveByBarcode.get(candidate))
         .find(Boolean);
-      const trackerUsable = trackerRow && !trackerRow.conflict ? trackerRow : null;
       const sourcePayload = {
         ...object(trustedPayloadRows.get(barcode)?.latestPayload),
         ...object(commitment.latestPayload),
@@ -458,8 +459,8 @@ async function buildBaseDraft(
           text(sourcePayload.saleOption),
         chinaOption:
           text(trackerUsable?.chinaOption) || text(sourcePayload.chinaOption),
-        supplierLink:
-          text(trackerUsable?.supplierLink) || text(sourcePayload.supplierLink),
+        supplierLink: resolveDraftSupplierLink(purchaseLinkRow, sourcePayload.supplierLink),
+        ...(purchaseLinkRow?.supplierLinkFromTracker ? { supplierLinkFromTracker: true } : {}),
         quantity: Math.min(
           MANUAL_QUANTITY_MAX,
           effectiveCommitmentQuantity(commitment),
@@ -593,7 +594,9 @@ function mergeSavedLine(
     // 수정하지 않는다. 중국옵션과 링크도 tracker에 값이 생기면 tracker가 우선한다.
     saleOption: baseLine.saleOption,
     chinaOption: baseLine.chinaOption || text(saved.chinaOption),
-    supplierLink: baseLine.supplierLink || text(saved.supplierLink),
+    supplierLink: baseLine.supplierLinkFromTracker
+      ? baseLine.supplierLink
+      : baseLine.supplierLink || text(saved.supplierLink),
   };
 }
 

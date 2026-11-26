@@ -146,7 +146,7 @@ function ensureChinaOptionPanel(section) {
   panel.dataset.itemId = "";
   panel.innerHTML = `
     <h4 class="optimized-china-order-map-title">B-code별 중국옵션</h4>
-    <p class="optimized-china-order-map-help">발주·입고 옵션가격에 바코드·위치코드가 등록된 항목만 표시합니다. 주문링크는 모델의 1번 중국 상품링크를 공통 사용하고 실제 중국옵션명만 저장합니다.</p>
+    <p class="optimized-china-order-map-help">발주·입고 옵션가격에 바코드·위치코드가 등록된 항목만 표시합니다. 같은 모델은 발주용 링크를 공유합니다.</p>
     <div id="optimized-china-order-map-list" class="optimized-china-order-map-list"></div>
     <div id="optimized-china-order-map-status" class="optimized-china-order-status"></div>`;
   section.append(panel);

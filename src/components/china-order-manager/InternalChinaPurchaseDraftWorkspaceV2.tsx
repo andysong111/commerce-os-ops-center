@@ -38,7 +38,7 @@ const cny = new Intl.NumberFormat("ko-KR", {
 const TABLE_COLUMNS = [
   { label: "B-code / 모델 / 옵션", width: 280 },
   { label: "중국옵션 · 역저장", width: 240 },
-  { label: "모델 고정 1번 1688 링크 · 역저장", width: 460 },
+  { label: "모델 발주용 링크", width: 460 },
   { label: "수량 · 계산 대기", width: 190 },
   { label: "위안단가", width: 130 },
   { label: "운임그룹", width: 180 },
@@ -1356,7 +1356,7 @@ export function InternalChinaPurchaseDraftWorkspaceV2({
                         <Input value={line.supplierLink} type="url" disabled={!editable} required={!linkValid} placeholder="https://detail.1688.com/offer/... 또는 https://item.taobao.com/item.htm?id=..." onChange={(value) => updateModelSupplierLink(line, value)} mono />
                         {linkValid ? <a href={line.supplierLink} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 font-black text-emerald-800 hover:bg-emerald-50">{supplierLinkLabel(line.supplierLink)}</a> : null}
                       </div>
-                      <span className="mt-1 block text-[10px] font-bold text-indigo-700">같은 모델 모든 B-code에 공통 적용 · 저장 시 상품출시 1번 링크로 역저장</span>
+                      <span className="mt-1 block text-[10px] font-bold text-indigo-700">같은 모델의 모든 B-code에 적용 · 저장 시 상품출시 발주용 링크에 반영</span>
                     </td>
                     <td className="px-2 py-2 text-right" style={stickyCellStyle(3, freezeThrough)}>
                       <NativeQuantityControl key={`${line.barcode}:${editedQuantities[line.barcode] ?? line.quantity}`} status={draft.status} barcode={line.barcode} quantity={line.quantity} bundleUnit={line.bundleUnit} stagedQuantity={editedQuantities[line.barcode]} onStage={stageQuantity} />

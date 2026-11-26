@@ -72,7 +72,7 @@ export function DetailPageSourceLinkFailurePanel() {
           <p className="text-xs font-black tracking-[0.12em] text-rose-600">검수 필요</p>
           <h2 className="mt-1 text-lg font-black text-rose-950">링크불량 · 정상 상품 원본 확인 불가</h2>
           <p className="mt-1 text-sm font-semibold leading-6 text-rose-800">
-            상세페이지 고정링크 1번이 내려갔거나 오류·빈 페이지·플레이스홀더만 반환해 실제 판매 상품의 형상을 확인하지 못했습니다. 새 1688 링크로 교체한 뒤 다시 생성해야 합니다.
+            상세페이지 제작에 사용한 1688 링크에서 원본 자료를 확보하지 못했습니다. 상품 상세에서 같은 상품의 제작용 링크를 저장한 뒤 다시 생성하세요.
           </p>
         </div>
         <span className="rounded-full bg-rose-600 px-3 py-1.5 text-xs font-black text-white">

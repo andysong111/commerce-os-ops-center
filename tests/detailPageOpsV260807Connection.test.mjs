@@ -34,6 +34,30 @@ test("selected product launch rows force 1688 link mode and pass seller options"
   assert.match(dock, /option\?\.saleOption/);
 });
 
+test("tracker generation and full retry pass the production link selected for detail pages", async () => {
+  const { chinaLinkUsagePatch, readChinaDetailPageLink } = await import(
+    "../public/product-launch-tracker-app/lib/china-product-links.mjs"
+  );
+  const detailPageUrl = "https://detail.1688.com/offer/222.html";
+  const item = chinaLinkUsagePatch({}, {
+    commonUrl: "https://detail.1688.com/offer/111.html",
+    purchaseUrl: "https://detail.1688.com/offer/333.html",
+    detailPageUrl,
+    purchaseAlternates: [],
+  });
+  assert.equal(readChinaDetailPageLink(item), detailPageUrl);
+  assert.match(dock, /sourceUrl: readChinaDetailPageLink\(item\)/);
+  assert.match(
+    dock,
+    /const \[latestItem\] = await loadAuthoritativeSelectedItems\(state, \[normalizedItemId\]\);\s*const sourceUrl = readChinaDetailPageLink\(latestItem\);/,
+  );
+  const compiler = await readFile(
+    new URL("../src/components/product-launch-flow/ProductLaunchEvidenceCompilerCanary.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(compiler, /const sourceUrl = readChinaDetailPageLink\(item\);/);
+});
+
 test("completed detail-page assets dock back to product launch detail fields", () => {
   assert.match(dock, /detailPageAsset:/);
   assert.match(dock, /detailImageUrl,/);

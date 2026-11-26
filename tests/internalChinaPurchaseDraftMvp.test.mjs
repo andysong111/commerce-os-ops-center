@@ -43,7 +43,7 @@ test("B-code metadata is reused from tracker, Product Master, and live Shopling 
   assert.match(engine, /loadShoplingCurrentModelSnapshot/);
   assert.match(engine, /trackerUsable\?\.saleOption/);
   assert.match(engine, /trackerUsable\?\.chinaOption/);
-  assert.match(engine, /trackerUsable\?\.supplierLink/);
+  assert.match(engine, /resolveDraftSupplierLink\(purchaseLinkRow, sourcePayload\.supplierLink\)/);
   assert.match(engine, /live\?\.modelName/);
 });
 
@@ -74,8 +74,8 @@ test("internal China draft prefers canonical identity over legacy Shopling label
   assert.doesNotMatch(identityBlock, /modelName: live\?\.modelName/);
 });
 
-test("product launch metadata uses the model product-level fixed first China link for every B-code", () => {
-  assert.match(trackerMetadata, /fixedFirstSupplierLink = summaryLinks\[0\]/);
+test("product launch metadata uses the model purchase link for every B-code", () => {
+  assert.match(trackerMetadata, /fixedFirstSupplierLink = normalizeChinaProductUrl\(readChinaPurchaseLink\(summary\)\)/);
   assert.match(trackerMetadata, /supplierLink: fixedFirstSupplierLink/);
   assert.match(trackerMetadata, /saleOption: text\(option\.saleOption\)/);
   assert.match(trackerMetadata, /chinaOption: text\(option\.chinaOption\)/);

@@ -21,6 +21,7 @@ import {
   applyProductLaunchTrackerMutation,
   buildProductLaunchTrackerIndex,
   getProductLaunchTrackerItem,
+  isChinaLinkUsageMigrationPatch,
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
 import {
@@ -591,6 +592,12 @@ async function mutateStateWithRetry(
         persistedState,
         updatedAt,
         mutation.changedIds,
+        {
+          linkMetadataOnly: isRecord(input) && input.operation === "bulk_patch_items" &&
+            Array.isArray(input.patches) && input.patches.every(
+              (entry) => isRecord(entry) && isChinaLinkUsageMigrationPatch(entry.patch),
+            ),
+        },
       );
       normalizedSynced = sync.synced === true;
     } catch (error) {

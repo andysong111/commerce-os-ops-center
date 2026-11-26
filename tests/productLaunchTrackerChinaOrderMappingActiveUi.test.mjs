@@ -40,7 +40,7 @@ test("active product detail stores only B-code China option while model fixed fi
   assert.match(extension, /data-optimized-china-order-map-row/);
   assert.match(extension, /data-optimized-china-order-option-input/);
   assert.doesNotMatch(extension, /data-optimized-china-order-link-select/);
-  assert.match(extension, /고정 1번 중국 상품링크/);
+  assert.match(extension, /이 모델의 발주용 링크를 사용합니다/);
   assert.match(extension, /readChinaOrderOptionMappings/);
 });
 

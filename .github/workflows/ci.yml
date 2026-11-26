@@ -162,6 +162,7 @@ jobs:
           tests/productLaunchTrackerBarcodeMapping.test.mjs
           tests/productLaunchTrackerFlowConnection.test.mjs
           tests/productLaunchTrackerOptimized.test.mjs
+          tests/productLaunchChinaLinkUsageMigration.test.mjs
           tests/productLaunchSeoMaterialReadiness.test.mjs
           tests/productLaunchSeoMaterialRecovery.test.mjs
           tests/productMasterSync.test.mjs
