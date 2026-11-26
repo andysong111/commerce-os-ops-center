@@ -13,6 +13,10 @@ const files = {
     "../src/app/api/product-launch-tracker/normalized-optimized/route.ts",
     import.meta.url,
   ),
+  legacyOptimized: new URL(
+    "../src/app/api/product-launch-tracker/optimized/route.ts",
+    import.meta.url,
+  ),
   cachedNormalized: new URL(
     "../src/app/api/product-launch-tracker/normalized-optimized-cached/route.ts",
     import.meta.url,
@@ -157,4 +161,29 @@ test("China link migration preserves newer normalized edits and guards each row 
     ...entry, expectedNormalizedLinkUsage: entry.nextLinkUsage, nextLinkUsage: null,
   }).patch, { item_payload: row.item_payload, summary_payload: row.summary_payload });
   assert.match(source.store, /updated_at: `eq\.\$\{rowRevision\}`/);
+});
+
+test("the deployed write wrapper skips the second option/batch synchronization on a link-only receipt", async () => {
+  const text = source.normalized.replace(/^import[\s\S]*?from ["'][^"']+["'];\s*/gm, "");
+  const exported = stripTypeScriptTypes(text).replace(/^export /gm, "");
+  let receipt = { ok: true, linkMetadataOnly: true, normalizedSynced: true };
+  let bridgeCalls = 0;
+  const patch = new Function(
+    "legacyPatch",
+    "syncProductLaunchNormalizedAfterMutation",
+    exported + "\nreturn PATCH;",
+  )(
+    async () => Response.json(receipt),
+    async () => { bridgeCalls++; },
+  );
+  const request = () => new Request("https://ops.example", { method: "PATCH", body: "{}" });
+  assert.deepEqual(await (await patch(request())).json(), receipt);
+  assert.equal(bridgeCalls, 0);
+  receipt = { ...receipt, normalizedSynced: false };
+  assert.deepEqual(await (await patch(request())).json(), receipt);
+  assert.equal(bridgeCalls, 0);
+  receipt = { ...receipt, linkMetadataOnly: false };
+  assert.deepEqual(await (await patch(request())).json(), receipt);
+  assert.equal(bridgeCalls, 1);
+  assert.match(source.legacyOptimized, /linkMetadataOnly: Boolean\(normalizedLinkPlan\)/);
 });

@@ -301,6 +301,9 @@ export async function PATCH(request: NextRequest) {
   pageCache.clear();
   const input = await inputPromise;
   const payload = await response.clone().json().catch(() => null as unknown);
+  // The authoritative route already applied the guarded link-only mirror.
+  // The ordinary bridge also rewrites option metadata and the workspace revision.
+  if (isRecord(payload) && payload.linkMetadataOnly === true) return response;
   try {
     await syncProductLaunchNormalizedAfterMutation(request, input, payload);
   } catch (error) {
