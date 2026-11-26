@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { readChinaLinkUsage } from "../../../../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
   getProductLaunchAdminConfig,
@@ -25,11 +26,13 @@ import {
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
 import {
+  prepareProductLaunchNormalizedLinkMigration,
   readProductLaunchNormalizedItem,
   readProductLaunchNormalizedItems,
   readProductLaunchNormalizedWorkspace,
   setProductLaunchNormalizedReadEnabled,
   syncProductLaunchNormalizedChangedItems,
+  syncProductLaunchNormalizedLinkMigration,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
 
@@ -573,6 +576,36 @@ async function mutateStateWithRetry(
       input,
     );
     const persistedState = withProductLaunchListSnapshot(mutation.state);
+    const bulkPatches = isRecord(input) && input.operation === "bulk_patch_items" &&
+      Array.isArray(input.patches) ? input.patches.filter(isRecord) : [];
+    const linkPatches = bulkPatches.filter((entry) => isChinaLinkUsageMigrationPatch(entry.patch));
+    if (linkPatches.length && linkPatches.length !== bulkPatches.length) {
+      throw new Error("중국 상품링크 이관은 다른 상품 변경과 함께 저장할 수 없습니다.");
+    }
+    const persistedItems = Array.isArray(persistedState.items) ? persistedState.items : [];
+    const normalizedLinkPlan = linkPatches.length
+      ? await prepareProductLaunchNormalizedLinkMigration(
+        config,
+        identity.userId,
+        linkPatches.map((entry) => {
+          const expectedNormalizedUpdatedAt = nullableText(entry.expectedNormalizedUpdatedAt);
+          const expectedUsage = entry.expectedNormalizedLinkUsage;
+          if (!expectedNormalizedUpdatedAt || !isRecord(expectedUsage)) {
+            throw new Error("중국 상품링크 이관에는 정규화 상품의 상태 확인이 필요합니다.");
+          }
+          const itemId = String(entry.itemId);
+          const item = persistedItems.find((current: unknown) => isRecord(current) && current.id === itemId);
+          if (!isRecord(item)) throw new Error("이관할 상품을 찾지 못했습니다.");
+          return {
+            itemId,
+            expectedNormalizedUpdatedAt,
+            expectedNormalizedLinkUsage: readChinaLinkUsage({ chinaLinkUsage: expectedUsage }),
+            nextLinkUsage: isRecord(item.chinaLinkUsage) ? readChinaLinkUsage(item) : null,
+          };
+        }),
+        row.updated_at,
+      )
+      : null;
     const saved = await conditionalWriteState(
       config,
       identity,
@@ -586,19 +619,9 @@ async function mutateStateWithRetry(
     const schemaVersion = numberOrNull(saved.schema_version) ?? 3;
     let normalizedSynced = true;
     try {
-      const sync = await syncProductLaunchNormalizedChangedItems(
-        config,
-        identity,
-        persistedState,
-        updatedAt,
-        mutation.changedIds,
-        {
-          linkMetadataOnly: isRecord(input) && input.operation === "bulk_patch_items" &&
-            Array.isArray(input.patches) && input.patches.every(
-              (entry) => isRecord(entry) && isChinaLinkUsageMigrationPatch(entry.patch),
-            ),
-        },
-      );
+      const sync = normalizedLinkPlan
+        ? await syncProductLaunchNormalizedLinkMigration(config, identity.userId, normalizedLinkPlan, updatedAt)
+        : await syncProductLaunchNormalizedChangedItems(config, identity, persistedState, updatedAt, mutation.changedIds);
       normalizedSynced = sync.synced === true;
     } catch (error) {
       normalizedSynced = false;

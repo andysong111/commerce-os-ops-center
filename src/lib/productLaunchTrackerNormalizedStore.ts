@@ -2,6 +2,10 @@ import { normalizeProductLaunchOptionNames } from "@/lib/productLaunchOptionName
 import { roundUpProductLaunchPriceKrw } from "@/lib/productLaunchPricePolicy";
 import { createSupabaseAdminHeaders } from "@/lib/supabase/admin";
 import {
+  readChinaLinkUsage,
+  readChinaPurchaseLink,
+} from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
+import {
   buildProductLaunchTrackerIndex,
   summarizeProductLaunchTrackerItem,
   type ProductLaunchTrackerPageQuery,
@@ -579,7 +583,6 @@ export async function syncProductLaunchNormalizedChangedItems(
   state: ProductLaunchTrackerState,
   sourceStateUpdatedAt: unknown,
   changedIds: string[],
-  { linkMetadataOnly = false } = {},
 ) {
   const existing = await readProductLaunchNormalizedWorkspace(config, identity.userId);
   if (!existing) return { synced: false, reason: "not_initialized" as const };
@@ -597,13 +600,11 @@ export async function syncProductLaunchNormalizedChangedItems(
 
   if (itemRows.length) {
     await upsertRows(config, ITEM_TABLE, itemRows, "owner_id,item_id");
-    if (!linkMetadataOnly) {
-      for (const itemId of existingItemIds) {
-        await deleteItemOptions(config, identity.userId, itemId);
-      }
-      const optionRows = prepared.options.filter((row) => existingItemIds.has(text(row.item_id)));
-      await upsertRows(config, OPTION_TABLE, optionRows, "owner_id,item_id,option_id");
+    for (const itemId of existingItemIds) {
+      await deleteItemOptions(config, identity.userId, itemId);
     }
+    const optionRows = prepared.options.filter((row) => existingItemIds.has(text(row.item_id)));
+    await upsertRows(config, OPTION_TABLE, optionRows, "owner_id,item_id,option_id");
   }
   for (const itemId of deletedIds) {
     await deleteItem(config, identity.userId, itemId);
@@ -628,6 +629,126 @@ export async function syncProductLaunchNormalizedChangedItems(
     optionCount: prepared.optionCount,
     changedCount: changed.size,
   };
+}
+
+type ChinaLinkMigrationEntry = {
+  itemId: string;
+  expectedNormalizedUpdatedAt: string;
+  expectedNormalizedLinkUsage: ReturnType<typeof readChinaLinkUsage>;
+  nextLinkUsage: ReturnType<typeof readChinaLinkUsage> | null;
+};
+
+export function buildProductLaunchNormalizedLinkPatch(
+  row: UnknownRecord,
+  entry: ChinaLinkMigrationEntry,
+) {
+  if (!isRecord(row.item_payload) || !isRecord(row.summary_payload)) {
+    throw new Error("정규화 상품 원본과 목록 저장본을 확인할 수 없습니다.");
+  }
+  const rawItem = row.item_payload;
+  const rawSummary = row.summary_payload;
+  const rowRevision = text(row.updated_at);
+  const displayedRevision = text(rawItem.updatedAt) || normalizedTimestamp(row.updated_at);
+  const expected = entry.expectedNormalizedLinkUsage;
+  if (!rowRevision || !expected || displayedRevision !== entry.expectedNormalizedUpdatedAt ||
+      JSON.stringify(readChinaLinkUsage(rawItem)) !== JSON.stringify(readChinaLinkUsage({ chinaLinkUsage: expected }))) {
+    throw new Error("정규화 상품의 링크가 이관 미리보기 뒤 동시에 수정되었습니다.");
+  }
+  const itemPayload = { ...rawItem };
+  const summaryPayload = { ...rawSummary };
+  if (entry.nextLinkUsage === null) {
+    delete itemPayload.chinaLinkUsage;
+    delete summaryPayload.chinaLinkUsage;
+  } else {
+    itemPayload.chinaLinkUsage = entry.nextLinkUsage;
+    summaryPayload.chinaLinkUsage = entry.nextLinkUsage;
+  }
+  const usage = readChinaLinkUsage(itemPayload);
+  const purchase = readChinaPurchaseLink(itemPayload);
+  summaryPayload.chinaProductLinks = purchase ? [purchase, ...usage.purchaseAlternates] : [];
+  return {
+    itemId: entry.itemId,
+    rowRevision,
+    patch: { item_payload: itemPayload, summary_payload: summaryPayload },
+  };
+}
+
+export async function prepareProductLaunchNormalizedLinkMigration(
+  config: Config,
+  ownerId: string,
+  entries: ChinaLinkMigrationEntry[],
+  sourceStateUpdatedAt: unknown,
+) {
+  if (!entries.length || entries.length > MAX_PAGE_SIZE) {
+    throw new Error("중국 상품링크 이관은 회당 1~100개 상품을 지원합니다.");
+  }
+  const params = new URLSearchParams({
+    select: "item_id,item_payload,summary_payload,updated_at",
+    owner_id: `eq.${ownerId}`,
+    item_id: `in.(${postgrestIn(entries.map(({ itemId }) => itemId))})`,
+    limit: String(MAX_PAGE_SIZE),
+  });
+  const [response, workspace] = await Promise.all([
+    normalizedFetch(config, `${ITEM_TABLE}?${params}`),
+    readProductLaunchNormalizedWorkspace(config, ownerId),
+  ]);
+  if (response.missingSchema || !workspace) throw new Error("정규화 상품 원장이 없습니다.");
+  const rows = new Map((Array.isArray(response.body) ? response.body : [])
+    .filter(isRecord).map((row) => [text(row.item_id), row]));
+  return {
+    sourceRevision: isProductLaunchNormalizedFresh(workspace, sourceStateUpdatedAt)
+      ? text(workspace.source_state_updated_at)
+      : "",
+    items: entries.map((entry) => {
+      const row = rows.get(entry.itemId);
+      if (!row) throw new Error("정규화 상품을 찾지 못했습니다.");
+      return buildProductLaunchNormalizedLinkPatch(row, entry);
+    }),
+  };
+}
+
+export async function syncProductLaunchNormalizedLinkMigration(
+  config: Config,
+  ownerId: string,
+  plan: Awaited<ReturnType<typeof prepareProductLaunchNormalizedLinkMigration>>,
+  sourceStateUpdatedAt: string,
+) {
+  const owner = `eq.${ownerId}`;
+  for (let offset = 0; offset < plan.items.length; offset += 6) {
+    await Promise.all(plan.items.slice(offset, offset + 6).map(async ({ itemId, patch, rowRevision }) => {
+      const params = new URLSearchParams({
+        owner_id: owner,
+        item_id: `eq.${itemId}`,
+        updated_at: `eq.${rowRevision}`,
+        select: "item_id",
+      });
+      const response = await fetch(`${config.supabaseUrl}/rest/v1/${ITEM_TABLE}?${params}`, {
+        method: "PATCH",
+        headers: { ...createSupabaseAdminHeaders(config.secretKey), Prefer: "return=representation" },
+        body: JSON.stringify(patch),
+        cache: "no-store",
+      });
+      const body = await readBody(response);
+      if (!response.ok) throw new Error(readError(body, response.status));
+      if (!Array.isArray(body) || body.length !== 1 || !isRecord(body[0]) || text(body[0].item_id) !== itemId) {
+        throw new Error("정규화 상품이 링크 이관 중 동시에 수정되었습니다.");
+      }
+    }));
+  }
+  if (plan.sourceRevision) {
+    const params = new URLSearchParams({
+      owner_id: owner,
+      source_state_updated_at: `eq.${plan.sourceRevision}`,
+    });
+    const response = await fetch(`${config.supabaseUrl}/rest/v1/${WORKSPACE_TABLE}?${params}`, {
+      method: "PATCH",
+      headers: createSupabaseAdminHeaders(config.secretKey),
+      body: JSON.stringify({ source_state_updated_at: sourceStateUpdatedAt }),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(readError(await readBody(response), response.status));
+  }
+  return { synced: true as const };
 }
 
 export async function setProductLaunchNormalizedReadEnabled(
