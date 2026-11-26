@@ -25,6 +25,7 @@ export function readChinaDetailPageLink(item: unknown): string;
 export function setChinaLinkUsageInput(
   usage: ChinaLinkUsage, role: "purchaseUrl" | "detailPageUrl", value: string,
 ): ChinaLinkUsage;
+export function addChinaPurchaseAlternate(usage: ChinaLinkUsage): ChinaLinkUsage;
 export function chinaLinkUsagePatch(item: unknown, value: unknown): {
   chinaLinkUsage: ChinaLinkUsage;
   chinaProductLinks: string[];

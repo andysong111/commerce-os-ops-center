@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  addChinaPurchaseAlternate,
   chinaLinkUsagePatch,
   readChinaDetailPageLink,
   readChinaLinkUsage,
@@ -15,6 +16,37 @@ import {
   readChinaProductLinks,
   sameChinaProductLinks,
 } from "../public/product-launch-tracker-app/lib/china-product-links.mjs";
+
+test("발주용 링크 후순위는 클릭당 하나씩 추가되고 기존 순서와 최대 5순위를 지킨다", () => {
+  const common = "https://detail.1688.com/offer/100.html";
+  const second = "https://detail.1688.com/offer/200.html";
+  const third = "https://detail.1688.com/offer/300.html";
+  const fourth = "https://detail.1688.com/offer/400.html";
+  const existing = readChinaLinkUsage({ chinaProductLinks: [common, second] });
+  const added = addChinaPurchaseAlternate(existing);
+  assert.deepEqual(added.purchaseAlternates, [second, ""]);
+  assert.deepEqual(existing.purchaseAlternates, [second]);
+  assert.deepEqual(chinaLinkUsagePatch({}, added).chinaLinkUsage, existing);
+
+  const full = addChinaPurchaseAlternate({ ...added, purchaseAlternates: [second, third, fourth] });
+  assert.deepEqual(full.purchaseAlternates, [second, third, fourth, ""]);
+  assert.equal(addChinaPurchaseAlternate(full), full);
+  assert.equal(readChinaPurchaseLink({ chinaLinkUsage: full }), common);
+});
+
+test("상품 상세 두 편집기는 저장된 발주 순위만 표시하고 후순위 추가 버튼을 연결한다", async () => {
+  const [standalone, optimized] = await Promise.all([
+    readFile(new URL("../src/app/product-launch-editor/ProductLaunchStandaloneEditor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/product-launch-tracker-app/optimized-app.js", import.meta.url), "utf8"),
+  ]);
+  for (const source of [standalone, optimized]) {
+    assert.match(source, /발주용 링크 1순위/);
+    assert.match(source, /발주용 링크 후순위 추가/);
+    assert.match(source, /purchaseAlternates\.map\(/);
+    assert.match(source, /addChinaPurchaseAlternate\(usage\)|addChinaPurchaseAlternate\(value\)/);
+    assert.doesNotMatch(source, /추가 발주 후보 링크/);
+  }
+});
 
 test("기존 1번 링크는 공통으로 사용하고 나머지는 발주 후보 순서로 보존한다", () => {
   const one = "https://detail.1688.com/offer/100.html";

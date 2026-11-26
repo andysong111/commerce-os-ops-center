@@ -185,6 +185,11 @@ export function setChinaLinkUsageInput(usage, role, value) {
   return next;
 }
 
+export function addChinaPurchaseAlternate(usage) {
+  if (usage.purchaseAlternates.length >= MAX_CHINA_PRODUCT_LINKS - 1) return usage;
+  return { ...usage, purchaseAlternates: [...usage.purchaseAlternates, ""] };
+}
+
 export function chinaLinkUsagePatch(item, value) {
   const chinaLinkUsage = normalizeChinaLinkUsage(value);
   const purchaseUrl = readChinaPurchaseLink({ chinaLinkUsage });

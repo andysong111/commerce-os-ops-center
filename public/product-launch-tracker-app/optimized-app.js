@@ -13,6 +13,7 @@ import {
 } from "./lib/tracker-core.mjs";
 import {
   MAX_CHINA_PRODUCT_LINKS,
+  addChinaPurchaseAlternate,
   chinaLinkUsagePatch,
   normalizeChinaProductUrl,
   readChinaLinkUsage,
@@ -1253,29 +1254,35 @@ function ensureChinaProductLinksSection() {
   return section;
 }
 
-function renderChinaProductLinks(usage) {
-  const section = ensureChinaProductLinksSection();
-  const list = section?.querySelector("#optimized-china-product-links-list");
-  if (!list) return;
-  const row = (role, label, value) => `
+function chinaProductLinkRow(role, icon, label, value) {
+  return `
     <div class="optimized-china-link-row">
-      <label class="optimized-china-link-number" for="china-link-${role}">${label}</label>
+      <label class="optimized-china-link-number" for="china-link-${role}"><span aria-hidden="true">${icon}</span> ${label}</label>
       <input class="optimized-china-link-input" id="china-link-${role}" data-china-link-input="${role}" type="text" inputmode="url" autocomplete="off" placeholder="https://detail.1688.com/offer/..." value="${escapeAttribute(value)}" />
       <button class="optimized-china-link-action" type="button" data-china-link-action="open" aria-label="${label} 열기">열기</button>
     </div>
   `;
+}
+
+function chinaPurchaseAlternateRow(value, index) {
+  return chinaProductLinkRow(`alternate-${index}`, "📦", `발주용 링크 ${index + 2}순위`, value);
+}
+
+function renderChinaProductLinks(usage) {
+  const section = ensureChinaProductLinksSection();
+  const list = section?.querySelector("#optimized-china-product-links-list");
+  if (!list) return;
   list.innerHTML = `
-    ${row("commonUrl", "공통 사용 링크", usage.commonUrl)}
-    ${row("purchaseUrl", "발주용 링크", usage.purchaseUrl)}
-    ${row("detailPageUrl", "상세페이지 제작용 링크", usage.detailPageUrl)}
-    <div><button class="optimized-china-link-action" type="button" data-china-link-action="common">공통 링크 다시 사용</button></div>
-    <details ${usage.purchaseAlternates.length ? "open" : ""}>
-      <summary>추가 발주 후보 링크</summary>
-      <p>기존 발주 우선순위대로 보관합니다. 발주초안에는 위 발주용 링크가 들어갑니다.</p>
-      ${Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) =>
-        row(`alternate-${index}`, `발주 후보 ${index + 2}번`, usage.purchaseAlternates[index] ?? ""),
-      ).join("")}
-    </details>
+    <div class="optimized-china-link-group is-common">
+      ${chinaProductLinkRow("commonUrl", "🔗", "공통 사용 링크", usage.commonUrl)}
+      <button class="optimized-china-link-action" type="button" data-china-link-action="common">공통 링크 다시 사용</button>
+    </div>
+    <div class="optimized-china-link-group is-purchase">
+      ${chinaProductLinkRow("purchaseUrl", "📦", "발주용 링크 1순위", usage.purchaseUrl)}
+      <div class="optimized-china-link-alternates">${usage.purchaseAlternates.map(chinaPurchaseAlternateRow).join("")}</div>
+      <button class="optimized-china-link-action" type="button" data-china-link-action="add-alternate"><span aria-hidden="true">＋</span> <span data-china-add-label>발주용 링크 후순위 추가</span></button>
+    </div>
+    <div class="optimized-china-link-group is-detail">${chinaProductLinkRow("detailPageUrl", "🎨", "상세페이지 제작용 링크", usage.detailPageUrl)}</div>
   `;
   syncChinaLinkControls();
   setChinaLinkStatus("");
@@ -1315,6 +1322,15 @@ function handleChinaLinkAction(event) {
     syncChinaLinkControls();
     chinaLinkInput("commonUrl").focus();
     setChinaLinkStatus("상품 저장 버튼을 누르면 공통 링크가 적용됩니다.", "dirty");
+  } else if (button.dataset.chinaLinkAction === "add-alternate") {
+    const usage = readChinaProductLinkInputs();
+    const next = addChinaPurchaseAlternate(usage);
+    if (next === usage) return;
+    const index = usage.purchaseAlternates.length;
+    button.closest(".is-purchase").querySelector(".optimized-china-link-alternates")
+      .insertAdjacentHTML("beforeend", chinaPurchaseAlternateRow(next.purchaseAlternates[index], index));
+    syncChinaLinkControls();
+    chinaLinkInput(`alternate-${index}`)?.focus();
   }
 }
 
@@ -1327,9 +1343,8 @@ function readChinaProductLinkInputs() {
     commonUrl: chinaLinkInput("commonUrl")?.value ?? "",
     purchaseUrl: chinaLinkInput("purchaseUrl")?.value ?? "",
     detailPageUrl: chinaLinkInput("detailPageUrl")?.value ?? "",
-    purchaseAlternates: Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) =>
-      chinaLinkInput(`alternate-${index}`)?.value ?? "",
-    ),
+    purchaseAlternates: [...(elements.detailForm?.querySelectorAll('[data-china-link-input^="alternate-"]') ?? [])]
+      .map((input) => input.value),
   };
 }
 
@@ -1340,6 +1355,16 @@ function syncChinaLinkControls() {
   const split = Boolean(usage.purchaseUrl.trim() || usage.detailPageUrl.trim());
   chinaLinkInput("commonUrl").disabled = split;
   scope.querySelector("[data-china-link-action='common']").hidden = !split;
+  const placeholder = !split && usage.commonUrl.trim()
+    ? "공통 사용 링크 적용 중"
+    : "https://detail.1688.com/offer/...";
+  chinaLinkInput("purchaseUrl").placeholder = placeholder;
+  chinaLinkInput("detailPageUrl").placeholder = placeholder;
+  const addButton = scope.querySelector("[data-china-link-action='add-alternate']");
+  addButton.disabled = usage.purchaseAlternates.length >= MAX_CHINA_PRODUCT_LINKS - 1;
+  addButton.querySelector("[data-china-add-label]").textContent = addButton.disabled
+    ? "발주용 링크 5순위까지 추가됨"
+    : "발주용 링크 후순위 추가";
   for (const row of scope.querySelectorAll(".optimized-china-link-row")) {
     const input = row.querySelector("input");
     row.querySelector("button").disabled = input.disabled || !input.value.trim();
@@ -2172,14 +2197,17 @@ function installStyles() {
     .category-ai-suggestion-badge { margin:4px 0 0 4px; border:1px solid #f59e0b; border-radius:999px; background:#fffbeb; color:#92400e; padding:2px 7px; font-size:10px; font-weight:800; }
     .optimized-china-link-list { display:grid; gap:10px; margin-top:14px; }
     .optimized-china-link-row { display:grid; grid-template-columns:minmax(105px,150px) minmax(0,1fr) auto; gap:8px; align-items:center; }
-    .optimized-china-link-list details > .optimized-china-link-row { margin-top:8px; }
+    .optimized-china-link-group { border:1px solid var(--link-border); background:var(--link-bg); border-radius:12px; padding:10px; }
+    .optimized-china-link-group.is-common { --link-border:#bae6fd; --link-bg:#f0f9ff; --link-text:#0c4a6e; }
+    .optimized-china-link-group.is-purchase { --link-border:#fde68a; --link-bg:#fffbeb; --link-text:#78350f; }
+    .optimized-china-link-group.is-detail { --link-border:#ddd6fe; --link-bg:#f5f3ff; --link-text:#4c1d95; }
+    .optimized-china-link-alternates .optimized-china-link-row, .optimized-china-link-group > .optimized-china-link-action { margin-top:8px; }
     .optimized-china-link-input:disabled { background:#f1f5f9; color:#64748b; }
-    .optimized-china-link-number { font-size:12px; font-weight:900; color:#475569; }
-    .optimized-china-link-number.is-primary { color:#1d4ed8; }
+    .optimized-china-link-number { font-size:13px; font-weight:900; color:var(--link-text); }
     .optimized-china-link-input { width:100%; min-width:0; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; font-size:13px; background:#fff; }
     .optimized-china-link-input:focus { outline:2px solid #bfdbfe; border-color:#2563eb; }
     .optimized-china-link-action { white-space:nowrap; border:1px solid #cbd5e1; border-radius:9px; background:#fff; padding:9px 11px; font-size:12px; font-weight:800; cursor:pointer; }
-    .optimized-china-link-action.is-primary { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; }
+    .optimized-china-link-group > .optimized-china-link-action { border-color:var(--link-border); color:var(--link-text); }
     .optimized-china-link-action:disabled { opacity:.45; cursor:not-allowed; }
     .optimized-china-link-status { font-size:12px; font-weight:800; color:#64748b; }
     .optimized-china-link-status[data-tone="dirty"] { color:#b45309; }

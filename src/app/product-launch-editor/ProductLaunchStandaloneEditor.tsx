@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MAX_CHINA_PRODUCT_LINKS,
+  addChinaPurchaseAlternate,
   chinaLinkUsagePatch,
   normalizeChinaLinkUsage,
   readChinaLinkUsage,
@@ -299,14 +300,12 @@ function Field({
   value,
   onChange,
   readOnly = false,
-  disabled = false,
   span = false,
 }: {
   label: string;
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
-  disabled?: boolean;
   span?: boolean;
 }) {
   return (
@@ -315,9 +314,47 @@ function Field({
       <input
         value={value}
         readOnly={readOnly}
-        disabled={disabled}
         onChange={(event) => onChange?.(event.target.value)}
-        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${readOnly || disabled ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white"}`}
+        className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-blue-500 ${readOnly ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white"}`}
+      />
+    </label>
+  );
+}
+
+const CHINA_LINK_STYLES = {
+  common: { icon: "🔗", panel: "border-sky-200 bg-sky-50/70", label: "text-sky-900", input: "border-sky-200 focus-visible:ring-sky-600" },
+  purchase: { icon: "📦", panel: "border-amber-200 bg-amber-50/70", label: "text-amber-950", input: "border-amber-200 focus-visible:ring-amber-700" },
+  detail: { icon: "🎨", panel: "border-violet-200 bg-violet-50/70", label: "text-violet-950", input: "border-violet-200 focus-visible:ring-violet-600" },
+} as const;
+
+function ChinaLinkField({
+  role, label, value, onChange, disabled, placeholder, inputRef,
+}: {
+  role: keyof typeof CHINA_LINK_STYLES;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  inputRef?: (input: HTMLInputElement | null) => void;
+}) {
+  const style = CHINA_LINK_STYLES[role];
+  return (
+    <label className="grid gap-1.5">
+      <span className={`flex items-center gap-2 text-sm font-extrabold ${style.label}`}>
+        <span aria-hidden="true">{style.icon}</span>
+        {label}
+      </span>
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="url"
+        autoComplete="off"
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder ?? "https://detail.1688.com/offer/..."}
+        onChange={(event) => onChange(event.target.value)}
+        className={`min-w-0 w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 disabled:bg-slate-100 disabled:text-slate-600 ${style.input}`}
       />
     </label>
   );
@@ -327,32 +364,59 @@ function ChinaLinkFields({ value, onChange }: {
   value: ChinaLinkUsage;
   onChange: (value: ChinaLinkUsage) => void;
 }) {
+  const focusAlternate = useRef<number | null>(null);
   const split = Boolean(value.purchaseUrl.trim() || value.detailPageUrl.trim());
+  const inheritsCommon = !split && value.commonUrl.trim() ? "공통 사용 링크 적용 중" : undefined;
+  const purchaseRanksFull = value.purchaseAlternates.length >= MAX_CHINA_PRODUCT_LINKS - 1;
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="font-black">중국 상품링크</h2>
       <p className="mt-1 text-xs text-slate-500">발주와 상세페이지 제작에 같은 링크를 쓰려면 공통 사용 링크에 입력하세요.</p>
       <div className="mt-4 grid gap-3">
-        <Field label="공통 사용 링크" value={value.commonUrl} disabled={split} onChange={(commonUrl) => onChange({ ...value, commonUrl })} />
-        <Field label="발주용 링크" value={value.purchaseUrl} onChange={(url) => onChange(setChinaLinkUsageInput(value, "purchaseUrl", url))} />
-        <Field label="상세페이지 제작용 링크" value={value.detailPageUrl} onChange={(url) => onChange(setChinaLinkUsageInput(value, "detailPageUrl", url))} />
-        {split ? (
-          <button type="button" className="justify-self-start rounded-lg border px-3 py-1.5 text-xs font-bold" onClick={() => onChange({ ...value, purchaseUrl: "", detailPageUrl: "" })}>
-            공통 링크 다시 사용
-          </button>
-        ) : null}
-        <details open={value.purchaseAlternates.some(Boolean) || undefined} className="space-y-3 rounded-xl border border-slate-200 p-3">
-          <summary className="cursor-pointer text-sm font-semibold">추가 발주 후보 링크</summary>
-          <p className="text-xs text-slate-500">기존 우선순위대로 보관합니다. 발주초안에는 위 발주용 링크가 들어갑니다.</p>
-          {Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, index) => (
-            <Field key={index} label={`발주 후보 ${index + 2}번`} value={value.purchaseAlternates[index] ?? ""} onChange={(url) => {
-              const purchaseAlternates = Array.from({ length: MAX_CHINA_PRODUCT_LINKS - 1 }, (_, i) =>
-                i === index ? url : value.purchaseAlternates[i] ?? "",
-              );
-              onChange({ ...value, purchaseAlternates });
-            }} />
+        <div className={`space-y-2 rounded-xl border p-3 ${CHINA_LINK_STYLES.common.panel}`}>
+          <ChinaLinkField role="common" label="공통 사용 링크" value={value.commonUrl} disabled={split} onChange={(commonUrl) => onChange({ ...value, commonUrl })} />
+          {split ? (
+            <button type="button" className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-bold text-sky-900 hover:bg-sky-100" onClick={() => onChange({ ...value, purchaseUrl: "", detailPageUrl: "" })}>
+              공통 링크 다시 사용
+            </button>
+          ) : null}
+        </div>
+        <div className={`grid gap-3 rounded-xl border p-3 ${CHINA_LINK_STYLES.purchase.panel}`}>
+          <ChinaLinkField role="purchase" label="발주용 링크 1순위" value={value.purchaseUrl} placeholder={inheritsCommon} onChange={(url) => onChange(setChinaLinkUsageInput(value, "purchaseUrl", url))} />
+          {value.purchaseAlternates.map((url, index) => (
+            <ChinaLinkField
+              key={index}
+              role="purchase"
+              label={`발주용 링크 ${index + 2}순위`}
+              value={url}
+              inputRef={(input) => {
+                if (input && focusAlternate.current === index) {
+                  focusAlternate.current = null;
+                  input.focus();
+                }
+              }}
+              onChange={(nextUrl) => onChange({
+                ...value,
+                purchaseAlternates: value.purchaseAlternates.map((current, i) => i === index ? nextUrl : current),
+              })}
+            />
           ))}
-        </details>
+          <button
+            type="button"
+            disabled={purchaseRanksFull}
+            className="inline-flex items-center gap-1.5 justify-self-start rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-amber-700 disabled:cursor-not-allowed disabled:border-amber-200 disabled:bg-transparent disabled:text-amber-800/70"
+            onClick={() => {
+              focusAlternate.current = value.purchaseAlternates.length;
+              onChange(addChinaPurchaseAlternate(value));
+            }}
+          >
+            <span aria-hidden="true">＋</span>
+            {purchaseRanksFull ? "발주용 링크 5순위까지 추가됨" : "발주용 링크 후순위 추가"}
+          </button>
+        </div>
+        <div className={`rounded-xl border p-3 ${CHINA_LINK_STYLES.detail.panel}`}>
+          <ChinaLinkField role="detail" label="상세페이지 제작용 링크" value={value.detailPageUrl} placeholder={inheritsCommon} onChange={(url) => onChange(setChinaLinkUsageInput(value, "detailPageUrl", url))} />
+        </div>
       </div>
     </div>
   );
