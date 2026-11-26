@@ -656,6 +656,7 @@ async function mutateStateWithRetry(
       counts: index.counts,
       filterOptions: index.filterOptions,
       normalizedSynced,
+      linkMetadataOnly: Boolean(normalizedLinkPlan),
     };
   }
 
