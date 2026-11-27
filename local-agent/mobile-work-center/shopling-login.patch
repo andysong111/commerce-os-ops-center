@@ -14,7 +14,7 @@ diff --git a/local-agent/src/local-control-center.mjs b/local-agent/src/local-co
        account = String(session.matchedAccount || config.shoplingAccount || "andy801").trim();
      }
      const source = options.source === "schedule" ? "schedule" : "operator";
-@@ -4572,6 +4578,27 @@
+@@ -4572,6 +4578,34 @@
      return result;
    }
 
@@ -24,7 +24,14 @@ diff --git a/local-agent/src/local-control-center.mjs b/local-agent/src/local-co
 +    if (closing || mainBusy() || activeRuns().length || loginResumeInProgress || state.pendingLoginAction) return "busy";
 +    loginQueueStarting = true;
 +    try {
-+      const auth = await attemptShoplingAutoLogin();
++      let auth = await attemptShoplingAutoLogin();
++      if (auth.reason === "CHROME_CDP_UNAVAILABLE" && !auth.attempted) {
++        const listing = await (dependencies.listChromeTargets || listChromeTargets)(config).catch(() => null);
++        if (!listing?.available) {
++          await ensureDedicatedChrome();
++          auth = await attemptShoplingAutoLogin();
++        }
++      }
 +      if (auth.ready && auth.session?.ready && auth.session.matchedAccount) return "ready";
 +      if (auth.reason === "CAPTCHA_EXPIRED") return "expired";
 +      if (auth.reason === "COOLDOWN") return "checking";
@@ -42,7 +49,7 @@ diff --git a/local-agent/src/local-control-center.mjs b/local-agent/src/local-co
    async function retryShoplingAutoLogin() {
      if (!state.settings.shoplingAutoLoginEnabled) {
        const error = new Error("샵플링 자동 로그인을 먼저 켜 주세요.");
-@@ -4786,6 +4813,7 @@
+@@ -4786,6 +4820,7 @@
      stopActiveRun,
      updateSettings,
      configureShoplingCredential,
