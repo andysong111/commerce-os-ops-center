@@ -3,6 +3,8 @@ import {
   normalizeStockoutResetInput,
 } from "@/lib/inventoryStockControl";
 import { storeInventoryOperationBatch } from "@/lib/inventoryStockBulkStore";
+import { prepareShoplingStockBatch } from "@/lib/shopling/shoplingStockBatchService";
+import { bindStockBatchPlans } from "@/lib/shoplingStockBatchPreflight";
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
 import {
   loadProductMasterInventoryIdentities,
@@ -12,7 +14,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 function unauthorized() {
   return Response.json(
@@ -82,16 +84,7 @@ export async function POST(request: Request) {
         note: "창고 실물 품절 일괄 확인",
       }),
     );
-    const storage = await storeInventoryOperationBatch(
-      events.map((event) => ({
-        operationType: INVENTORY_STOCKOUT_RESET_OPERATION_TYPE,
-        sourceEventId: `inventory-stockout-reset:${encodeURIComponent(event.eventId)}`,
-        correlationId: `inventory-stock:${event.barcode}`,
-        snapshot: event,
-      })),
-    );
-
-    const jobs = events.map((event) => {
+    const inputJobs = events.map((event) => {
       const identity = identities.find((row) => row.barcode === event.barcode);
       if (!identity || !identity.productKind) {
         throw new Error(
@@ -117,6 +110,17 @@ export async function POST(request: Request) {
         directOperatorCommand: true as const,
       };
     });
+
+    const stockBatch = body.stockPlanVersion === 1 ? await prepareShoplingStockBatch(inputJobs) : null;
+    const jobs = stockBatch ? bindStockBatchPlans(inputJobs, stockBatch) : inputJobs;
+    const storage = await storeInventoryOperationBatch(
+      events.map((event) => ({
+        operationType: INVENTORY_STOCKOUT_RESET_OPERATION_TYPE,
+        sourceEventId: `inventory-stockout-reset:${encodeURIComponent(event.eventId)}`,
+        correlationId: `inventory-stock:${event.barcode}`,
+        snapshot: event,
+      })),
+    );
 
     return Response.json(
       {

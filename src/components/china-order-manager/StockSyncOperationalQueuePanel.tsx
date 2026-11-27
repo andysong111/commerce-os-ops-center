@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INVENTORY_QUEUE_PATH, inventoryStockReadClient, startInventoryPolling } from "@/lib/inventoryStockConnection";
-import { planShoplingStockLaunch, supportsAllDateStockSync } from "@/lib/shoplingStockLaunchPlan";
+import { planShoplingStockLaunch, supportsAllDateStockSync, supportsStockParentFinalization } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
 import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } from "@/lib/shoplingStockQueueSelection";
@@ -10,7 +10,10 @@ import { selectExactShoplingStockQueueJob, type ShoplingStockQueueSelection } fr
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
 type SyncOutcome = "STARTED" | "SUCCEEDED" | "FAILED" | "UNCERTAIN";
-type SyncJob = {
+import { missingStockPlanReceipts, orderStockBatchJobs, preflightShoplingStockJobs, retainQueueCommandPlans, verifyStockPlanTerminal, type StockBatchPlanFields } from "@/lib/shoplingStockBatchPreflight";
+
+type SyncJob = StockBatchPlanFields & {
+  confirmedStockDependencies?: string[];
   jobId: string; barcode: string; productName: string; productKind: ProductKind;
   modelNo: string | null; goodsKeys: string[]; desiredStatus: DesiredStatus;
   desiredSince: string; exactInventoryQuantity: number; resetAt: string; route: string[];
@@ -38,6 +41,7 @@ type ActiveBatch = {
   startedJobIds: Set<string>;
   startRecordPromises: Map<string, Promise<void>>;
   terminalJobIds: Set<string>;
+  dispatchedAt: number;
 };
 type LocalException = { jobId: string; barcode: string; outcome: Exclude<SyncOutcome, "STARTED">; message: string };
 type TerminalSummary = {
@@ -133,9 +137,13 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const handledResults = useRef(new Set<string>());
   const activeBatch = useRef<ActiveBatch | null>(null);
   const excludedThisRun = useRef(new Set<string>());
+  const frozenJobs = useRef<SyncJob[] | null>(null);
+  const savedPlanIds = useRef(new Set<string>());
+  const acceptedPlanBarcodes = useRef(new Set<string>());
   const continueAfterBatch = useRef(false);
   const extensionVersionRef = useRef("");
   const requestedSingleRun = useRef<ShoplingStockQueueSelection | null>(null);
+  const runGeneration = useRef(0);
 
   // Execution defaults to a fresh read. Only passive polls may share an in-flight
   // overview read, and no completed job list is ever used as a transport cache.
@@ -196,17 +204,56 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     if (!continueAfterBatch.current) {
       setDraining(false); setPhase("PAUSED"); activeBatch.current = null; setRunningBarcodes([]); return;
     }
+    const generation = runGeneration.current;
     const payload = await loadQueue();
+    if (generation !== runGeneration.current) return;
     const available = payload.jobs.filter((job) => !excludedThisRun.current.has(job.jobId)).sort(prioritySort);
     const requested = requestedSingleRun.current;
-    const launchable = requested
+    const authorized = requested
       ? [selectExactShoplingStockQueueJob(available, requested)]
-      : available;
+      : orderStockBatchJobs(available);
+    // Freeze the authoritatively selected work before the first mutation. A later
+    // queue refresh may add jobs, but those require their own authorization/plan.
+    if (!frozenJobs.current) {
+      savedPlanIds.current = new Set(authorized.filter((job) => job.stockBatchPlan).map((job) => job.jobId));
+      if (authorized.length > 50) throw new Error("운영 큐의 전체 상품·옵션 확인 범위는 한 번에 50건입니다. 이 건만 처리로 대상을 지정해 주세요.");
+      if (requested && authorized[0]?.stockBatchPlan) {
+        frozenJobs.current = authorized;
+      } else {
+        const prepared = authorized.length ? await preflightShoplingStockJobs(authorized) : null;
+        if (generation !== runGeneration.current) return;
+        frozenJobs.current = prepared ? retainQueueCommandPlans(authorized, prepared.jobs, prepared.products) : [];
+      }
+    }
+    const launchable: SyncJob[] = [];
+    let heldReason = "";
+    for (const planned of frozenJobs.current) {
+      if (excludedThisRun.current.has(planned.jobId)) continue;
+      const latest = selectExactShoplingStockQueueJob(available, planned);
+      // An older saved batch can have a required receipt outside this run.
+      // A fresh Shopling API snapshot alone cannot prove prior A21 acceptance.
+      if (Boolean(latest.stockBatchPlan) !== savedPlanIds.current.has(planned.jobId) ||
+        (latest.stockBatchPlan && (latest.retransmissionRequestId !== planned.retransmissionRequestId || latest.stockBatchPlan !== planned.stockBatchPlan))) {
+        throw new Error(`${planned.barcode}의 저장된 전송계획이 변경되었습니다. 운영 큐를 새로고침해 주세요.`);
+      }
+      const completed = latest.stockBatchPlan ? new Set(latest.confirmedStockDependencies || []) : acceptedPlanBarcodes.current;
+      const blocked = missingStockPlanReceipts(planned, completed);
+      if (blocked.length) {
+        const message = `${planned.barcode} · 선행 옵션 ${blocked.join(", ")}의 전송 접수가 확인되지 않아 보류했습니다.`;
+        excludedThisRun.current.add(planned.jobId);
+        setLocalExceptions((current) => [...current, { jobId: planned.jobId, barcode: planned.barcode, outcome: "FAILED", message }]);
+        heldReason = message;
+        continue;
+      }
+      launchable.push(planned);
+      break;
+    }
     if (!launchable.length) {
+      continueAfterBatch.current = false;
       activeBatch.current = null; setRunningBarcodes([]); setDraining(false); setPhase("DONE");
-      setNotice(localExceptions.length || blockedRows.length
+      setNotice(heldReason || (localExceptions.length || blockedRows.length
         ? "실행 가능한 운영 큐는 비었습니다. 실패/보류 건은 예외 큐에 남겨 자동 재시도하지 않습니다."
-        : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다.");
+        : "운영 재고상태 큐 처리 완료 · 현재 실행 가능한 Shopling 품절·판매중 대기건이 없습니다."));
       return;
     }
     setNotice("Shopling 확장의 다음 작업 가능 상태를 확인하고 있습니다.");
@@ -220,6 +267,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       ...operationalJob(job, batchId, index + 1),
     }));
     await requireShoplingAuthenticatedSession();
+    if (!continueAfterBatch.current || generation !== runGeneration.current) return;
     jobsById.current.clear(); prepared.forEach((job) => jobsById.current.set(job.jobId, job));
     setRunningBarcodes(prepared.map((job) => job.barcode));
     setPhase(plan.mode === "PARALLEL" ? "STARTING_2_LANE" : "STARTING_SINGLE");
@@ -240,6 +288,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       startedJobIds: new Set(prepared.map((job) => job.jobId)),
       startRecordPromises,
       terminalJobIds: new Set<string>(),
+      dispatchedAt: Date.now(),
     };
     if (plan.mode === "PARALLEL") {
       window.postMessage({ type: PARALLEL_START, batchId, jobs: prepared }, window.location.origin);
@@ -284,12 +333,12 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
       const type = String(data.type || "");
       if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
         const version = String(data.extensionVersion || "");
-        const supported = supportsAllDateStockSync(version);
+        const supported = supportsAllDateStockSync(version) && supportsStockParentFinalization(version);
         extensionVersionRef.current = version;
         setExtensionVersion(version);
         setExtensionReady(supported);
         if (!supported) {
-          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 실행 중 최초 팝업 소유권 보존을 지원하지 않아 사용할 수 없습니다. v0.6.61로 업데이트해 주세요.`);
+          setNotice(`Shopling 자동화 v${version || "확인 불가"}는 옵션 접수 후 상품 판매상태 전송을 지원하지 않아 사용할 수 없습니다. v0.6.62로 업데이트해 주세요.`);
         }
         return;
       }
@@ -361,8 +410,12 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         return;
       }
       if (type !== "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT") return;
-      const result = data as unknown as ResultMessage;
+      if (data.__commerceOsStockSyncBridgeHF27 !== true || data.extensionVersion !== extensionVersionRef.current
+        || !["SUCCEEDED", "UNCERTAIN", "FAILED"].includes(String(data.outcome))) return;
+      const raw = data as unknown as ResultMessage;
       const batch = activeBatch.current;
+      const result = batch || raw.job?.stockBatchPlan ? verifyStockPlanTerminal(raw) : raw;
+      if (batch && !(Number(result.finishedAt) >= batch.dispatchedAt)) return;
       if (!batch) {
         const queuedJob = jobsById.current.get(result.jobId) || null;
         const replayJob = result.job || null;
@@ -410,19 +463,22 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
         })();
         return;
       }
-      if (!batch.jobs.some((job) => job.jobId === result.jobId)) return;
+      const assignedJob = batch.jobs.find((job) => job.jobId === result.jobId);
+      if (!assignedJob || batch.terminalJobIds.has(assignedJob.jobId)
+        || result.job?.barcode !== assignedJob.barcode || result.job.desiredStatus !== assignedJob.desiredStatus
+        || result.job.parallelBatchId !== batch.batchId) return;
       const resultKey = `${result.jobId}:${result.outcome}:${Number(result.finishedAt || 0)}`;
       if (handledResults.current.has(resultKey)) return;
-      const job = result.job || batch.jobs.find((row) => row.jobId === result.jobId) || jobsById.current.get(result.jobId) || null;
-      if (!job) return;
+      const job = assignedJob;
       handledResults.current.add(resultKey);
+      batch.terminalJobIds.add(job.jobId);
       void (async () => {
         try {
           await batch.startRecordPromises.get(job.jobId);
           await recordSync(job, result.outcome, result.message || "", result.evidence, result.finishedAt);
-          batch.terminalJobIds.add(job.jobId);
+          excludedThisRun.current.add(job.jobId);
+          if (result.outcome === "SUCCEEDED" && !savedPlanIds.current.has(job.jobId)) acceptedPlanBarcodes.current.add(job.barcode);
           if (result.outcome !== "SUCCEEDED") {
-            excludedThisRun.current.add(job.jobId);
             const exceptionOutcome: Exclude<SyncOutcome, "STARTED"> = result.outcome;
             setLocalExceptions((current) => [...current.filter((row) => row.jobId !== job.jobId), { jobId: job.jobId, barcode: job.barcode, outcome: exceptionOutcome, message: result.message || "원인 확인 필요" }]);
           }
@@ -435,7 +491,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
             requestedSingleRun.current = null;
             continueAfterBatch.current = false;
             setDraining(false);
-            const succeeded = batch.jobs.every((row) => !excludedThisRun.current.has(row.jobId));
+            const succeeded = result.outcome === "SUCCEEDED";
             setTerminalSummary({
               barcode: job.barcode,
               outcome: result.outcome,
@@ -449,7 +505,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
               : `${job.barcode} 단건 처리 종료 · 실패/불확실 결과를 예외 큐에 남겼으며 자동 재시도하지 않습니다.`);
           } else {
             setNotice(
-              batch.jobs.some((row) => excludedThisRun.current.has(row.jobId))
+              result.outcome !== "SUCCEEDED"
                 ? "현재 운영 배치의 예외 건은 분리 기록했습니다. 다음 대기 B코드를 자동으로 이어서 배정합니다."
                 : "현재 운영 배치의 Shopling 전송 접수 완료 · 다음 대기건을 자동으로 이어서 배정합니다.",
             );
@@ -470,10 +526,11 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const startDrain = async () => {
     setNotice("");
     if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 운영 큐를 실행할 수 있습니다."); return; }
-    if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
+    if (draining || continueAfterBatch.current || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 Shopling 자동송신을 시작하지 않습니다."); return; }
     setTerminalSummary(null);
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
+    frozenJobs.current = null; acceptedPlanBarcodes.current.clear(); runGeneration.current += 1;
     requestedSingleRun.current = null;
     continueAfterBatch.current = true; setDraining(true); setPhase("QUEUE_DRAIN_START");
     try { await launchNext(); }
@@ -482,10 +539,11 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
   const startOne = async (job: SyncJob) => {
     setNotice("");
     if (!extensionReady) { setNotice("재고상태 확장프로그램이 연결되어야 단건 실행할 수 있습니다."); return; }
-    if (draining || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
+    if (draining || continueAfterBatch.current || activeBatch.current) { setNotice("이미 운영 재고상태 큐가 실행 중입니다."); return; }
     if (report?.state !== "READY") { setNotice("정확재고 원장이 READY가 아니므로 단건 송신을 시작하지 않습니다."); return; }
     setTerminalSummary(null);
     handledResults.current.clear(); excludedThisRun.current.clear(); setLocalExceptions([]);
+    frozenJobs.current = null; acceptedPlanBarcodes.current.clear(); runGeneration.current += 1;
     requestedSingleRun.current = {
       jobId: job.jobId,
       barcode: job.barcode,
@@ -539,6 +597,7 @@ export function StockSyncOperationalQueuePanel({ initialPayload }: { initialPayl
     }
   };
   const pauseAfterCurrent = () => {
+    runGeneration.current += 1;
     continueAfterBatch.current = false;
     setNotice(activeBatch.current ? "현재 실행 중인 Lane은 끝까지 기록하고, 그 다음 대기건부터 자동배정을 중지합니다." : "운영 큐 자동배정을 중지했습니다.");
     if (!activeBatch.current) { setDraining(false); setPhase("PAUSED"); }

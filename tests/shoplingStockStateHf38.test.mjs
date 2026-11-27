@@ -151,9 +151,9 @@ test("HF38 remains v0.6.6 while the UI requires HF52 and preserves the package c
   assert.match(route, /const VERSION = "0\.6\.6"/);
   assert.match(route, /HF38_FRESH_OWNED_A6_POPUP_HANDOFF/);
   assert.match(page, /download-hf101/);
-  assert.match(page, /v0\.6\.61 다운로드/);
+  assert.match(page, /v0\.6\.62 다운로드/);
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 61\]/);
-  assert.match(queue, /v0\.6\.61로 업데이트/);
-  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.61'/);
+  assert.match(queue, /v0\.6\.62로 업데이트/);
+  assert.match(hiddenBrowserCheck, /extensionVersion: '0\.6\.62'/);
   assert.match(workflow, /shoplingStockStateHf38\.test\.mjs/);
 });

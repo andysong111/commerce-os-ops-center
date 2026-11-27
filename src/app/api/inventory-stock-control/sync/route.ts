@@ -337,14 +337,21 @@ export async function GET(request: Request) {
         jobId: item.jobId,
         retransmissionRequestId: item.requestId,
         retransmissionOnly: true,
+        ...(item.stockBatchPlan ? {
+          stockBatchPlan: item.stockBatchPlan,
+          stockBatchDependencies: item.stockBatchDependencies,
+          confirmedStockDependencies: item.confirmedStockDependencies,
+        } : {}),
         directOperatorCommand: item.directOperatorCommand === true,
       }];
     });
     // A retransmission job and the normal inventory job can describe the exact
     // same Shopling mutation with different job IDs. Keep the audited replay job
     // so its request ledger reaches a terminal state, but never dispatch both.
+    // An audited planned job must never return as an unplanned normal job after a partial send.
+    const plannedCommandJobs = new Set(retransmission.batches.flatMap((batch) => batch.items.filter((item) => item.stockBatchPlan).map((item) => item.jobId)));
     const jobsBySemanticIdentity = new Map(
-      normalJobs.map((job) => [semanticQueueIdentity(job), job] as const),
+      normalJobs.filter((job) => !plannedCommandJobs.has(job.jobId)).map((job) => [semanticQueueIdentity(job), job] as const),
     );
     for (const replayJob of replayJobs) {
       jobsBySemanticIdentity.set(semanticQueueIdentity(replayJob), replayJob);

@@ -83,6 +83,10 @@ function requestFrom(row: StoredRow): ShoplingStockRetransmissionRequest | null 
       desiredSince: text(item.desiredSince),
       mode,
       directOperatorCommand: item.directOperatorCommand === true,
+      ...(typeof item.stockBatchPlan === "string" ? {
+        stockBatchPlan: item.stockBatchPlan,
+        stockBatchDependencies: Array.isArray(item.stockBatchDependencies) ? item.stockBatchDependencies.map(text) : undefined,
+      } : {}),
     }];
   });
   if (!requestId || !occurredAt || !items.length) return null;
@@ -134,12 +138,15 @@ export async function loadShoplingStockRetransmissionState(
     .map(requestFrom)
     .filter((value): value is ShoplingStockRetransmissionRequest => Boolean(value));
   const latestOutcomeByJobId = new Map<string, ShoplingStockSyncOutcome>();
+  const planCompleteByJobId = new Set<string>();
   for (const row of syncRows) {
     const source = snapshot(row);
     const jobId = text(source.jobId);
     const outcome = text(source.outcome) as ShoplingStockSyncOutcome;
     if (jobId && ["STARTED", "SUCCEEDED", "FAILED", "UNCERTAIN"].includes(outcome)) {
       latestOutcomeByJobId.set(jobId, outcome);
+      if (outcome === "SUCCEEDED" && object(source.evidence).stockPlanComplete === true) planCompleteByJobId.add(jobId);
+      else planCompleteByJobId.delete(jobId);
     }
   }
   const currentByBarcode = new Map(report.rows.map((row) => [row.barcode, row]));
@@ -154,7 +161,7 @@ export async function loadShoplingStockRetransmissionState(
       const state: RetransmissionItemState = !identityStillCurrent
         ? "BLOCKED"
         : outcome || "PENDING";
-      return { ...item, state };
+      return { ...item, state, stockPlanComplete: planCompleteByJobId.has(item.jobId) };
     });
     return {
       ...request,
@@ -170,7 +177,10 @@ export async function loadShoplingStockRetransmissionState(
   const replayItems = batches.flatMap((batch) =>
     batch.items
       .filter((item) => item.mode === "REPLAY" && item.state === "PENDING")
-      .map((item) => ({ ...item, requestId: batch.requestId })),
+      .map((item) => ({ ...item, requestId: batch.requestId,
+        confirmedStockDependencies: (item.stockBatchDependencies || []).filter((barcode) =>
+          batch.items.some((prior) => prior.barcode === barcode && prior.state === "SUCCEEDED" && prior.stockPlanComplete)),
+      })),
   );
   return { batches, replayItems, latest: batches[batches.length - 1] ?? null };
 }

@@ -5,6 +5,7 @@ import {
 import {
   inspectShoplingBcodeOnGoodsKey,
   type ShoplingOptionDesiredStatus,
+  type ShoplingOptionVariant,
 } from "@/lib/shopling/shoplingOptionStatus";
 import { shoplingReadConfigFromEnv } from "@/lib/shopling/shoplingReadClient";
 import { postShoplingXml } from "@/lib/shopling/shoplingTlsTransport";
@@ -37,6 +38,7 @@ export async function applyShoplingProductStatus(input: {
   barcode: string;
   desiredStatus: ShoplingOptionDesiredStatus;
   goodsKey: string;
+  validateBeforeWrite?: (rows: ShoplingOptionVariant[]) => void;
   env?: Record<string, string | undefined>;
 }): Promise<ShoplingProductStatusApplyResult> {
   const env = input.env ?? process.env;
@@ -51,6 +53,7 @@ export async function applyShoplingProductStatus(input: {
       `SHOPLING_PRODUCT_STATUS_TRANSITION_BLOCKED:${before.productSaleStatus || "EMPTY"}`,
     );
   }
+  input.validateBeforeWrite?.(before.siblings);
   if (before.productSaleStatus === target) {
     return {
       matchedGoodsKey: before.goodsKey,

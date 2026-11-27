@@ -32,8 +32,8 @@ test("unified API creates immediate Shopling jobs only for explicit status chang
     "utf8",
   );
   const jobsBlock = source.slice(
-    source.indexOf("const jobs = ["),
-    source.indexOf("const commandRequest", source.indexOf("const jobs = [")),
+    source.indexOf("const inputJobs = ["),
+    source.indexOf("const commandRequest", source.indexOf("const inputJobs = [")),
   );
   assert.match(jobsBlock, /stockoutEvents\.map/);
   assert.match(jobsBlock, /"SOLD_OUT"/);

@@ -23,6 +23,8 @@ export type ShoplingStockRetransmissionItem = {
   desiredSince: string;
   mode: RetransmissionItemMode;
   directOperatorCommand?: boolean;
+  stockBatchPlan?: string;
+  stockBatchDependencies?: string[];
 };
 export type ShoplingStockRetransmissionRequest = {
   requestId: string;

@@ -25,10 +25,13 @@ import {
   type ShoplingStockRetransmissionRequest,
 } from "@/lib/inventoryShoplingRetransmission";
 
+import { prepareShoplingStockBatch } from "@/lib/shopling/shoplingStockBatchService";
+import { bindStockBatchPlans, type StockBatchPlanFields } from "@/lib/shoplingStockBatchPreflight";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 type RawStocktakeItem = {
   barcode?: unknown;
@@ -265,7 +268,7 @@ export async function POST(request: Request) {
       });
     });
 
-    const jobs = [
+    const inputJobs = [
       ...stockoutEvents.map((event) =>
         directJob(
           event,
@@ -282,6 +285,13 @@ export async function POST(request: Request) {
         ),
       ),
     ];
+    const stockBatch = inputJobs.length && body.stockPlanVersion === 1
+      ? await prepareShoplingStockBatch(inputJobs).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : "샵플링 응답 확인 필요";
+          throw new Error(`품절·판매중 입력을 저장하기 전 상품·옵션 조회에서 중단했습니다. B코드의 상품 연결과 옵션 상태를 확인해 주세요. (${reason})`);
+        })
+      : null;
+    const jobs: (typeof inputJobs[number] & StockBatchPlanFields)[] = stockBatch ? bindStockBatchPlans(inputJobs, stockBatch) : inputJobs;
     const commandRequest: ShoplingStockRetransmissionRequest | null = jobs.length
       ? {
           requestId: `unified-command:${batchId}`.slice(0, 180),
@@ -297,6 +307,10 @@ export async function POST(request: Request) {
             productKind: job.productKind,
             desiredStatus: job.desiredStatus,
             desiredSince: job.desiredSince,
+            ...(stockBatch && "stockBatchPlan" in job ? {
+              stockBatchPlan: job.stockBatchPlan,
+              stockBatchDependencies: job.stockBatchDependencies,
+            } : {}),
             mode: "REPLAY" as const,
             directOperatorCommand: true,
           })),
@@ -355,6 +369,7 @@ export async function POST(request: Request) {
         identities,
         jobs,
         commandRequestId: commandRequest?.requestId ?? null,
+        stockPlanProducts: stockBatch?.products ?? [],
         storage,
         message:
           `통합 재고 작업 ${allBarcodes.length}건을 저장했습니다. ` +

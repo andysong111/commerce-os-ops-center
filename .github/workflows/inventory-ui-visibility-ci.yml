@@ -8,6 +8,9 @@ on:
       - 'src/lib/inventoryStockConnection.ts'
       - 'scripts/inventory-ui-hidden-check.mjs'
       - 'scripts/shopling-idle-live-channel-check.mjs'
+      - 'scripts/shopling-stock-batch-browser-check.mjs'
+      - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
+      - 'src/lib/shoplingStockBatchPreflight.ts'
       - 'public/shopling-stock-state-sync/**'
       - 'src/app/api/shopling-stock-state-sync/**'
       - 'src/components/china-order-manager/StockSyncHF15Bridge.tsx'
@@ -58,13 +61,22 @@ jobs:
           node /tmp/inventory-ui-tools/check.mjs
         env:
           INVENTORY_UI_BASE_URL: http://127.0.0.1:3210
-      - name: Real extension worker must return the explicit idle receipt
+      - name: Check serial BCD8 restoration and missing receipt at the normal batch entry point
+        run: |
+          cp scripts/shopling-stock-batch-browser-check.mjs /tmp/inventory-ui-tools/batch-browser-check.mjs
+          node /tmp/inventory-ui-tools/batch-browser-check.mjs
+      - name: Rollback extension worker must return the explicit idle receipt
         run: |
           cp scripts/shopling-idle-live-channel-check.mjs /tmp/inventory-ui-tools/idle-channel-check.mjs
           xvfb-run -a node /tmp/inventory-ui-tools/idle-channel-check.mjs
         env:
           COMMERCE_OS_EXTENSION_URL: http://127.0.0.1:3210/api/shopling-stock-state-sync/download-hf101
           COMMERCE_OS_EXTENSION_VERSION: 0.6.61
+      - name: Released option and product extension returns an explicit idle receipt in Chrome
+        run: xvfb-run -a node /tmp/inventory-ui-tools/idle-channel-check.mjs
+        env:
+          COMMERCE_OS_EXTENSION_URL: http://127.0.0.1:3210/api/shopling-stock-state-sync/download-hf102
+          COMMERCE_OS_EXTENSION_VERSION: 0.6.62
       - uses: actions/upload-artifact@v4
         if: always()
         with:

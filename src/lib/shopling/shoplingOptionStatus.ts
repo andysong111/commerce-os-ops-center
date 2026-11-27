@@ -17,6 +17,7 @@ type OptionSelection = {
 export type ShoplingOptionVariant = {
   goodsKey: string;
   partnerGoodsCode: string;
+  productName: string;
   productSaleStatus: string;
   selection: OptionSelection[];
   optionId: string;
@@ -27,6 +28,7 @@ export type ShoplingOptionVariant = {
 
 export type ShoplingBcodeGoodsKeyInspection = ShoplingOptionVariant & {
   goodsOptionCount: number;
+  siblings: ShoplingOptionVariant[];
 };
 
 export type ShoplingOptionStatusApplyResult = {
@@ -139,6 +141,7 @@ function parseProductVariants(body: string) {
     const goodsKey = scalar(goods.goods_key);
     if (!/^\d+$/.test(goodsKey)) continue;
     const partnerGoodsCode = scalar(goods.ptn_goods_cd);
+    const productName = scalar(goods.prod_nm);
     const productSaleStatus = scalar(goods.sale_status).toUpperCase();
     const options = object(goods.options);
     if (!options) continue;
@@ -169,6 +172,7 @@ function parseProductVariants(body: string) {
       );
     }
     if (
+      (optionIds.length !== 0 && optionIds.length !== optionCount) ||
       statuses.length !== optionCount ||
       quantities.length !== optionCount ||
       partnerOptionCodes.length !== optionCount
@@ -182,6 +186,7 @@ function parseProductVariants(body: string) {
       variants.push({
         goodsKey,
         partnerGoodsCode,
+        productName,
         productSaleStatus,
         selection: selections[index] ?? [],
         optionId: optionIds[index] ?? "",
@@ -198,15 +203,13 @@ function buildExactProductReadXml(
   config: Pick<ShoplingReadConfig, "loginId" | "companyId" | "authKey">,
   goodsKeys: string[],
 ) {
-  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   return compactXml([
     "<reqst><apiProdGather>",
     `<login_id>${cdata(config.loginId)}</login_id>`,
     `<company_id>${cdata(config.companyId)}</company_id>`,
     `<api_auth_key>${cdata(config.authKey)}</api_auth_key>`,
-    `<start_dt>${today}</start_dt><end_dt>${today}</end_dt>`,
     `<prod_id>${cdata(goodsKeys.join(","))}</prod_id>`,
-    `<prod_fields>${cdata("goods_key,ptn_goods_cd,sale_status")}</prod_fields>`,
+    `<prod_fields>${cdata("goods_key,ptn_goods_cd,prod_nm,sale_status")}</prod_fields>`,
     "<opt_yn>Y</opt_yn><attri_yn>N</attri_yn>",
     "</apiProdGather></reqst>",
   ]);
@@ -297,7 +300,22 @@ async function readVariants(
     xml,
     "commerce-os-shopling-option-read/1.0",
   );
-  return parseProductVariants(body);
+  const rows = parseProductVariants(body);
+  if (rows.some((variant) => !goodsKeys.includes(variant.goodsKey))) {
+    throw new Error("SHOPLING_OPTION_READ_UNEXPECTED_GOODS_KEY");
+  }
+  return rows;
+}
+
+/** An exact-id gather returns all sibling options, including options without a matching B-code. */
+export async function readShoplingStockVariants(goodsKeys: string[]) {
+  const config = shoplingReadConfigFromEnv(process.env);
+  const rows: ShoplingOptionVariant[] = [];
+  for (let offset = 0; offset < goodsKeys.length; offset += MAX_GOODS_KEYS) {
+    const keys = goodsKeys.slice(offset, offset + MAX_GOODS_KEYS);
+    rows.push(...await readVariants(config, keys));
+  }
+  return rows;
 }
 
 function sleep(ms: number) {
@@ -363,19 +381,21 @@ export async function inspectShoplingBcodeOnGoodsKey(input: {
   const config = shoplingReadConfigFromEnv(input.env ?? process.env);
   const variants = await readVariants(config, goodsKeys);
   const exact = exactVariant(variants, barcode);
-  const goodsOptionCount = variants.filter(
+  const siblings = variants.filter(
     (variant) => variant.goodsKey === exact.goodsKey,
-  ).length;
+  );
+  const goodsOptionCount = siblings.length;
   if (goodsOptionCount < 1) {
     throw new Error(`SHOPLING_GOODS_KEY_OPTION_COUNT_INVALID:${exact.goodsKey}:0`);
   }
-  return { ...exact, goodsOptionCount } satisfies ShoplingBcodeGoodsKeyInspection;
+  return { ...exact, goodsOptionCount, siblings } satisfies ShoplingBcodeGoodsKeyInspection;
 }
 
 export async function applyShoplingOptionStatus(input: {
   barcode: string;
   desiredStatus: ShoplingOptionDesiredStatus;
   goodsKeys: string[];
+  validateBeforeWrite?: (rows: ShoplingOptionVariant[]) => void;
   env?: Record<string, string | undefined>;
 }): Promise<ShoplingOptionStatusApplyResult> {
   const barcode = normalizeBarcode(input.barcode);
@@ -392,6 +412,10 @@ export async function applyShoplingOptionStatus(input: {
   const target = targetStatusCode(input.desiredStatus);
   const beforeVariants = await readVariants(config, goodsKeys);
   const before = exactVariant(beforeVariants, barcode);
+  input.validateBeforeWrite?.(beforeVariants);
+  if (before.productSaleStatus !== "B" && before.productSaleStatus !== "C") {
+    throw new Error(`SHOPLING_PRODUCT_STATUS_TRANSITION_BLOCKED:${before.productSaleStatus || "EMPTY"}`);
+  }
   if (!(["B", "C"] as string[]).includes(before.optionStatus)) {
     throw new Error(
       `SHOPLING_OPTION_STATUS_TRANSITION_BLOCKED:${before.optionStatus || "EMPTY"}`,
