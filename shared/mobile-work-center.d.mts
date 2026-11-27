@@ -1,0 +1,31 @@
+export type MobileAction = {
+  id: string;
+  group: string;
+  label: string;
+  input: "standard" | "draft" | "invoices" | "order";
+  readOnly: boolean;
+  kind: "local" | "domeggook" | "extension" | "diagnostic";
+};
+export type MobileWorkRequest = {
+  id: string;
+  issuedAt: number;
+  actionId: string;
+  execute: boolean;
+  confirmed: boolean;
+  draftId?: string;
+  confirmation?: string;
+  invoiceNumbers?: string[];
+  inventoryShortageInvoiceNumbers?: string[];
+};
+export type MobileAgentStatus = { ready: boolean; busy: boolean; actions: string[]; seenAt: number };
+export const MOBILE_ACTIONS: Readonly<Record<string, Readonly<MobileAction>>>;
+export const MOBILE_DRAFT_ID: RegExp;
+export const REQUEST_MAX_AGE_MS: number;
+export const AGENT_ONLINE_MS: number;
+export const UNPAID_ORDER_PHRASE: string;
+export function isMobileRequestId(value: unknown): boolean;
+export function mobileAction(id: unknown): MobileAction | null;
+export function canChooseDryRun(action: MobileAction): boolean;
+export function normalizeWorkRequest(body: unknown): MobileWorkRequest | null;
+export function isAgentOnline(agent: MobileAgentStatus | null, now: number): boolean;
+export function normalizeAgentStatus(body: unknown, now: number): MobileAgentStatus;
