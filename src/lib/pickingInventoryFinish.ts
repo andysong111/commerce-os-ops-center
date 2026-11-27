@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { invoiceGroups, type InvoiceGroups } from "../../shared/mobile-work-center.mjs";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { readPickingShare, tokenHash } from "@/lib/pickingShare";
 import {
@@ -21,13 +22,15 @@ type Ticket = {
   dispatch_state: string;
   selections: PickingObservation[];
   finished_at: string;
+  invoice_task?: (InvoiceGroups & { status: string; code: string | null }) | null;
 };
+const ticketFields = "snapshot_id,dispatch_state,selections,finished_at,invoice_task";
 export const pickingBatchId = (id: string) => "picking-" + id;
 
 async function loadTicket(db: Client, snapshotId: string) {
   const read = await db
     .from(TABLE)
-    .select("snapshot_id,dispatch_state,selections,finished_at")
+    .select(ticketFields)
     .eq("snapshot_id", snapshotId)
     .maybeSingle();
   if (read.error) throw new Error("피킹 완료 기록을 조회하지 못했습니다.");
@@ -38,7 +41,8 @@ async function ticketReceipt(db: Client, ticket: Ticket) {
   const sold = ticket.selections.filter((e) => e.soldOut);
   const command = directStockCommandId(pickingBatchId(ticket.snapshot_id));
   const states = new Map<string, string>();
-  if (sold.length && ticket.dispatch_state !== "queued") {
+  const waiting = ["queued", "after_invoices"].includes(ticket.dispatch_state);
+  if (sold.length && !waiting) {
     const ids = sold.map((e) =>
       directStockJobId(command, e.barcode, "SOLD_OUT"),
     );
@@ -72,12 +76,17 @@ async function ticketReceipt(db: Client, ticket: Ticket) {
   }
   return {
     finishedAt: ticket.finished_at,
+    invoiceTask: ticket.invoice_task ? {
+      invoiceNumbers: ticket.invoice_task.invoiceNumbers,
+      inventoryShortageInvoiceNumbers: ticket.invoice_task.inventoryShortageInvoiceNumbers,
+      status: ticket.invoice_task.status, code: ticket.invoice_task.code,
+    } : null,
     selections: ticket.selections,
     stockouts: sold.map((e) => ({
       barcode: e.barcode,
       state:
         states.get(e.barcode) ||
-        (ticket.dispatch_state === "queued" ? "QUEUED" : "CHECK_PC"),
+        (waiting ? "QUEUED" : "CHECK_PC"),
     })),
   };
 }
@@ -103,7 +112,8 @@ export async function pickingInventoryReceipt(token: string) {
 
 export async function finishPickingInventory(
   token: string,
-  body: { snapshotId?: unknown; observations?: unknown },
+  body: { snapshotId?: unknown; observations?: unknown; invoiceNumbers?: unknown; inventoryShortageInvoiceNumbers?: unknown },
+  ownerId?: string,
 ) {
   const share = await readPickingShare(token);
   if (!share.ok || body.snapshotId !== share.value.snapshotId)
@@ -115,6 +125,13 @@ export async function finishPickingInventory(
       },
     };
   const snapshot = share.value;
+  const groups = invoiceGroups(body.invoiceNumbers === undefined ? [] : body.invoiceNumbers,
+    body.inventoryShortageInvoiceNumbers === undefined ? [] : body.inventoryShortageInvoiceNumbers);
+  const hasInvoices = groups.invoiceNumbers.length + groups.inventoryShortageInvoiceNumbers.length > 0;
+  if (hasInvoices && !ownerId) throw new Error("4번 업무를 요청할 운영 계정을 확인해 주세요.");
+  const matchesInvoices = (ticket: Ticket) =>
+    isDeepStrictEqual(ticket.invoice_task?.invoiceNumbers ?? [], groups.invoiceNumbers) &&
+    isDeepStrictEqual(ticket.invoice_task?.inventoryShortageInvoiceNumbers ?? [], groups.inventoryShortageInvoiceNumbers);
   const entries = pickingObservations(body.observations, snapshot.items);
   const db = await createSupabaseAdminClient();
   if (!db) throw new Error("재고 저장소 연결을 확인해 주세요.");
@@ -122,6 +139,7 @@ export async function finishPickingInventory(
   if (prior) {
     // Compare fields individually because JSONB returns keys in storage order.
     if (
+      !matchesInvoices(prior) ||
       prior.selections.length !== entries.length ||
       entries.some((e, i) => {
         const p = prior.selections[i];
@@ -206,13 +224,14 @@ export async function finishPickingInventory(
     first = false;
     offset += stocktakeItems.length;
   }
-  const committed = await db.rpc("finish_picking_inventory", {
+  const committed = await db.rpc(hasInvoices ? "finish_picking_with_invoices" : "finish_picking_inventory", {
     p_hash: tokenHash(token),
     p_snapshot: snapshot.snapshotId,
     p_version: snapshot.updatedAt,
     p_selections: entries,
     p_operations: operations,
     p_jobs: jobs,
+    ...(hasInvoices ? { p_owner: ownerId, p_groups: groups } : {}),
   });
   if (committed.error)
     throw new Error(
@@ -265,6 +284,7 @@ export async function finishPickingInventory(
   }
   const receipt = await loadTicket(db, snapshot.snapshotId);
   if (!receipt) throw new Error("저장된 피킹 완료 기록을 확인하지 못했습니다.");
+  if (!matchesInvoices(receipt)) return { status: 409, body: { ok: false, message: "이미 다른 송장 목록으로 완료했습니다. 새로고침해 접수 결과를 확인하세요." } };
   return {
     status: 200,
     body: { ok: true, receipt: await ticketReceipt(db, receipt) },
@@ -294,7 +314,7 @@ export async function claimPickingDispatch() {
   if (!db) throw new Error("재고 저장소 연결 실패");
   const active = await db
     .from(TABLE)
-    .select("snapshot_id,dispatch_state,selections,finished_at")
+    .select(ticketFields)
     .eq("pick_day", today())
     .eq("dispatch_state", "claimed")
     .maybeSingle();

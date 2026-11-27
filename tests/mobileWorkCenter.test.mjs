@@ -72,6 +72,28 @@ test("expired and ambiguous jobs are never executed again after connection loss"
   assert.equal(applyWorkQueue(ambiguous, { type: "acknowledge", id: request.id, confirmed: true }, start + 120_000).state.jobs[0].status, "acknowledged");
 });
 
+test("a finished picking list waits for an idle PC and claims task 4 exactly once with the original two lists", () => {
+  const ticket = {id:id(), snapshotId:"pick-list", expiresAt:start+60_000, invoiceNumbers:["012345678901"],inventoryShortageInvoiceNumbers:["112345678901"]};
+  const state = {...online,pickingInbox:[ticket]};
+  const busy = {...poll,agent:{...online.agent,busy:true}};
+  assert.equal(applyWorkQueue(state,busy,start).command,undefined);
+  assert.equal(applyWorkQueue(state,{...poll,canClaim:false},start).command,undefined);
+  const running = applyWorkQueue(state,poll,start);
+  assert.deepEqual(running.command,normalizeWorkRequest({...ticket,issuedAt:start,actionId:"post-packing-invoices",execute:true,confirmed:true}));
+  assert.equal(running.state.jobs[0].pickingSnapshotId,ticket.snapshotId);
+  assert.equal(running.state.pickingInbox.length,0);
+  assert.equal(applyWorkQueue(running.state,poll,start).command,undefined);
+  assert.equal(JSON.stringify(publicQueue(running.state,start)).includes(ticket.invoiceNumbers[0]),false);
+  const finished = applyWorkQueue(running.state,{type:"finish",id:ticket.id,status:"completed",code:"DONE"},start+1000);
+  assert.equal(finished.state.jobs[0].pickingSnapshotId,ticket.snapshotId);
+  const expired = applyWorkQueue(state,poll,ticket.expiresAt);
+  assert.equal(expired.command,undefined);
+  assert.equal(expired.state.jobs[0].status,"expired");
+  const manual = applyWorkQueue(state,{type:"enqueue",command:command("full-operations")},start);
+  assert.equal(applyWorkQueue(manual.state,poll,start).command.actionId,"full-operations");
+  assert.deepEqual(manual.state.pickingInbox,[ticket]);
+});
+
 test("the Windows runId contract completes only on the original terminal receipt after one POST", async () => {
   let posts = 0;
   let ticks = 0;
@@ -138,6 +160,7 @@ function mobileLoginFixture(phases, { disable = false, occupied = false, advance
     now: () => clock,
     wait: async () => { clock += advanceBy; },
     fetchImpl: async (url, options) => {
+      if (url.includes(":43122/")) return json({ ok: false }, 404);
       if (url.endsWith("/api/state")) return json({ ok: true, state: center({
         shoplingSession: { ready, matchedAccount: ready ? "fixture-account" : null }, settings: { shoplingAutoLoginEnabled: !disable }, shoplingAutoLogin: { credentialConfigured: true },
         actions: [{ id: input.actionId, mutates: true, requiresShoplingLogin: true }],
@@ -159,8 +182,43 @@ function mobileLoginFixture(phases, { disable = false, occupied = false, advance
       return json({ ok: true, run: { actionId: input.actionId, runId: "original" } });
     },
   });
-  return { input, loginRequests, businessRequests, phasesSeen, run: () => adapter.execute(input, (phase) => phasesSeen.push(phase)) };
+  return { adapter, input, loginRequests, businessRequests, phasesSeen, run: () => adapter.execute(input, (phase) => phasesSeen.push(phase)) };
 }
+
+test("a picking handoff reaches the existing task 4 PC endpoint once and records its original receipt", async () => {
+  const flow = mobileLoginFixture(["captcha", "ready"]);
+  const ticket = {
+    id: id(), snapshotId: "current-picking", expiresAt: start + 60_000,
+    invoiceNumbers: ["000000000011"], inventoryShortageInvoiceNumbers: ["000000000012"],
+  };
+  let state = { ...online, pickingInbox: [ticket] };
+  const errors = [];
+  const worker = createMobileWorkWorker({
+    endpoint: "http://127.0.0.1:43289/api/mobile-work-center", agentToken: "a".repeat(43), adapter: flow.adapter,
+    onError: message => errors.push(message),
+    fetchImpl: async (_, init) => {
+      const decision = applyWorkQueue(state, JSON.parse(init.body), start);
+      state = decision.state ?? state;
+      return json({ ok: decision.status < 400, command: decision.command }, decision.status);
+    },
+  });
+  await worker.tick();
+  assert.equal(state.jobs[0].status, "running");
+  for (let pass = 0; pass < 5; pass += 1) {
+    await new Promise(setImmediate);
+    await worker.tick();
+  }
+  assert.deepEqual(errors, []);
+  assert.deepEqual(flow.businessRequests, [{
+    verifiedShoplingAccount: "fixture-account", execute: true, confirmed: true,
+    invoiceNumbers: ticket.invoiceNumbers, inventoryShortageInvoiceNumbers: ticket.inventoryShortageInvoiceNumbers,
+  }]);
+  assert.deepEqual(flow.loginRequests, Array(2).fill({requestId: ticket.id}));
+  assert.equal(state.jobs[0].status, "completed");
+  assert.equal(state.jobs[0].code, "DONE");
+  assert.equal(state.jobs[0].pickingSnapshotId, ticket.snapshotId);
+  assert.equal(state.pickingInbox.length, 0);
+});
 
 test("a human Kakao answer resumes only the original mobile command, including both invoice groups", async () => {
   const flow = mobileLoginFixture(["captcha", "captcha", "ready"]);

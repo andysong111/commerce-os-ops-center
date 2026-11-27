@@ -64,6 +64,23 @@ export function applyWorkQueue(state, event, now) {
     if (job?.status === "running" && event.canClaim === true && now - job.updatedAt >= REQUEST_MAX_AGE_MS) {
       return { status: 200, state: updateJob(next, job, { status: "ambiguous", code: "RESULT_UNCERTAIN", updatedAt: now }) };
     }
+    const ticket = next.pickingInbox?.[0];
+    if (ticket && !state.pending && !isActive(job) && event.canClaim === true && agent.ready && !agent.busy && agent.actions.includes("post-packing-invoices")) {
+      const command = {
+        id: ticket.id, issuedAt: now, actionId: "post-packing-invoices", execute: true, confirmed: true,
+        invoiceNumbers: ticket.invoiceNumbers, inventoryShortageInvoiceNumbers: ticket.inventoryShortageInvoiceNumbers,
+      };
+      const queued = applyWorkQueue({ ...next, pickingInbox: next.pickingInbox.slice(1) }, { type: "enqueue", command }, now);
+      if (!queued.state || !Number.isSafeInteger(ticket.expiresAt)) throw new Error("PICKING_INVOICE_TICKET_INVALID");
+      const entry = queued.state.jobs[0];
+      const expired = now >= ticket.expiresAt;
+      return {
+        status: 200, command: expired ? undefined : queued.state.pending,
+        state: updateJob({ ...queued.state, pending: null }, entry, {
+          pickingSnapshotId: ticket.snapshotId, status: expired ? "expired" : "running",
+        }),
+      };
+    }
     if (job?.status !== "queued" || !state.pending) return { status: 200, state: next === state ? undefined : next };
     if (now - state.pending.issuedAt >= REQUEST_MAX_AGE_MS) {
       return { status: 200, state: updateJob({ ...next, pending: null }, job, { status: "expired", updatedAt: now }) };

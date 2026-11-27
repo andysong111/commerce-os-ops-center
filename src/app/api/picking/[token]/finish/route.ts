@@ -37,7 +37,7 @@ async function handle(request: Request, ctx: Context) {
     const result =
       request.method === "GET"
         ? await pickingInventoryReceipt(token)
-        : await finishPickingInventory(token, await request.json());
+        : await finishPickingInventory(token, await request.json(), config.ownerId);
     return reply(result.body, result.status);
   } catch (error) {
     return reply(

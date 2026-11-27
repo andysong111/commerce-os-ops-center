@@ -4,6 +4,7 @@ import { pickingObservations } from "../src/lib/pickingInventoryInput.ts";
 import * as direct from "../src/lib/shoplingDirectCommand.ts";
 import { wakePickingDispatch } from "../local-agent/mobile-work-center/picking-dispatch.mjs";
 import { loadModule } from "./monthly-price-module.mjs";
+import { invoiceGroups } from "../shared/mobile-work-center.mjs";
 
 const items = [
   { barcode: "BAD5-2", picked: false, modelNumbers: ["aaa167"] },
@@ -49,12 +50,13 @@ function fixture({ replaced = false, receiptFailure = false } = {}) {
       return query;
     },
     async rpc(name, params) {
-      assert.equal(name, "finish_picking_inventory");
+      assert.equal(name, params.p_groups ? "finish_picking_with_invoices" : "finish_picking_inventory");
       commits.push(params);
       ticket = {
         snapshot_id: "list",
         dispatch_state: "queued",
         selections: params.p_selections,
+        invoice_task: params.p_groups ? { ...params.p_groups, status:"waiting", code:null } : null,
         finished_at: "now",
       };
       return receiptFailure && commits.length === 1
@@ -63,6 +65,7 @@ function fixture({ replaced = false, receiptFailure = false } = {}) {
     },
   };
   const api = loadModule("../src/lib/pickingInventoryFinish.ts", {
+    "../../shared/mobile-work-center.mjs": {invoiceGroups},
     "@/lib/supabase/admin": { createSupabaseAdminClient: async () => db },
     "@/lib/pickingShare": {
       readPickingShare: async () => ({
@@ -92,11 +95,12 @@ function fixture({ replaced = false, receiptFailure = false } = {}) {
   return {
     api,
     commits,
-    finish: (entries = observations) =>
+    finish: (entries = observations, groups = {}) =>
       api.finishPickingInventory("token", {
         snapshotId: "list",
         observations: entries,
-      }),
+        ...groups,
+      }, "operator"),
   };
 }
 test("commit is snapshot scoped, returns the stored receipt, and retries an uncertain acknowledgement without another stock write", async () => {
@@ -118,6 +122,24 @@ test("commit is snapshot scoped, returns the stored receipt, and retries an unce
   const stale = fixture({ replaced: true });
   assert.equal((await stale.finish()).status, 409);
   assert.equal(stale.commits.length, 0);
+});
+
+test("picking finish preserves invoice membership after a lost reply and rejects reclassification or omission", async () => {
+  const f = fixture({receiptFailure:true});
+  const groups = {invoiceNumbers:["012345678901"],inventoryShortageInvoiceNumbers:["112345678901"]};
+  await assert.rejects(f.finish(observations, groups));
+  const exact = await f.finish(observations, groups);
+  assert.equal(exact.status,200);
+  assert.equal(exact.body.receipt.invoiceTask.status,"waiting");
+  assert.deepEqual(exact.body.receipt.invoiceTask.invoiceNumbers,groups.invoiceNumbers);
+  assert.equal((await f.finish(observations)).status,409);
+  assert.equal((await f.finish(observations,{invoiceNumbers:groups.inventoryShortageInvoiceNumbers,inventoryShortageInvoiceNumbers:groups.invoiceNumbers})).status,409);
+  assert.equal(f.commits.length,1);
+  for (const bad of [
+    {invoiceNumbers:["123"]}, {invoiceNumbers:["012345678901","012345678901"]},
+    {invoiceNumbers:groups.invoiceNumbers,inventoryShortageInvoiceNumbers:groups.invoiceNumbers},
+    {invoiceNumbers:Array.from({length:51},(_,i)=>String(i).padStart(12,"0"))},
+  ]) await assert.rejects(f.finish(observations,bad));
 });
 
 test("PC opens only the fixed stock page and never submits a marketplace action on wake or repeat", async () => {
