@@ -25,6 +25,7 @@ import {
   type ShoplingDirectRunProgress,
 } from "@/lib/shoplingDirectRunProgress";
 import { recoverLatestPendingDirectJobs } from "@/lib/shoplingDirectRunRecovery";
+import { verifyDirectStockCommand } from "@/lib/shoplingDirectCommand";
 import { shoplingStockResultDetail } from "@/lib/shoplingStockResponsibility";
 import {
   buildShoplingManualFallbackGroups,
@@ -452,6 +453,7 @@ function InventoryStockoutGenericPanel() {
   const mounted = useRef(false);
   const attemptsByJob = useRef(new Map<string, number>());
   const submittingInput = useRef(false);
+  const submittedOnThisPage = useRef(false);
   const safeRetryWaiting = useRef(new Set<string>());
   const acceptedPlanBarcodes = useRef(new Set<string>());
   const [stockPlanProducts, setStockPlanProducts] = useState<StockPlanProduct[]>([]);
@@ -794,7 +796,7 @@ function InventoryStockoutGenericPanel() {
     let cancelled = false;
     void loadLatestPendingDirectJobs()
       .then((recovered) => {
-        if (cancelled || !recovered || directRunProgressRef.current) return;
+        if (cancelled || !recovered || submittedOnThisPage.current || directRunProgressRef.current) return;
         directQueue.current = recovered.jobs;
         rememberDirectJobs(recovered.jobs, true);
         setHasResumableStoppedJobs(true);
@@ -1119,7 +1121,13 @@ function InventoryStockoutGenericPanel() {
     }
 
     submittingInput.current = true;
+    submittedOnThisPage.current = true;
+    directQueue.current = [];
+    publishDirectRunProgress(null);
+    setSyncNotice("");
+    setStockPlanProducts([]);
     setLoading(true);
+    const batchId = randomId("inventory-unified-batch");
     try {
       const response = await fetch("/api/inventory-stock-control/unified-batch", {
         method: "POST",
@@ -1128,7 +1136,7 @@ function InventoryStockoutGenericPanel() {
           accept: "application/json",
         },
         body: JSON.stringify({
-          batchId: randomId("inventory-unified-batch"),
+          batchId,
           stockPlanVersion: 1,
           stockoutBarcodes: stockoutParsed.barcodes,
           onSaleBarcodes: onSaleParsed.barcodes,
@@ -1139,6 +1147,7 @@ function InventoryStockoutGenericPanel() {
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         savedCount?: number;
+        batchId?: string;
         counts?: { stockout?: number; onSale?: number; stocktake?: number; stockEstimate?: number };
         jobs?: DirectInventoryJob[];
         stockPlanProducts?: StockPlanProduct[];
@@ -1149,7 +1158,7 @@ function InventoryStockoutGenericPanel() {
         throw new Error(payload.message || "통합 재고 작업을 저장하지 못했습니다.");
       }
 
-      const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+      const jobs = verifyDirectStockCommand(batchId, stockoutParsed.barcodes, onSaleParsed.barcodes, payload);
       directQueue.current = jobs;
       acceptedPlanBarcodes.current.clear();
       setStockPlanProducts(payload.stockPlanProducts ?? []);
@@ -1168,10 +1177,10 @@ function InventoryStockoutGenericPanel() {
         payload.message ||
           `통합 재고 작업 ${payload.savedCount ?? totalCount}건을 저장했습니다.`,
       );
-      setStockoutInput("");
-      setOnSaleInput("");
-      setStocktakeInput("");
-      setStockEstimateInput("");
+      setStockoutInput((current) => current === stockoutInput ? "" : current);
+      setOnSaleInput((current) => current === onSaleInput ? "" : current);
+      setStocktakeInput((current) => current === stocktakeInput ? "" : current);
+      setStockEstimateInput((current) => current === stockEstimateInput ? "" : current);
 
       if (!jobs.length) {
         setSyncNotice(

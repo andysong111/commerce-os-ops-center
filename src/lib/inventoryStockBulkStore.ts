@@ -21,6 +21,7 @@ function iso(value: unknown) {
 
 export async function storeInventoryOperationBatch(
   inputs: InventoryBulkOperationInput[],
+  { requireNewCommand = false } = {},
 ) {
   if (!inputs.length) throw new Error("INVENTORY_BATCH_EMPTY");
   // A unified operator batch may contain 50 B-code operations plus one durable
@@ -56,10 +57,12 @@ export async function storeInventoryOperationBatch(
     };
   });
 
-  const written = await admin
-    .from("commerce_operation_runs")
-    .upsert(rows, { onConflict: "source_event_id", ignoreDuplicates: true })
-    .select("source_event_id");
+  const table = admin.from("commerce_operation_runs");
+  const write = requireNewCommand
+    ? table.insert(rows)
+    : table.upsert(rows, { onConflict: "source_event_id", ignoreDuplicates: true });
+  const written = await write.select("source_event_id");
+  if (requireNewCommand && written.error?.code === "23505") throw new Error("INVENTORY_COMMAND_ALREADY_STORED");
   if (written.error) {
     throw new Error(`INVENTORY_BATCH_STORE_FAILED:${written.error.message}`);
   }

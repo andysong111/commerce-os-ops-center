@@ -28,6 +28,8 @@ try {
     const context = await browser.newContext();
     const page = await context.newPage();
     const events = [];
+    const commands = new Set();
+    let omitLastJob = false;
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/*", async route => {
@@ -35,9 +37,17 @@ try {
       if (url.origin !== origin) return route.abort();
       if (url.pathname === "/api/inventory-stock-control/unified-batch" && req.method() === "POST") {
         const command = req.postDataJSON();
-        assert.deepEqual(command.onSaleBarcodes, barcodes);
+        const sale = command.onSaleBarcodes.length > 0;
+        assert.deepEqual(sale ? command.onSaleBarcodes : command.stockoutBarcodes, barcodes);
         assert.equal(command.stockPlanVersion, 1);
-        return route.fulfill({ json: { ok: true, savedCount: 2, jobs, stockPlanProducts: [product] } });
+        assert.ok(!commands.has(command.batchId));
+        commands.add(command.batchId);
+        const requestId = "unified-command:" + command.batchId;
+        const desiredStatus = sale ? "ON_SALE" : "SOLD_OUT";
+        const saved = jobs.map(job => ({...job, desiredStatus, retransmissionRequestId: requestId,
+          jobId: `stock-command:${requestId}:${job.barcode}:${desiredStatus}`}));
+        return route.fulfill({ json: { ok: true, savedCount: 2, batchId: command.batchId, commandRequestId: requestId,
+          jobs: omitLastJob ? saved.slice(0, 1) : saved, stockPlanProducts: [product] } });
       }
       if (url.pathname === "/api/inventory-stock-control/sync" && req.method() === "POST") {
         const { barcode, outcome } = req.postDataJSON();
@@ -50,6 +60,7 @@ try {
     });
     await page.addInitScript(({ complete }) => {
       window.stockDispatches = [];
+      window.stockComplete = complete;
       const prefix = "COMMERCE_OS_SHOPLING_STOCK_SYNC_";
       const emit = (type, data) => window.postMessage({ type: prefix + type, extensionVersion: "0.6.62", ...data }, location.origin);
       window.addEventListener("message", e => {
@@ -64,8 +75,11 @@ try {
         if (e.data?.type !== prefix + "START_HF27") return;
         const job = e.data.job;
         window.stockDispatches.push([job.barcode, job.stockBatchPlan]);
-        emit("RESULT_HF27", { job, jobId: job.jobId, outcome: "SUCCEEDED", finishedAt: Date.now(),
-          message: "샵플링 모의 접수", evidence: { stockPlanComplete: complete } });
+        const receipt = {job, jobId: job.jobId, outcome: "SUCCEEDED",
+          message: "샵플링 모의 접수", evidence: {stockPlanComplete: window.stockComplete}};
+        if (window.priorStockReceipt) emit("RESULT_HF27", {...window.priorStockReceipt, finishedAt: Date.now()});
+        emit("RESULT_HF27", {...receipt, finishedAt: Date.now()});
+        window.priorStockReceipt = receipt;
       });
     }, { complete });
     try {
@@ -84,8 +98,31 @@ try {
       assert.deepEqual(events.filter(([,status]) => status === "STARTED").map(([b]) => b), expected.map(j => j.barcode));
       assert.deepEqual(events.filter(([,status]) => status === "SUCCEEDED").map(([b]) => b), complete ? barcodes : []);
       if (!complete) assert.ok(events.some(([barcode, outcome]) => barcode === "BCD8-1" && outcome === "UNCERTAIN"));
+      const firstRunEvents = [...events];
+      // Re-enter both codes after either outcome, then reverse the direction, in the same tab.
+      for (const direction of ["ON_SALE", "SOLD_OUT"]) {
+        events.length = 0;
+        await page.evaluate(() => { window.stockComplete = true; window.stockDispatches = []; });
+        await page.getByPlaceholder(direction === "ON_SALE" ? /BAA1-1/ : /BBD3-1/).fill(barcodes.join("\n"));
+        await page.getByRole("button", {name: /전체 2건 저장·적용 시작/}).click();
+        await page.waitForFunction(() => window.stockDispatches.length === 2 &&
+          document.querySelector('[data-testid="shopling-direct-run-summary"]')?.textContent?.includes("전체 작업 끝남"));
+        assert.deepEqual(events.filter(([,state]) => state === "STARTED").map(([barcode]) => barcode), barcodes);
+        assert.deepEqual(events.filter(([,state]) => state === "SUCCEEDED").map(([barcode]) => barcode), barcodes);
+      }
+      omitLastJob = true;
+      events.length = 0;
+      await page.evaluate(() => { window.stockDispatches = []; });
+      const input = page.getByPlaceholder(/BAA1-1/);
+      await input.fill(barcodes.join("\n"));
+      await page.getByRole("button", {name: /전체 2건 저장·적용 시작/}).click();
+      await page.getByText(/저장된 전송 목록이 일치하지 않아.*BCD8-2/).waitFor();
+      assert.equal(await input.inputValue(), barcodes.join("\n"));
+      assert.deepEqual(await page.evaluate(() => window.stockDispatches), []);
+      assert.deepEqual(events, []);
+      assert.equal(commands.size, 4);
       assert.deepEqual(errors, []);
-      console.log(JSON.stringify({ complete, dispatches, events }));
+      console.log(JSON.stringify({ complete, dispatches, firstRunEvents, repeatedCommandsVerified: 2, incompleteResponseDispatches: 0 }));
     } finally {
       await context.close();
     }
