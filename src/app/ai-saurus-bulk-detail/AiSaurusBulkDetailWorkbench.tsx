@@ -104,7 +104,8 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     if (!studio.current || studio.current.closed) {
       studio.current = window.open("about:blank", "_blank");
       if (!studio.current) throw new Error("AI 사우루스 제작 창을 열 수 없습니다. 이 사이트의 팝업을 허용해 주세요.");
-      studio.current.opener = null;
+      // The fixed AI Saurus production window remains related to the workbench
+      // so Chrome lets the workbench navigate it to the next queued offer.
       studio.current.document.title = "AI 사우루스 준비";
       studio.current.document.body.textContent = "AI 사우루스 운영 제작을 여는 중입니다.";
     }
