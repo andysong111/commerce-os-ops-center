@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "../src/lib/internalChinaPaymentEvidence.ts";
+import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, create1688SettledPaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "../src/lib/internalChinaPaymentEvidence.ts";
 import { purchaseBudgetCarryoverBasis, reconcilePurchaseSpendEvidence } from "../src/lib/purchaseCyclePreflightSpendCore.ts";
 import { worldFirstFeeAtInternalFx } from "../src/lib/productDecisionEngine/purchaseCostPolicy.ts";
 import { loadPurchaseCycleModule } from "./helpers/purchaseCycleHarness.mjs";
@@ -110,15 +110,16 @@ test("purchase run keeps unverified prices out of actual costs and hides the req
   assert.doesNotMatch(page, /최종비용 전 남은 한도/);
 });
 
-test("the payment endpoint validates before writing, independently reads persistence, and keeps replay idempotent", async () => {
+test("the payment endpoint validates before writing, independently reads persistence, and keeps replay idempotent", async t => {
   let stored;
   let written = 0;
   let authenticated = false;
+  let barcodeRows = expected;
   const api = loadPurchaseCycleModule("src/app/api/china-order-manager/payment-evidence/route.ts", {
-    "@/lib/internalChinaPaymentEvidence": { create1688ImportedPaymentEvidence, create1688PaymentEvidence, read1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX },
+    "@/lib/internalChinaPaymentEvidence": { create1688ImportedPaymentEvidence, create1688PaymentEvidence, create1688SettledPaymentEvidence, read1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX },
     "@/lib/internalChinaFreightBarcodeCompletion": {
       loadInternalChinaFreightBarcodeCompletion: async () => ({ cycleMonth, evidenceHash: barcodeEvidenceHash }),
-      loadInternalChinaFreightBarcodeReceiptEvidence: async () => ({ lines: expected, evidenceHash: barcodeEvidenceHash }),
+      loadInternalChinaFreightBarcodeReceiptEvidence: async () => ({ lines: barcodeRows, evidenceHash: barcodeEvidenceHash }),
     },
     "@/lib/internalChinaForwarderStoredClose": { loadStoredInternalChinaForwarderClose: async () => null },
     "@/lib/internalChinaMonthlyPurchaseSummary": { INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE: "INTERNAL_CHINA_PURCHASE_PREP" },
@@ -173,4 +174,56 @@ test("the payment endpoint validates before writing, independently reads persist
   assert.equal(written, 1);
   assert.equal(stored.input_snapshot.paidOrderTotalsVerified, true);
   assert.equal(stored.result_snapshot.paidTotalFen, 12_720);
+
+  await t.test("5-5 keeps open refund requests on readback, deducts only the credited amount and records the settlement once", async () => {
+    stored = null;
+    written = 0;
+    const paid = "9000000000000000001";
+    const cancelled = "9000000000000000002";
+    const refund = { refundId: "TQ100", requestedFen: 5000 };
+    barcodeRows = [{ orderNo: paid, barcode: "BBA1-1", quantity: 2 }];
+    const detailRequest = new Request(contextRequest.url + "&include=settlement");
+    const read = async () => (await (await api.GET(detailRequest)).json()).context;
+    authenticated = false;
+    assert.equal((await api.GET(detailRequest)).status, 403);
+    authenticated = true;
+    assert.deepEqual(await read(), { draftId, evidenceHash: barcodeEvidenceHash, expectedRows: barcodeRows,
+      recordedPayment: null, supportsPendingRefunds: true });
+    const settlement = {
+      orders: [
+        { orderNo: paid, status: "PAID", paidFen: 10000, refundedFen: 1250, pendingRefunds: [refund, { ...refund }] },
+        { orderNo: cancelled, status: "CANCELLED", paidFen: 3000, refundedFen: 0, pendingRefunds: [{ refundId: null, requestedFen: null }] },
+      ],
+      rows: [{ ...barcodeRows[0], goodsFen: 8000, freightFen: 750, serviceFen: 0 }],
+      netTotalFen: 8750,
+    };
+    const conflict = structuredClone(settlement);
+    conflict.orders[1].pendingRefunds = [refund];
+    const rejected = await api.POST(request({ settlement: conflict }));
+    assert.equal(rejected.status, 409);
+    assert.equal((await rejected.json()).code, "PAYMENT_REFUND_REQUEST_CONFLICT");
+    assert.equal(written, 0);
+    assert.equal((await api.POST(request({ settlement }))).status, 200);
+    assert.equal((await api.POST(request({ settlement }))).status, 200);
+    assert.equal(written, 1);
+    const proof = (await read()).recordedPayment;
+    assert.deepEqual(proof, stored.result_snapshot);
+    assert.deepEqual(proof.settledOrders[0].pendingRefunds, [refund]);
+    assert.equal(proof.settledOrders[0].refundedFen, 1250);
+    assert.equal(proof.rows.length, 1);
+    assert.equal(proof.rows[0].quantity, 2);
+    assert.equal(proof.paidTotalFen, 8750);
+    assert.equal(proof.unreturnedCancelledFen, 3000);
+    assert.equal(proof.cashOutflowFen, 11750);
+    assert.equal(proof.budgetSpendKrw, 27241);
+    assert.throws(() => read1688PaymentEvidence({ ...proof, cashOutflowFen: 8750 }, sourceEventId), /PAYMENT_EVIDENCE_HASH_INVALID/);
+    const anotherDraft = "fast-purchase-draft:99999999999999999999";
+    const row = { ...settlement.rows[0], orderNo: cancelled };
+    const second = create1688SettledPaymentEvidence({ draftId: anotherDraft, cycleMonth, barcodeEvidenceHash, expected: [row] }, {
+      orders: [{ orderNo: cancelled, status: "PAID", paidFen: 8750, refundedFen: 0 }], rows: [row], netTotalFen: 8750,
+    });
+    assert.throws(() => reconcilePurchaseSpendEvidence(cycleMonth, [completion, { source_event_id: sourceEventId, result_snapshot: proof },
+      { ...completion, result_snapshot: { ...completion.result_snapshot, draftId: anotherDraft } },
+      { source_event_id: INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + anotherDraft, result_snapshot: second }]), /CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED/);
+  });
 });

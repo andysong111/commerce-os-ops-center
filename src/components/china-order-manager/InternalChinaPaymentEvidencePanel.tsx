@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { worldFirstFeeLabel } from "@/lib/productDecisionEngine/purchaseCostPolicy";
 
@@ -18,7 +18,17 @@ export function InternalChinaPaymentEvidencePanel({
   const [grandTotalCny, setGrandTotalCny] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const openedWorkCenter = useRef(false);
   const workCenterUrl = `http://127.0.0.1:43121/?draftId=${encodeURIComponent(draftId)}&workspace=purchase`;
+
+  useEffect(() => {
+    openedWorkCenter.current = false;
+    function refreshOnReturn() {
+      if (openedWorkCenter.current && document.visibilityState === "visible") router.refresh();
+    }
+    window.addEventListener("focus", refreshOnReturn);
+    return () => window.removeEventListener("focus", refreshOnReturn);
+  }, [draftId, router]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,10 +59,11 @@ export function InternalChinaPaymentEvidencePanel({
         주문 {orderCount.toLocaleString("ko-KR")}건의 1688 결제 자료를 저장하면 입고 수량을 입력할 수 있습니다.
       </p>
       <p className="mt-2 text-sm font-bold">
-        구매자 주문 조회 권한을 연결한 뒤 업무센터에서 5-5번 업무를 실행해 주세요.
+        업무센터에서 5-5번 업무를 실행해 이 차시의 실결제·환불 증빙을 확인해 주세요.
       </p>
       <a
         href={workCenterUrl}
+        onClick={() => { openedWorkCenter.current = true; }}
         target="_blank"
         rel="noreferrer"
         className="mt-1 inline-block text-sm font-bold text-blue-800 underline"

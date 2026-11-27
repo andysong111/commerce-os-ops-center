@@ -1,12 +1,23 @@
 import { loadInternalChinaFreightBarcodeCompletion, loadInternalChinaFreightBarcodeReceiptEvidence } from "@/lib/internalChinaFreightBarcodeCompletion";
 import { loadStoredInternalChinaForwarderClose } from "@/lib/internalChinaForwarderStoredClose";
 import { INTERNAL_CHINA_PURCHASE_PREP_OPERATION_TYPE } from "@/lib/internalChinaMonthlyPurchaseSummary";
-import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "@/lib/internalChinaPaymentEvidence";
+import { create1688ImportedPaymentEvidence, create1688PaymentEvidence, create1688SettledPaymentEvidence, INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX, read1688PaymentEvidence } from "@/lib/internalChinaPaymentEvidence";
 import { resolveProductLaunchIdentity } from "@/lib/productLaunchTrackerServer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadChinaOrderLedger } from "@/lib/chinaOrderLedger";
 
 export const runtime = "nodejs";
+
+async function readStoredPayment(admin: NonNullable<Awaited<ReturnType<typeof createSupabaseAdminClient>>>, draftId: string) {
+  const sourceEventId = INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + draftId;
+  const result = await admin.from("commerce_operation_runs").select("result_snapshot")
+    .eq("source_event_id", sourceEventId).maybeSingle();
+  if (result.error) throw new Error("PAYMENT_READBACK_FAILED");
+  const row = result.data as { result_snapshot?: Record<string, unknown> } | null;
+  if (row === null) return null;
+  if (!row?.result_snapshot) throw new Error("PAYMENT_READBACK_FAILED");
+  return read1688PaymentEvidence(row.result_snapshot, sourceEventId);
+}
 
 export async function GET(request: Request) {
   const identity = await resolveProductLaunchIdentity(request);
@@ -23,7 +34,14 @@ export async function GET(request: Request) {
     }
     const evidence = await loadInternalChinaFreightBarcodeReceiptEvidence(completion);
     const expectedRows = evidence.lines.map(({ orderNo, barcode, quantity }) => ({ orderNo, barcode, quantity }));
-    return Response.json({ ok: true, context: { draftId, evidenceHash: evidence.evidenceHash, expectedRows } }, { headers });
+    const context = { draftId, evidenceHash: evidence.evidenceHash, expectedRows };
+    if (new URL(request.url).searchParams.get("include") === "settlement") {
+      const admin = await createSupabaseAdminClient();
+      if (!admin) throw new Error("PAYMENT_STORE_UNAVAILABLE");
+      const recordedPayment = await readStoredPayment(admin, draftId);
+      return Response.json({ ok: true, context: { ...context, recordedPayment, supportsPendingRefunds: true } }, { headers });
+    }
+    return Response.json({ ok: true, context }, { headers });
   } catch {
     return Response.json({ ok: false, message: "바코드 원본을 다시 조회해 주세요." }, { status: 503, headers });
   }
@@ -65,7 +83,9 @@ export async function POST(request: Request) {
       expected: barcodeEvidence.lines,
     };
     const hasPaidOrderProof = body.paidOrders !== undefined;
-    const evidence = hasPaidOrderProof
+    const evidence = body.settlement !== undefined
+      ? create1688SettledPaymentEvidence(evidenceInput, body.settlement)
+      : hasPaidOrderProof
       ? create1688ImportedPaymentEvidence(evidenceInput, body.paidOrders)
       : create1688PaymentEvidence(evidenceInput);
     const sourceEventId = INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + draftId;
@@ -81,7 +101,7 @@ export async function POST(request: Request) {
           draftId,
           cycleMonth: evidence.cycleMonth,
           paymentEvidenceHash: evidence.paymentEvidenceHash,
-          ...(hasPaidOrderProof ? { paidOrderTotalsVerified: true } : {}),
+          ...(hasPaidOrderProof || evidence.settledOrders ? { paidOrderTotalsVerified: true } : {}),
         },
         result_snapshot: evidence,
         started_at: now,
@@ -89,14 +109,9 @@ export async function POST(request: Request) {
         finished_at: now,
     }, { onConflict: "source_event_id", ignoreDuplicates: true });
     if (write.error) throw new Error("PAYMENT_STORE_FAILED");
-    const result = await admin.from("commerce_operation_runs")
-      .select("result_snapshot")
-      .eq("source_event_id", sourceEventId)
-      .maybeSingle();
-    const row = result.data as { result_snapshot?: Record<string, unknown> } | null;
-    if (result.error || !row?.result_snapshot) throw new Error("PAYMENT_READBACK_FAILED");
-    const saved = read1688PaymentEvidence(row.result_snapshot, sourceEventId);
-    if (saved?.paymentEvidenceHash !== evidence.paymentEvidenceHash) {
+    const saved = await readStoredPayment(admin, draftId);
+    if (!saved) throw new Error("PAYMENT_READBACK_FAILED");
+    if (saved.paymentEvidenceHash !== evidence.paymentEvidenceHash) {
       throw new Error("PAYMENT_ALREADY_RECORDED");
     }
     return Response.json({ ok: true, paidTotalCny: saved.paidTotalFen / 100 });
@@ -104,6 +119,8 @@ export async function POST(request: Request) {
     const reason = error instanceof Error ? error.message : "PAYMENT_STORE_FAILED";
     const [code, detail] = reason.split(":");
     const messages: Record<string, string> = {
+      PAYMENT_SETTLEMENT_INVALID: "주문별 지불액·환불액 또는 품목 원가 자료를 확인해 주세요.",
+      PAYMENT_SETTLEMENT_ORDER_CONFLICT: "주문의 실지출이 품목 합계 또는 취소 상태와 일치하지 않습니다. " + (detail ?? ""),
       PAYMENT_BARCODE_VERSION_CONFLICT: "바코드 완료 원본을 확인할 수 없습니다. 화면을 새로고침하세요.",
       PAYMENT_BARCODE_ORDER_INVALID: "바코드 원본에 유효한 1688 주문번호와 수량이 필요합니다.",
       PAYMENT_DRAFT_BARCODE_CONFLICT: "이 발주차시 원장에 없는 B-code가 바코드 원본에 포함되어 있습니다.",
@@ -121,6 +138,8 @@ export async function POST(request: Request) {
       PAYMENT_PAID_ORDER_MISSING: `결제 완료 자료에서 이 차시 주문을 찾지 못했습니다. ${detail ?? ""}`,
       PAYMENT_ALREADY_CLOSED: "배송대행 비용이 마감된 차시입니다. 기존 원가를 확인하세요.",
       PAYMENT_ALREADY_RECORDED: "이 발주차시에 다른 내용의 실결제 자료가 이미 기록되어 있습니다.",
+      PAYMENT_REFUND_REQUEST_INVALID: "환불 신청번호와 신청 금액을 확인해 주세요.",
+      PAYMENT_REFUND_REQUEST_CONFLICT: "같은 환불 신청번호의 주문 또는 금액이 다릅니다.",
     };
     return Response.json({
       ok: false,

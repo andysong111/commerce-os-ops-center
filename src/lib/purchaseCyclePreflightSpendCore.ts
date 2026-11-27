@@ -199,12 +199,15 @@ export function reconcilePurchaseSpendEvidence(cycleMonth: string, rows: Monthly
         completed.evidenceHash !== payment.barcodeEvidenceHash) {
       throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
     }
-    for (const line of payment.rows) {
-      const previousDraft = draftByOrder.get(line.orderNo);
+    const cashOrders = payment.settledOrders
+      ? payment.settledOrders.filter(order => order.paidFen > order.refundedFen)
+      : payment.rows;
+    for (const { orderNo } of cashOrders) {
+      const previousDraft = draftByOrder.get(orderNo);
       if (previousDraft && previousDraft !== draftId) {
         throw new Error("CYCLE_SPEND_PAYMENT_EVIDENCE_REQUIRED");
       }
-      draftByOrder.set(line.orderNo, draftId);
+      draftByOrder.set(orderNo, draftId);
     }
     pending.delete(draftId);
     verifiedRows.push({

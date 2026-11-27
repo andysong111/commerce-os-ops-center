@@ -8,6 +8,7 @@ on:
       - "src/lib/purchasePlanningFx.ts"
       - "src/lib/internalChinaOrderEvidence.ts"
       - "src/lib/internalChinaPaymentEvidence.ts"
+      - "local-agent/src/alibaba1688-refund-requests.*"
       - "src/lib/productDecisionEngine/purchaseCostPolicy.ts"
       - "src/lib/purchaseCyclePreflightSpend*.ts"
       - "src/lib/internalChinaPurchaseBudgetAudit.ts"
