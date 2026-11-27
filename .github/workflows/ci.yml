@@ -204,4 +204,4 @@ jobs:
           sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/picking-ledger.sql
           echo 'commit;' >> /tmp/picking-ledger.sql
           psql -v ON_ERROR_STOP=1 -f /tmp/picking-ledger.sql -f supabase/migrations/202610130001_commerce_os_picking_snapshots.sql -f supabase/migrations/20261127085814_picking_inventory_finish.sql -f tests/pickingInventoryFinish.sql
-            psql -v ON_ERROR_STOP=1 -c 'create schema auth; create table auth.users(id uuid primary key);' -f supabase/migrations/20261127011229_commerce_os_remote_work_center.sql -f supabase/migrations/*_picking_invoice_handoff.sql -f tests/pickingInvoiceHandoff.sql
+          psql -v ON_ERROR_STOP=1 -c 'create schema auth; create table auth.users(id uuid primary key);' -f supabase/migrations/20261127011229_commerce_os_remote_work_center.sql -f supabase/migrations/20261127100922_picking_invoice_handoff.sql -f tests/pickingInvoiceHandoff.sql
