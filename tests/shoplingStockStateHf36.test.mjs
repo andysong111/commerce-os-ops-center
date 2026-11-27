@@ -102,6 +102,6 @@ test("HF36 still packages v0.6.4 while the stock-control UI has advanced to HF90
   assert.match(planner, /ALL_DATE_STOCK_SYNC_MIN_VERSION = \[0, 6, 61\]/);
   assert.match(page, /download-hf101/);
   assert.match(page, /v0\.6\.61 다운로드/);
-  assert.match(queuePanel, /v0\.6\.61로 업데이트해 주세요/);
-  assert.match(operatorPanel, /v0\.6\.61로 업데이트/);
+  assert.match(queuePanel, /v0\.6\.62로 업데이트해 주세요/);
+  assert.match(operatorPanel, /v0\.6\.62로 업데이트/);
 });

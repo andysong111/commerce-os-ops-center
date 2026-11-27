@@ -17,6 +17,10 @@ When sources conflict, use this order:
 
 Never preserve an old plan merely because it is documented if current code or direct live evidence disproves it.
 
+### Shopling 상품·옵션 전송 HF102 (2026-11-27)
+
+상품번호별 전체 옵션을 실시간 조회해 품절·판매중 전환을 계획한다. 동일 상품의 옵션 접수가 끝난 뒤 마지막 B코드에서 필요한 상품상태 전송을 실행한다. BCD8-1·BCD8-2 실조회와 롤백 기준은 [HF102 운영 기록](shopling-stock-state-hf102-20261127.md)에 있다.
+
 ### Shopling stock-state HF95 handoff (2026-11-19)
 
 - 운영 v0.6.56에서 B코드 1건이 `SHOPLING_STOCK_EXTENSION_NOT_IDLE`, `성공 0/1 · 실패 0 · 미시작 1`로 전송 전에 중단됐다. 화면의 `연결됨`은 content script READY만 뜻했고 서비스워커 응답 가능 여부를 증명하지 못했다.

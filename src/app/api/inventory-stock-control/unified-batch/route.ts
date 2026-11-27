@@ -25,10 +25,13 @@ import {
   type ShoplingStockRetransmissionRequest,
 } from "@/lib/inventoryShoplingRetransmission";
 
+import { prepareShoplingStockBatch } from "@/lib/shopling/shoplingStockBatchService";
+import { bindStockBatchPlans, type StockBatchPlanFields } from "@/lib/shoplingStockBatchPreflight";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 type RawStocktakeItem = {
   barcode?: unknown;
@@ -265,7 +268,7 @@ export async function POST(request: Request) {
       });
     });
 
-    const jobs = [
+    const inputJobs = [
       ...stockoutEvents.map((event) =>
         directJob(
           event,
@@ -282,6 +285,10 @@ export async function POST(request: Request) {
         ),
       ),
     ];
+    const stockBatch = inputJobs.length && body.stockPlanVersion === 1
+      ? await prepareShoplingStockBatch(inputJobs)
+      : null;
+    const jobs: (typeof inputJobs[number] & StockBatchPlanFields)[] = stockBatch ? bindStockBatchPlans(inputJobs, stockBatch) : inputJobs;
     const commandRequest: ShoplingStockRetransmissionRequest | null = jobs.length
       ? {
           requestId: `unified-command:${batchId}`.slice(0, 180),
@@ -297,6 +304,10 @@ export async function POST(request: Request) {
             productKind: job.productKind,
             desiredStatus: job.desiredStatus,
             desiredSince: job.desiredSince,
+            ...(stockBatch && "stockBatchPlan" in job ? {
+              stockBatchPlan: job.stockBatchPlan,
+              stockBatchDependencies: job.stockBatchDependencies,
+            } : {}),
             mode: "REPLAY" as const,
             directOperatorCommand: true,
           })),
@@ -355,6 +366,7 @@ export async function POST(request: Request) {
         identities,
         jobs,
         commandRequestId: commandRequest?.requestId ?? null,
+        stockPlanProducts: stockBatch?.products ?? [],
         storage,
         message:
           `통합 재고 작업 ${allBarcodes.length}건을 저장했습니다. ` +

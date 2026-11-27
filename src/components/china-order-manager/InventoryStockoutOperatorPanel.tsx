@@ -10,6 +10,7 @@ import {
 import {
   planShoplingStockLaunch,
   supportsAllDateStockSync,
+  supportsStockParentFinalization,
 } from "@/lib/shoplingStockLaunchPlan";
 import { requireShoplingAuthenticatedSession } from "@/lib/shoplingStockSessionPreflight";
 import { waitForShoplingStockIdle } from "@/lib/shoplingStockReadyBarrier";
@@ -30,11 +31,14 @@ import {
   shoplingManualFallbackCopyText,
 } from "@/lib/shoplingManualFallback";
 
+import { missingStockPlanReceipts, orderStockBatchJobs, preflightShoplingStockJobs, verifyStockPlanTerminal, stockPlanReceiptSummary, type StockBatchPlanFields, type StockPlanProduct } from "@/lib/shoplingStockBatchPreflight";
+
 type ProductKind = "OPTION" | "SINGLE";
 type DesiredStatus = "SOLD_OUT" | "ON_SALE";
 type SyncOutcome = "STARTED" | "SUCCEEDED" | "FAILED" | "UNCERTAIN";
 
-type DirectInventoryJob = {
+type DirectInventoryJob = StockBatchPlanFields & {
+  confirmedStockDependencies?: string[];
   jobId: string;
   barcode: string;
   productName: string;
@@ -80,6 +84,7 @@ type DirectRunResultDetail = {
   marketTotalCount: number;
   responsibilityReceiptAccepted: boolean;
   attemptCount: number;
+  laneReceiptSummary: string;
   failurePhaseLabel?: string;
   failureReason?: string;
   failureImpact?: string;
@@ -124,8 +129,18 @@ async function loadLatestPendingDirectJobs() {
   if (!recovered) return null;
   return {
     requestId: recovered.requestId,
-    jobs: recovered.jobs.map((job) => job as unknown as DirectInventoryJob),
+    jobs: orderStockBatchJobs(recovered.jobs.map((job) => job as unknown as DirectInventoryJob)),
   };
+}
+
+function availabilityLabel(value: string | null) {
+  switch (value) {
+    case "ALL_SOLD_OUT": return "전체 품절";
+    case "PARTIAL_SOLD_OUT": return "일부 품절";
+    case "ALL_ON_SALE": return "모두 판매중";
+    case "ENDED": return "판매종료";
+    default: return value || "상태 미확인";
+  }
 }
 
 function randomId(prefix: string) {
@@ -177,7 +192,7 @@ export function friendlyShoplingStockSyncFailure(
     raw.includes("enableAllDateSearch is not defined") ||
     raw.includes("A21_CONTENT_EXCEPTION")
   ) {
-    return "Shopling A21 작업 프레임·성공표 영수증을 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.61로 업데이트해 주세요.";
+    return "Shopling A21 작업 프레임·성공표 영수증을 확인하지 못했습니다. Shopling에는 이미 접수됐을 수 있으므로 같은 B코드를 다시 실행하지 말고 A21 결과를 먼저 확인해 주세요. 이후 재고상태 자동화 확장을 v0.6.62로 업데이트해 주세요.";
   }
   if (
     raw.includes("A21_ALL_DATE_FILTER_NOT_FOUND") ||
@@ -436,7 +451,10 @@ function InventoryStockoutGenericPanel() {
   const launchingNext = useRef(false);
   const mounted = useRef(false);
   const attemptsByJob = useRef(new Map<string, number>());
+  const submittingInput = useRef(false);
   const safeRetryWaiting = useRef(new Set<string>());
+  const acceptedPlanBarcodes = useRef(new Set<string>());
+  const [stockPlanProducts, setStockPlanProducts] = useState<StockPlanProduct[]>([]);
   const [hasResumableStoppedJobs, setHasResumableStoppedJobs] = useState(false);
   const launchTimer = useRef<number | null>(null);
   const handledResults = useRef(new Set<string>());
@@ -459,6 +477,8 @@ function InventoryStockoutGenericPanel() {
         directRunJobs.current.set(job.jobId, {
           ...previous,
           ...job,
+          stockBatchPlan: previous?.stockBatchPlan ?? job.stockBatchPlan,
+          stockBatchDependencies: previous?.stockBatchDependencies ?? job.stockBatchDependencies,
           goodsKeys:
             Array.isArray(job.goodsKeys) && job.goodsKeys.length
               ? job.goodsKeys
@@ -489,6 +509,7 @@ function InventoryStockoutGenericPanel() {
         barcode: job.barcode,
         desiredStatus: job.desiredStatus,
         attemptCount: Number(object(evidence).attempt) || 1,
+        laneReceiptSummary: stockPlanReceiptSummary(evidence),
         outcome,
         message,
         ...receipt,
@@ -582,11 +603,46 @@ function InventoryStockoutGenericPanel() {
   const launchNext = useCallback(async () => {
     if (!mounted.current || activeBatch.current || launchingNext.current || !extensionReadyRef.current) return;
 
+    launchingNext.current = true;
+    try {
+      // Recovery of an older saved command still needs a complete read-only plan.
+      if (directQueue.current.length && directQueue.current.every((job) => !job.stockBatchPlan)) {
+        setSyncNotice("입력한 모든 B코드의 상품과 전체 옵션 상태를 조회하고 있습니다.");
+        const prepared = await preflightShoplingStockJobs(directQueue.current);
+        if (!mounted.current) return;
+        directQueue.current = prepared.jobs;
+        rememberDirectJobs(prepared.jobs);
+        setStockPlanProducts(prepared.products);
+      }
+      if (directQueue.current.some((job) => !job.stockBatchPlan)) throw new Error("일부 B코드의 전송계획이 누락되어 전송을 중단했습니다.");
+      // An incomplete sibling must never unlock the final product send, even if
+      // its Shopling API update succeeded before its marketplace submit failed.
+      while (directQueue.current.length) {
+        const first = directQueue.current[0];
+        const missing = missingStockPlanReceipts(first, new Set([...acceptedPlanBarcodes.current, ...(first.confirmedStockDependencies ?? [])]));
+        if (!missing.length) break;
+        const message = `${first.barcode} · 같은 상품의 ${missing.join(", ")} 전송 접수가 확인되지 않아 이 작업을 보류했습니다.`;
+        const evidence = { code: "SHOPLING_PRIOR_OPTION_RECEIPT_MISSING", browserMutationStarted: false, retrySafe: false };
+        await recordSync(first, "FAILED", message, evidence);
+        if (!mounted.current) return;
+        upsertDirectRunResultDetail(first, "FAILED", message, evidence);
+        const current = directRunProgressRef.current;
+        if (current) publishDirectRunProgress(recordShoplingDirectRunOutcome(current, first.jobId, "FAILED"));
+        directQueue.current = directQueue.current.slice(1);
+      }
+    } catch (error) {
+      launchingNext.current = false;
+      setSyncing(false);
+      stopDirectRunProgress();
+      setSyncNotice(error instanceof Error ? error.message : "상품·옵션 전송계획을 확인하지 못했습니다.");
+      return;
+    }
     const plan = planShoplingStockLaunch(
       directQueue.current,
       extensionVersionRef.current,
     );
     if (!plan.jobs.length) {
+      launchingNext.current = false;
       setSyncing(false);
       const current = directRunProgressRef.current;
       if (current) {
@@ -728,7 +784,7 @@ function InventoryStockoutGenericPanel() {
       );
       window.dispatchEvent(new Event(REFRESH_EVENT));
     }
-  }, [publishDirectRunProgress, recordSync, stopDirectRunProgress]);
+  }, [publishDirectRunProgress, recordSync, rememberDirectJobs, stopDirectRunProgress, upsertDirectRunResultDetail]);
 
   useEffect(() => {
     launchNextRef.current = launchNext;
@@ -804,14 +860,14 @@ function InventoryStockoutGenericPanel() {
 
       if (type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY") {
         const version = String(data.extensionVersion || "");
-        const supported = supportsAllDateStockSync(version);
+        const supported = supportsAllDateStockSync(version) && supportsStockParentFinalization(version);
         extensionReadyRef.current = supported;
         extensionVersionRef.current = version;
         setExtensionReady(supported);
         setExtensionVersion(version);
         if (!supported) {
           setSyncNotice(
-            `Shopling 자동화 v${version || "확인 불가"}는 실행 중 최초 팝업 소유권 보존을 지원하지 않아 사용할 수 없습니다. v0.6.61로 업데이트해 주세요.`,
+            `Shopling 자동화 v${version || "확인 불가"}는 옵션 접수 후 상품 판매상태 전송을 지원하지 않아 사용할 수 없습니다. v0.6.62로 업데이트해 주세요.`,
           );
         } else {
           setSyncNotice((current) =>
@@ -923,7 +979,7 @@ function InventoryStockoutGenericPanel() {
 
       if (type !== "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT") return;
 
-      const result = data as unknown as ResultMessage;
+      const result = verifyStockPlanTerminal(data as unknown as ResultMessage);
       const batch = activeBatch.current;
       if (!batch?.dispatchedAt || data[RECEIPT_MARK] !== true || data.extensionVersion !== extensionVersionRef.current
         || !(Number(result.finishedAt) >= batch.dispatchedAt) || !["SUCCEEDED", "FAILED", "UNCERTAIN"].includes(result.outcome)) return;
@@ -955,6 +1011,7 @@ function InventoryStockoutGenericPanel() {
             result.finishedAt,
           );
           if (!mounted.current || activeBatch.current !== batch) return;
+          if (result.outcome === "SUCCEEDED") acceptedPlanBarcodes.current.add(job.barcode);
           upsertDirectRunResultDetail(
             job,
             result.outcome,
@@ -1031,6 +1088,7 @@ function InventoryStockoutGenericPanel() {
   ]);
 
   const save = async () => {
+    if (submittingInput.current || activeBatch.current || launchingNext.current || syncing) return;
     setNotice("");
     if (!totalCount) {
       setNotice("품절·판매중·재고수량 중 한 곳에 1건 이상 입력해 주세요.");
@@ -1055,11 +1113,12 @@ function InventoryStockoutGenericPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.61을 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.62을 연결해 주세요.",
       );
       return;
     }
 
+    submittingInput.current = true;
     setLoading(true);
     try {
       const response = await fetch("/api/inventory-stock-control/unified-batch", {
@@ -1070,6 +1129,7 @@ function InventoryStockoutGenericPanel() {
         },
         body: JSON.stringify({
           batchId: randomId("inventory-unified-batch"),
+          stockPlanVersion: 1,
           stockoutBarcodes: stockoutParsed.barcodes,
           onSaleBarcodes: onSaleParsed.barcodes,
           stocktakeItems: stocktakeParsed.items,
@@ -1081,6 +1141,7 @@ function InventoryStockoutGenericPanel() {
         savedCount?: number;
         counts?: { stockout?: number; onSale?: number; stocktake?: number; stockEstimate?: number };
         jobs?: DirectInventoryJob[];
+        stockPlanProducts?: StockPlanProduct[];
         commandRequestId?: string | null;
         message?: string;
       };
@@ -1090,6 +1151,8 @@ function InventoryStockoutGenericPanel() {
 
       const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
       directQueue.current = jobs;
+      acceptedPlanBarcodes.current.clear();
+      setStockPlanProducts(payload.stockPlanProducts ?? []);
       rememberDirectJobs(jobs, true);
       handledResults.current.clear();
       attemptsByJob.current.clear();
@@ -1129,6 +1192,7 @@ function InventoryStockoutGenericPanel() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "통합 재고 작업 실패");
     } finally {
+      submittingInput.current = false;
       setLoading(false);
     }
   };
@@ -1140,7 +1204,7 @@ function InventoryStockoutGenericPanel() {
     if (current?.status !== "STOPPED" || activeBatch.current || launchingNext.current) return;
     if (!extensionReadyRef.current) {
       setSyncNotice(
-        "Shopling 자동화 확장 v0.6.61 연결을 확인한 뒤 다시 시도해 주세요.",
+        "Shopling 자동화 확장 v0.6.62 연결을 확인한 뒤 다시 시도해 주세요.",
       );
       return;
     }
@@ -1180,7 +1244,7 @@ function InventoryStockoutGenericPanel() {
         })
       : [];
   const manualFallbackGroups = buildShoplingManualFallbackGroups(
-    finalManualFallbackJobs,
+    finalManualFallbackJobs.filter((job) => !job.stockBatchPlan),
   );
 
   const copyManualFallback = async (label: string, values: string[]) => {
@@ -1275,7 +1339,7 @@ function InventoryStockoutGenericPanel() {
           {extensionReady
             ? `Shopling 자동화 연결됨${extensionVersion ? ` · v${extensionVersion}` : ""}`
             : extensionVersion
-              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.61`
+              ? `Shopling 자동화 업데이트 필요 · v${extensionVersion} → v0.6.62`
             : "Shopling 자동화 연결 대기"}
         </span>
         {inputErrors.length ? (
@@ -1317,6 +1381,25 @@ function InventoryStockoutGenericPanel() {
         <p role="status" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold leading-6 text-slate-800">
           {notice}
         </p>
+      ) : null}
+
+      {stockPlanProducts.length > 0 ? (
+        <details className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-bold">상품·옵션 전송계획 · 상품 {stockPlanProducts.length}개</summary>
+          <ul className="mt-3 space-y-3">
+            {stockPlanProducts.map((product) => (
+              <li key={product.goodsKey}>
+                <strong>{product.productName || product.partnerGoodsCode} · 상품번호 {product.goodsKey}</strong>
+                <p>{availabilityLabel(product.beforeAvailability)} → {availabilityLabel(product.afterAvailability)} · {
+                  product.productSaleStatus === "E" ? "판매종료 상품 제외" :
+                  product.parentDesiredStatus ? `상품 ${product.parentDesiredStatus === "ON_SALE" ? "판매중" : "품절"} 전송` : "상품상태 전송 없음"
+                }</p>
+                <p className="text-xs text-slate-600">{product.options.map((option) =>
+                  `${option.barcode} ${option.selection.map(({ value }) => value).join(" / ")} (${option.optionStatus} → ${option.plannedStatus})`).join(" · ")}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
       ) : null}
 
       {directRunProgress ? (
@@ -1386,6 +1469,7 @@ function InventoryStockoutGenericPanel() {
                       <span>· {statusLabel}</span>
                       {detail.attemptCount > 1 ? <span>· {detail.attemptCount}차 시도</span> : null}
                     </div>
+                    {detail.laneReceiptSummary && <p className="mt-1 text-xs font-bold">{detail.laneReceiptSummary}</p>}
                     {successful ? (
                       <p className="mt-1 text-xs font-bold leading-5">
                         {detail.message || "상세 메시지가 없습니다."}
@@ -1449,11 +1533,13 @@ function InventoryStockoutGenericPanel() {
           </h3>
           <p className="mt-1 text-xs font-bold leading-5">
             Shopling에서 기존 접수 결과를 먼저 확인하세요. 추가 전송이 필요한 상품은 아래 GOODS KEY를 사용할 수 있습니다.
-            판매중 상품이 옵션 판매를 회복하는 경우에는 상품 판매중전송을 먼저
-            끝낸 뒤 옵션전송을 진행하세요.
+            같은 상품에 옵션전송과 상품상태 전송이 함께 있으면 옵션전송 접수를 확인한 뒤 상품상태를 전송하세요.
           </p>
 
-          <div className="mt-3 grid gap-3 xl:grid-cols-3">
+          {finalManualFallbackJobs.some((job) => job.stockBatchPlan) && (
+            <p className="mt-2 font-bold">상품별 전송계획 확인 필요 · {finalManualFallbackJobs.filter((job) => job.stockBatchPlan).map((job) => job.barcode).join(", ")}. 실행 상세에서 이미 접수된 단계와 남은 단계를 확인하세요.</p>
+          )}
+          {finalManualFallbackJobs.some((job) => !job.stockBatchPlan) && <div className="mt-3 grid gap-3 xl:grid-cols-3">
             {[
               {
                 label: "상품 품절전송",
@@ -1489,7 +1575,7 @@ function InventoryStockoutGenericPanel() {
                 />
               </div>
             ))}
-          </div>
+          </div>}
 
           {manualFallbackGroups.unresolvedBarcodes.length ? (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">

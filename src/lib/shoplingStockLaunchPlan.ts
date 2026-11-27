@@ -13,6 +13,11 @@ function versionParts(value: string | null | undefined) {
   return [Number(match[1]), Number(match[2]), Number(match[3])] as const;
 }
 
+export function supportsStockParentFinalization(extensionVersion: string | null | undefined) {
+  const [major, minor, patch] = versionParts(extensionVersion);
+  return major > 0 || minor > 6 || (minor === 6 && patch >= 62);
+}
+
 export function supportsOptionFirstParallel(
   extensionVersion: string | null | undefined,
 ) {

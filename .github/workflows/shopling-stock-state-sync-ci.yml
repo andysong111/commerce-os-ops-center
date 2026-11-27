@@ -14,6 +14,11 @@ on:
       - "src/lib/shopling/shoplingOptionStatus.ts"
       - "src/lib/shopling/shoplingProductStatus.ts"
       - "src/lib/shopling/shoplingGoodsKeyTransmission.ts"
+      - "src/lib/shopling/shoplingStockBatch*.ts"
+      - "src/lib/shoplingStockBatchPreflight.ts"
+      - "src/app/api/inventory-stock-control/unified-batch/**"
+      - "tests/shoplingStockBatch*.test.mjs"
+      - "tests/shoplingStockStateHf102.test.mjs"
       - "src/lib/inventoryStockSalesTail.ts"
       - "src/lib/inventoryStockSalesTailCoverage.ts"
       - "src/lib/inventoryStockSyncResolution.ts"
@@ -261,6 +266,8 @@ jobs:
         run: node --experimental-strip-types --test tests/shoplingStockStateHf100.test.mjs tests/shoplingStockStateHf96.test.mjs tests/shoplingStockReadyBarrier.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
       - name: Regression - HF101 in-flight initial owner snapshot
         run: node --experimental-strip-types --test tests/shoplingStockStateHf101.test.mjs tests/shoplingStockStateHf100.test.mjs tests/shoplingStockStateHf96.test.mjs tests/shoplingStockReadyBarrier.test.mjs tests/inventoryStockShoplingLaunchPlan.test.mjs
+      - name: BCD8 option and product sale-state planning, phased receipts and recovery
+        run: node --experimental-strip-types --test tests/shoplingStockBatchPlan.test.mjs tests/shoplingStockBatchPreflight.test.mjs tests/shoplingStockStateHf102.test.mjs
       - name: Regression - explicit idle acknowledgement between B-codes
         run: node --experimental-strip-types --test tests/shoplingStockReadyBarrier.test.mjs
       - name: Regression - explicit direct-run progress and completion summary

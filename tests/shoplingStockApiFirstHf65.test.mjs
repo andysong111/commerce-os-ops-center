@@ -56,10 +56,11 @@ test("real A6 failure fixture becomes a stable B-code index without conflating m
 });
 
 test("HF65 option and product writes omit quantity and require API readback", async () => {
-  const [option, product, route] = await Promise.all([
+  const [option, product, route, batch] = await Promise.all([
     readFile("src/lib/shopling/shoplingOptionStatus.ts", "utf8"),
     readFile("src/lib/shopling/shoplingProductStatus.ts", "utf8"),
     readFile("src/app/api/inventory-stock-control/shopling-option-status/route.ts", "utf8"),
+    readFile("src/lib/shopling/shoplingStockBatchService.ts", "utf8"),
   ]);
   const optionWrite = option.slice(
     option.indexOf("function buildModifyXml"),
@@ -71,8 +72,9 @@ test("HF65 option and product writes omit quantity and require API readback", as
   assert.match(product, /buildMonthlySaleStatusWriteXml/);
   assert.match(product, /after\.optionQuantity === before\.optionQuantity/);
   assert.match(product, /SHOPLING_PRODUCT_READBACK_QTY_MISMATCH/);
-  assert.match(route, /loadIndexedShoplingGoodsKeys/);
-  assert.match(route, /SHOPLING_BCODE_INDEX_MISSING/);
+  assert.match(route, /resolveShoplingStockItem/);
+  assert.match(batch, /loadIndexedShoplingGoodsKeys/);
+  assert.match(batch, /SHOPLING_BCODE_INDEX_MISSING/);
   assert.match(route, /receipts/);
 });
 
