@@ -1115,6 +1115,7 @@ function fillDetailForm(item, mode) {
     if (form?.elements?.[name]) form.elements[name].value = item[name] ?? "";
   }
   if (form?.elements?.detailHtml) form.elements.detailHtml.value = item.detailPageAsset?.html ?? "";
+  if (form?.elements?.detailImageUrl) form.elements.detailImageUrl.value = item.detailPageAsset?.detailImageUrl ?? "";
   if (form?.elements?.mainImageUrl) form.elements.mainImageUrl.value = item.detailPageAsset?.mainImageUrl ?? "";
   if (form?.elements?.additionalImageUrls) {
     form.elements.additionalImageUrls.value = (item.detailPageAsset?.additionalImageUrls ?? []).join("\n");

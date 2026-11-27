@@ -103,6 +103,10 @@
               <span id="selected-count">선택 0건</span>
             </div>
             <div class="bulk-controls">
+              <button id="ai-saurus-bulk-detail" class="button button-primary" type="button" disabled>
+                AI 사우루스 상세페이지 제작
+              </button>
+              <span id="ai-saurus-bulk-detail-status" role="status"></span>
               <button id="select-filtered-seo-ready" class="button button-seo-select" type="button">
                 필터 결과 SEO 가능 전체 선택
               </button>
@@ -208,6 +212,7 @@
             <div><h3>상세페이지 엔진 결과</h3><p>최종 승인 HTML과 이미지를 연결합니다. 배송공지는 등록 시 자동으로 끝에 붙습니다.</p></div>
           </div>
           <div class="form-grid">
+            <label class="field field-span-2"><span>상세페이지 이미지 URL</span><input name="detailImageUrl" readonly /></label>
             <label class="field field-span-2"><span>상세페이지 HTML</span><textarea name="detailHtml" rows="6" placeholder="상세페이지 엔진의 승인된 HTML"></textarea></label>
             <label class="field field-span-2"><span>대표이미지 URL</span><input name="mainImageUrl" placeholder="https://..." /></label>
             <label class="field field-span-2"><span>추가이미지 URL <small>줄바꿈 또는 쉼표 구분, 최대 10개</small></span><textarea name="additionalImageUrls" rows="3"></textarea></label>
