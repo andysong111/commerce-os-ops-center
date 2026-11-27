@@ -84,6 +84,11 @@ export function monthlyRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 export function monthlyHash(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+export function purchaseRunDraftId(value: unknown): string {
+  if (typeof value !== "string" || !/^fast-purchase-draft:[a-f0-9]{20}$/.test(value)) throw new Error("PURCHASE_RUN_DRAFT_INVALID");
+  return value;
+}
+
 export function monthlyMonth(value: unknown): string {
   if (typeof value !== "string" || !/^20\d{2}-(0[1-9]|1[0-2])$/.test(value)) throw new Error("MONTHLY_PRICE_MONTH_INVALID");
   return value;

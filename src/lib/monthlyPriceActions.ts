@@ -52,7 +52,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
     if (action === "prepare") {
       if (item.state !== "QUEUED") return response(item);
       try {
-        await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
+        await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion, run.source_snapshot);
         const { observed, live, resolution } = await resolveCurrentGroup(item, payload.observation);
         if (!resolution.group || resolution.source === "UNRESOLVED") {
           item.plan = null;
@@ -99,7 +99,7 @@ export async function monthlyPriceItemAction(payload: Record<string, unknown>) {
       if (!write) { item.state = "VERIFY_PENDING"; return response(item); }
       let dispatched = false;
       try {
-        await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion);
+        await assertMonthlyEvidenceUnchanged(run.source_snapshot.evidenceVersion, run.source_snapshot);
         const { observed, live: resolvedLive, resolution } = await resolveCurrentGroup(item, payload.observation);
         let live = resolvedLive;
         if (!resolution.group || resolution.group !== item.plan.productGroup) throw new Error("MONTHLY_PRICE_GROUP_CHANGED");

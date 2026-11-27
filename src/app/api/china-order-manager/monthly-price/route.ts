@@ -1,5 +1,5 @@
 import { isSameOriginOpsRequest } from "@/lib/opsLoginBypass";
-import { monthlyMonth, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
+import { monthlyMonth, purchaseRunDraftId, monthlyRecord, MONTHLY_PRICE_POLICY } from "@/lib/monthlyPriceCore";
 import { loadMonthlyPriceSources } from "@/lib/monthlyPriceSource";
 import { createMonthlyPriceRun, resumeMonthlyPriceRunPreflight, loadMonthlyPriceStatus, loadMonthlyPriceRun, loadMonthlyPriceRunStatus, type MonthlyPriceItem } from "@/lib/monthlyPriceStore";
 import { monthlyPriceItemAction } from "@/lib/monthlyPriceActions";
@@ -24,13 +24,14 @@ export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const month = monthlyMonth(params.get("month")), runId = params.get("runId");
+    const draftId = params.has("draftId") ? purchaseRunDraftId(params.get("draftId")) : undefined;
     if (runId) {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runId)) throw new Error("MONTHLY_PRICE_ID_INVALID");
       const run = await loadMonthlyPriceRun(runId);
-      if (run.cycle_month !== month || run.policy_version !== MONTHLY_PRICE_POLICY) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
+      if (run.cycle_month !== month || (draftId && run.source_snapshot.draftId !== draftId) || run.policy_version !== MONTHLY_PRICE_POLICY) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
       return json({ ok: true, ...publicStatus(await loadMonthlyPriceRunStatus(run)) });
     }
-    return json({ ok: true, ...publicStatus(await loadMonthlyPriceStatus(month)) });
+    return json({ ok: true, ...publicStatus(await loadMonthlyPriceStatus(month, draftId)) });
   }
   catch (error) { return errorResponse(error); }
 }
@@ -41,18 +42,23 @@ export async function POST(request: Request) {
     if (raw.length > 100000) return json({ ok: false, code: "MONTHLY_PRICE_PAYLOAD_TOO_LARGE" }, 413);
     const payload = monthlyRecord(JSON.parse(raw));
     if (payload.policy !== MONTHLY_PRICE_POLICY) return json({ ok: false, code: "MONTHLY_PRICE_POLICY_STALE" }, 409);
+    const draftId = "draftId" in payload ? purchaseRunDraftId(payload.draftId) : undefined;
+    if (payload.runId && payload.action !== "resumePreflight") {
+      const run = await loadMonthlyPriceRun(String(payload.runId));
+      if (run.source_snapshot.draftId !== draftId || (draftId && run.cycle_month !== payload.month)) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
+    }
     if (payload.action === "preview") {
-      const sources = await loadMonthlyPriceSources(payload.month);
+      const sources = await loadMonthlyPriceSources(payload.month, draftId);
       return json({ ok: true, readOnly: true, sources });
     }
     if (payload.action === "start") {
       // Repeated clicks load the same immutable source/plan run, not a fresh
       // "latest proposal" from another month or a percentage adjustment twice.
-      const sources = await loadMonthlyPriceSources(payload.month);
+      const sources = await loadMonthlyPriceSources(payload.month, draftId);
       return json({ ok: true, ...publicStatus(await createMonthlyPriceRun(sources)) });
     }
     if (payload.action === "resumePreflight") {
-      const sources = await loadMonthlyPriceSources(payload.month);
+      const sources = await loadMonthlyPriceSources(payload.month, draftId);
       return json({ ok: true, ...publicStatus(await resumeMonthlyPriceRunPreflight(String(payload.runId ?? ""), sources)) });
     }
     if (payload.action === "reviewLegacyTransmission") {

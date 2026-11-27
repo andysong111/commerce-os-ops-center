@@ -183,3 +183,23 @@ test('actual resume preflight rejects changed evidence and refuses changed prici
   assert.equal(changed.state.item.state,'BLOCKED');assert.equal(changed.state.rpcCount,0);
   assert.equal(changed.state.audit.length,0);assert.equal(status.items[0].state,'BLOCKED');
 });
+
+test('two purchases in one month keep separate receipt targets, hashes and saved execution scopes', async()=>{
+  const h=sourceHarness(),f=fixture(),other='fast-purchase-draft:abcdef0123456789abcd';
+  const copy=v=>JSON.parse(JSON.stringify(v).replaceAll(f.draft.draftId,other).replaceAll('ABC1-1','BBA9-1'));
+  h.groups.CHINA_ORDER_COMMITMENT_EVENT.push(copy(f.receiptRows[0]),{result_snapshot:{...f.receiptRows[0].result_snapshot,receiptId:undefined,receivedNow:undefined,actualOrderEvidenceReconciled:true,barcode:'CANCELLED'}});
+  h.groups.INTERNAL_CHINA_FORWARDER_COST_CLOSE.push({result_snapshot:copy(f.close)});
+  h.groups.INTERNAL_CHINA_PURCHASE_PREP.push({result_snapshot:{snapshot:copy(f.draft)}});
+  const a=await h.api.loadMonthlyPriceSources('2026-09',f.draft.draftId), b=await h.api.loadMonthlyPriceSources('2026-09',other);
+  assert.deepEqual([...a.scope],['ABC1-1']);assert.deepEqual([...b.scope],['BBA9-1']);
+  assert.equal(a.costs.length,1);assert.equal(b.costs.length,1);assert.notEqual(a.sourceHash,b.sourceHash);
+  await h.api.assertMonthlyEvidenceUnchanged(a.evidenceVersion,a);
+  h.groups.INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE.push({input_snapshot:{draftId:other,barcode:'BBA9-1'}});
+  await h.api.assertMonthlyEvidenceUnchanged(a.evidenceVersion,a);
+  await assert.rejects(h.api.assertMonthlyEvidenceUnchanged(b.evidenceVersion,b),/SOURCE_CHANGED/);
+  await assert.rejects(h.api.loadMonthlyPriceSources('2026-09',''),/DRAFT_INVALID/);
+  const {api,state}=resumeStoreHarness();
+  state.run.source_snapshot.draftId=other;
+  await assert.rejects(api.resumeMonthlyPriceRunPreflight(runId,{...a,evidenceVersion:'evidence-v1'}),/RUN_SCOPE_INVALID/);
+  assert.equal(state.rpcCount,0);
+});

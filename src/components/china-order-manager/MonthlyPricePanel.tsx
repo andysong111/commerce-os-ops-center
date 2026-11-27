@@ -44,16 +44,20 @@ export function monthlyPriceBridge(command: string, payload: Record<string, unkn
     window.postMessage({ channel: MONTHLY_PRICE_BRIDGE, direction: "request", requestId, command, payload }, location.origin);
   });
 }
-async function api(payload: Record<string, unknown>) {
+async function postMonthlyPrice(payload: Record<string, unknown>) {
   const result = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, policy: MONTHLY_PRICE_POLICY }), signal: AbortSignal.timeout(65000), cache: "no-store" });
   const data = await result.json();
   if (!result.ok || !data.ok) throw new Error(data.code || "MONTHLY_PRICE_REQUEST_FAILED");
   return data;
 }
-export function MonthlyPricePanel({ month, ready }: { month: string; ready: boolean }) {
-  return <MonthlyPricePanelForMonth key={month} month={month} ready={ready} />;
+export function MonthlyPricePanel({ month, draftId, ready, children }: { month: string; draftId?: string; ready: boolean; children?: React.ReactNode }) {
+  return <MonthlyPricePanelForMonth key={draftId ?? month} month={month} draftId={draftId} ready={ready}>{children}</MonthlyPricePanelForMonth>;
 }
-function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boolean }) {
+function MonthlyPricePanelForMonth({ month, draftId, ready, children }: { month: string; draftId?: string; ready: boolean; children?: React.ReactNode }) {
+  const scopeQuery = draftId ? "&draftId=" + encodeURIComponent(draftId) : "";
+  function api(payload: Record<string, unknown>) {
+    return postMonthlyPrice({ ...payload, month, draftId });
+  }
   const [snapshot, setSnapshot] = useState<Snapshot>({ run: null, items: [] });
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [progress, setProgress] = useState("");
   const [retireConfirmId, setRetireConfirmId] = useState("");
@@ -62,11 +66,11 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     generation.current += 1;
     const current = generation.current;
     running.current = false;
-    void fetch(`${endpoint}?month=${encodeURIComponent(month)}`, { cache: "no-store" }).then((r) => r.json()).then((data) => {
+    void fetch(`${endpoint}?month=${encodeURIComponent(month)}${scopeQuery}`, { cache: "no-store" }).then((r) => r.json()).then((data) => {
       if (generation.current === current && data.ok) setSnapshot(data);
     }).catch(() => {});
     return () => { generation.current += 1; running.current = false; };
-  }, [month]);
+  }, [month, scopeQuery]);
   function update(item: Item) { setSnapshot((value) => ({ ...value, items: value.items.map((old) => old.id === item.id ? item : old) })); }
   async function bridgeReady() {
     setProgress("확장프로그램 연결 확인");
@@ -77,7 +81,7 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   }
   async function refreshRun(runId?: string) {
     const suffix = runId ? `&runId=${encodeURIComponent(runId)}` : "";
-    const result = await fetch(`${endpoint}?month=${encodeURIComponent(month)}${suffix}`, { cache: "no-store" });
+    const result = await fetch(`${endpoint}?month=${encodeURIComponent(month)}${scopeQuery}${suffix}`, { cache: "no-store" });
     const data = await result.json();
     if (!result.ok || !data.ok) throw new Error(data.code || "MONTHLY_PRICE_REQUEST_FAILED");
     setSnapshot(data);
@@ -591,8 +595,8 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
   const heldBCodeCount = bCodeRows.filter((row) => row.tone === "hold").length;
   const blockedBCodeCount = bCodeRows.filter((row) => row.tone === "blocked").length;
   return <section id="monthly-price" className="rounded-xl border border-cyan-700 bg-slate-900 p-3" data-testid="monthly-price-panel">
-    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정</h3></div>
-    <p className="mt-2 text-xs leading-5 text-slate-300">{month} 입고상품만 처리합니다. 구재고·혼재 원가는 현재가를 보호하고, 검증된 원가 기준 인상만 실행합니다. 재고수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하며 현재 최종가격보다 낮추지 않습니다.</p>
+    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정{children && " · 판매중 전송"}</h3></div>
+    <p className="mt-2 text-xs leading-5 text-slate-300">{month} {draftId ? "선택 차시의 입고상품" : "입고상품"}만 처리합니다. 구재고·혼재 원가는 현재가를 보호하고, 검증된 원가 기준 인상만 실행합니다. 재고수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하며 현재 최종가격보다 낮추지 않습니다.</p>
     {existingRunResume ? (
       <button type="button" onClick={() => void applyChanges(true)} disabled={!ready || busy} className="mt-3 w-full rounded-lg bg-amber-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">
         {busy
@@ -667,5 +671,6 @@ function MonthlyPricePanelForMonth({ month, ready }: { month: string; ready: boo
     <a href="/api/shopling-a21-price-option-resend/download" className="mt-3 inline-block text-xs text-cyan-200 underline">A21 확장프로그램 {MONTHLY_PRICE_EXTENSION_VERSION} 받기</a>
     {snapshot.run?.warnings?.length ? <details className="mt-2 text-xs text-amber-200"><summary>원가 근거 확인 필요 ({snapshot.run.warnings.length})</summary>{snapshot.run.warnings.map((warning) => <p className="mt-1 break-all" key={warning}>{warning}</p>)}</details> : null}
     {snapshot.items.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer font-bold text-slate-200">상품별 결과·제외 사유</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{snapshot.items.map((item) => <div key={item.id} className="rounded border border-slate-700 p-2"><b>{item.goodsKey} · {item.candidate.productName}</b><p>{item.transmission?.result === "LEGACY_RELIST_RETIRED_AFTER_DELETION" ? "구형 중복 종료 · Shopling 삭제 확인" : STATE[item.state] || item.state}</p>{item.errorCode && <><p className="text-amber-200">{describe(item.errorCode)}</p><code className="break-all text-[10px] text-slate-400">{item.errorCode}</code></>}{item.errorCode === "MONTHLY_PRICE_RELIST_REQUIRED" && (retireConfirmId === item.id ? <div className="mt-2 rounded border border-amber-600 bg-amber-950/70 p-2 text-amber-100"><p>이 상품은 다시 등록하지 않습니다. Shopling API 조회 0건 또는 삭제상태 Z가 확인될 때만 구형 중복상품으로 종료됩니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void retireDeletedRelist(item)} disabled={busy} className="rounded bg-amber-300 px-2 py-1 font-black text-slate-950 disabled:opacity-40">삭제 확인 · 재등록 안 함</button><button type="button" onClick={() => setRetireConfirmId("")} disabled={busy} className="rounded border border-slate-500 px-2 py-1 text-slate-200 disabled:opacity-40">취소</button></div></div> : <button type="button" onClick={() => setRetireConfirmId(item.id)} disabled={busy} className="mt-2 rounded border border-amber-500 px-2 py-1 font-bold text-amber-200 disabled:opacity-40">구형 중복 종료 검토</button>)}{item.plan && <p className="text-slate-400">가격 변경 {item.plan.writes.length}행 · 옵션 변경 {item.plan.optionChangeCount}개 · 인하 보호 {item.plan.protectedDecreaseCount}행</p>}</div>)}</div></details>}
+    {children}
   </section>;
 }

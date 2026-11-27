@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ForwarderInvoiceEntry } from "@/components/china-order-manager/ForwarderInvoiceEntry";
 import { loadForwarderInvoice } from "@/lib/internalChinaForwarderInvoice";
+import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
+import { ReceiptOnSalePanel } from "@/components/china-order-manager/ReceiptOnSalePanel";
 import { MonthlyPricePanel } from "@/components/china-order-manager/MonthlyPricePanel";
 import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
@@ -473,6 +475,7 @@ export default async function ChinaOrderManagerPage({
 
   return (
     <div className="space-y-5">
+      <StockSyncHF15Bridge />
       <InternalChinaPurchaseDraftGuide />
       <PageHeader
         eyebrow="COMMERCE OS · PURCHASE RUN WORKSPACE"
@@ -835,7 +838,9 @@ export default async function ChinaOrderManagerPage({
                     draftId={invoiceScope.draftId} cycleMonth={selectedMonth} evidenceHash={invoiceScope.evidenceHash}
                     invoice={invoiceRead.invoice} />)}
             </FlowStep>
-            <MonthlyPricePanel month={selectedMonth} ready={receiptDone && forwarderDone} />
+            {selectedDraftId && <MonthlyPricePanel month={selectedMonth} draftId={selectedDraftId} ready={receiptDone && forwarderDone}>
+              <ReceiptOnSalePanel key={selectedDraftId} draftId={selectedDraftId} />
+            </MonthlyPricePanel>}
             <FlowStep
               number="7"
               title="자금 마감"

@@ -5,6 +5,10 @@ on:
   pull_request:
     paths:
       - 'src/lib/monthlyPrice*'
+      - 'src/lib/receiptOnSale*'
+      - 'src/lib/inboundReceiptOnSaleSync.ts'
+      - 'tests/receipt-on-sale.test.mjs'
+      - 'scripts/receipt-on-sale-browser-check.mjs'
       - 'src/lib/internalChinaMonthlyPurchaseSummary.ts'
       - 'src/components/china-order-manager/**'
       - 'src/app/china-order-manager/**'
@@ -32,11 +36,11 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Mandatory monthly price regression tests
-        run: node --experimental-strip-types --test tests/monthly-price*.test.mjs tests/shoplingA21PriceOptionResend.test.mjs tests/internalChinaDirectTargetExecution.test.mjs
+        run: node --experimental-strip-types --test tests/monthly-price*.test.mjs tests/receipt-on-sale.test.mjs tests/shoplingA21PriceOptionResend.test.mjs tests/internalChinaDirectTargetExecution.test.mjs
       - name: Type check
         run: npx tsc --noEmit
       - name: Lint changed application surfaces
-        run: npx eslint src/lib/monthlyPrice*.ts src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
+        run: npx eslint src/lib/monthlyPrice*.ts src/lib/receiptOnSale*.ts src/lib/inboundReceiptOnSaleSync.ts src/app/api/china-order-manager/receipt-on-sale/route.ts src/components/china-order-manager/ReceiptOnSalePanel.tsx src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
       - name: Extension syntax
         run: for f in public/shopling-a21-price-option-resend/*.js; do node --check "$f"; done
       - name: Production build with isolated credentials
@@ -55,7 +59,9 @@ jobs:
           npm install --prefix /tmp/monthly-price-browser --no-package-lock playwright@1.55.1 esbuild@0.25.9
           /tmp/monthly-price-browser/node_modules/.bin/playwright install --with-deps chromium
       - name: Actual component browser flow and DOM mapping
-        run: node scripts/monthly-price-browser-check.mjs
+        run: |
+          node scripts/monthly-price-browser-check.mjs
+          node scripts/receipt-on-sale-browser-check.mjs
       - name: Checkpoint source and validation evidence
         if: always()
         run: |

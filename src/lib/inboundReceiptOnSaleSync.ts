@@ -1,404 +1,111 @@
 "use client";
+import type { ReceiptOnSaleRow } from "./receiptOnSaleCore";
+import { waitForShoplingStockIdle } from "./shoplingStockReadyBarrier";
+import { requireShoplingAuthenticatedSession } from "./shoplingStockSessionPreflight";
+import { supportsStockParentFinalization } from "./shoplingStockLaunchPlan";
 
-import {
-  INVENTORY_QUEUE_PATH,
-  INVENTORY_REFRESH_PATH,
-  inventoryStockReadClient,
-} from "@/lib/inventoryStockConnection";
-
-type ProductKind = "OPTION" | "SINGLE";
-type DesiredStatus = "SOLD_OUT" | "ON_SALE";
-type SyncOutcome = "STARTED" | "SUCCEEDED" | "FAILED" | "UNCERTAIN";
-
-type SyncJob = {
-  jobId: string;
-  barcode: string;
-  productName: string;
-  productKind: ProductKind;
-  modelNo: string | null;
-  goodsKeys: string[];
-  desiredStatus: DesiredStatus;
-  desiredSince: string;
-  exactInventoryQuantity: number;
-  resetAt: string;
-  route: string[];
-};
-
-type StockRow = {
-  barcode: string;
-  desiredStatus: DesiredStatus;
-  exactInventoryQuantity: number;
-  syncNeeded: boolean;
-  syncBlocked: boolean;
-  syncBlockReason: string | null;
-};
-
-type QueuePayload = {
-  ok?: boolean;
-  jobs?: SyncJob[];
-  report: {
-    state: "READY" | "BLOCKED";
-    rows: StockRow[];
-  };
-};
-
-type ResultMessage = {
-  type: string;
-  jobId: string;
-  outcome: Exclude<SyncOutcome, "STARTED">;
-  message?: string;
-  evidence?: unknown;
-  finishedAt?: number;
-};
-
-export type InboundOnSaleSyncSummary = {
-  targetCount: number;
-  attemptedCount: number;
-  succeededCount: number;
-  failedCount: number;
-  alreadyOnSaleCount: number;
-  blockedCount: number;
-  extensionReady: boolean;
-  message: string;
-};
-
-const PING = "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING_HF27";
-const READY = "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY_HF27";
-const START = "COMMERCE_OS_SHOPLING_STOCK_SYNC_START_HF27";
-const RESULT_HF27 = "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT_HF27";
-const RESULT_LEGACY = "COMMERCE_OS_SHOPLING_STOCK_SYNC_RESULT";
-const EXTENSION_READY_TIMEOUT_MS = 2_500;
-const JOB_TIMEOUT_MS = 150_000;
-
-function normalizeBarcode(value: unknown) {
-  return String(value ?? "")
-    .normalize("NFKC")
-    .trim()
-    .toUpperCase()
-    .replace(/[‐‑‒–—−]/g, "-")
-    .replace(/\s+/g, "");
+const endpoint = "/api/china-order-manager/receipt-on-sale";
+const bridge = "COMMERCE_OS_SHOPLING_STOCK_SYNC_";
+type Job = { jobId: string; barcode: string; desiredStatus: "ON_SALE"; stockBatchPlan: string };
+type Reply = { ok: boolean; rows: ReceiptOnSaleRow[]; outcome?: string; job?: Job; message?: string };
+async function request(url: string, init: RequestInit = {}): Promise<Reply> {
+  const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin" });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.message || "입고 전송 기록을 확인하지 못했습니다.");
+  return data;
+}
+function post(draftId: string, action: string, fields = {}) {
+  return request(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, draftId, action }) });
+}
+export async function readInboundOnSale(draftId: string) {
+  return (await request(endpoint + "?draftId=" + encodeURIComponent(draftId))).rows;
+}
+function resultFrom(event: MessageEvent) {
+  const d = event.data;
+  if (event.source !== window || event.origin !== location.origin || d?.type !== bridge + "RESULT" ||
+    d.__commerceOsStockSyncBridgeHF27 !== true || !supportsStockParentFinalization(d.extensionVersion) ||
+    !["SUCCEEDED", "FAILED", "UNCERTAIN"].includes(d.outcome) || d.job?.jobId !== d.jobId ||
+    d.job?.desiredStatus !== "ON_SALE" || !d.job?.stockBatchPlan || typeof d.jobId !== "string" || !d.jobId.startsWith("receipt-onsale:")) return null;
+  return { jobId: d.jobId, barcode: String(d.job.barcode), outcome: String(d.outcome), evidence: d.evidence, message: String(d.message || ""), finishedAt: Number(d.finishedAt) };
 }
 
-function eventId(prefix: string, job: SyncJob, outcome: SyncOutcome) {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}:${job.jobId}:${outcome}:${random}`.slice(0, 480);
-}
-
-async function recordSync(
-  job: SyncJob,
-  outcome: SyncOutcome,
-  message: string,
-  evidence?: unknown,
-) {
-  const response = await fetch("/api/inventory-stock-control/sync", {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    credentials: "same-origin",
-    cache: "no-store",
-    body: JSON.stringify({
-      eventId: eventId("inbound-auto-onsale", job, outcome),
-      jobId: job.jobId,
-      barcode: job.barcode,
-      productKind: job.productKind,
-      modelNo: job.modelNo,
-      desiredStatus: job.desiredStatus,
-      outcome,
-      message,
-      evidence: {
-        inboundAutoOnSale: true,
-        source: "china-order-manager-receipt",
-        ignoreWindowClose: true,
-        ...(evidence && typeof evidence === "object" && !Array.isArray(evidence)
-          ? (evidence as Record<string, unknown>)
-          : { extensionEvidence: evidence ?? null }),
-      },
-    }),
-  });
-  const payload = (await response.json().catch(() => ({}))) as {
-    ok?: boolean;
-    message?: string;
+export function watchReceiptOnSaleRecovery(draftId: string, rows: ReceiptOnSaleRow[], changed: () => void, failed: (message: string) => void) {
+  const ids = new Set(rows.filter(r => r.state === "STARTED" || (r.state === "HELD" && !r.canStart)).map(r => r.jobId));
+  const saving = new Set<string>();
+  const listen = (event: MessageEvent) => {
+    const r = resultFrom(event);
+    if (!r || !ids.has(r.jobId) || saving.has(r.jobId) || r.outcome !== "SUCCEEDED") return;
+    saving.add(r.jobId);
+    void post(draftId, "finish", r).then(saved => { if (saved.outcome === "SUCCEEDED") changed(); }).catch(error => { saving.delete(r.jobId); failed(error.message); });
   };
-  if (!response.ok || payload.ok !== true) {
-    throw new Error(
-      payload.message || `판매중 자동전환 결과 저장 실패 (${response.status})`,
-    );
+  if (ids.size) {
+    window.addEventListener("message", listen);
+    window.postMessage({ type: bridge + "EXTENSION_PING" }, location.origin);
   }
+  return () => window.removeEventListener("message", listen);
 }
 
-function waitForExtensionReady() {
-  return new Promise<boolean>((resolve) => {
-    let finished = false;
-    const done = (value: boolean) => {
-      if (finished) return;
-      finished = true;
-      window.removeEventListener("message", onMessage);
-      window.clearTimeout(timer);
-      resolve(value);
+async function dispatch(job: Job, draftId: string) {
+  const started = Date.now();
+  const result = await new Promise<NonNullable<ReturnType<typeof resultFrom>>>((resolve) => {
+    const done = (value: NonNullable<ReturnType<typeof resultFrom>>) => {
+      clearTimeout(timer); window.removeEventListener("message", listen); resolve(value);
     };
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.source !== window ||
-        event.origin !== window.location.origin ||
-        !event.data ||
-        typeof event.data !== "object"
-      ) {
-        return;
-      }
-      const type = String((event.data as Record<string, unknown>).type || "");
-      if (
-        type === READY ||
-        type === "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_READY"
-      ) {
-        done(true);
-      }
+    const listen = (event: MessageEvent) => {
+      const r = resultFrom(event);
+      if (r && r.jobId === job.jobId && r.barcode === job.barcode && r.finishedAt >= started) done(r);
     };
-    window.addEventListener("message", onMessage);
-    const timer = window.setTimeout(() => done(false), EXTENSION_READY_TIMEOUT_MS);
-    window.postMessage({ type: PING }, window.location.origin);
-    window.postMessage(
-      { type: "COMMERCE_OS_SHOPLING_STOCK_SYNC_EXTENSION_PING" },
-      window.location.origin,
-    );
+    const timer = window.setTimeout(() => done({ jobId: job.jobId, barcode: job.barcode, outcome: "UNCERTAIN", finishedAt: Date.now(),
+      message: "접수 응답 대기시간 경과 · 원래 전송 결과 확인 필요", evidence: {} }), 31 * 60 * 1000);
+    window.addEventListener("message", listen);
+    window.postMessage({ type: bridge + "START", job }, location.origin);
+  });
+  return post(draftId, "finish", result);
+}
+
+async function requireReceiptBridge() {
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); window.removeEventListener("message", listen); };
+    const listen = (event: MessageEvent) => {
+      const d = event.data;
+      if (event.source !== window || event.origin !== location.origin || d?.type !== bridge + "EXTENSION_READY" || d.__commerceOsStockSyncBridgeHF27 !== true) return;
+      cleanup();
+      if (supportsStockParentFinalization(d.extensionVersion)) resolve();
+      else reject(new Error("Shopling 재고상태 확장 v0.6.62 이상이 필요합니다."));
+    };
+    const timer = window.setTimeout(() => { cleanup(); reject(new Error("Shopling 재고상태 확장 연결을 확인하세요.")); }, 3500);
+    window.addEventListener("message", listen);
+    window.postMessage({ type: bridge + "EXTENSION_PING" }, location.origin);
   });
 }
 
-function waitForResult(jobId: string) {
-  return new Promise<ResultMessage>((resolve) => {
-    let finished = false;
-    const done = (result: ResultMessage) => {
-      if (finished) return;
-      finished = true;
-      window.removeEventListener("message", onMessage);
-      window.clearTimeout(timer);
-      resolve(result);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.source !== window ||
-        event.origin !== window.location.origin ||
-        !event.data ||
-        typeof event.data !== "object"
-      ) {
-        return;
-      }
-      const data = event.data as Record<string, unknown>;
-      const type = String(data.type || "");
-      if (type !== RESULT_HF27 && type !== RESULT_LEGACY) return;
-      if (String(data.jobId || "") !== jobId) return;
-      const outcome = String(data.outcome || "").toUpperCase();
-      if (!(["SUCCEEDED", "FAILED", "UNCERTAIN"] as string[]).includes(outcome)) {
-        return;
-      }
-      done({
-        type,
-        jobId,
-        outcome: outcome as ResultMessage["outcome"],
-        message: typeof data.message === "string" ? data.message : "",
-        evidence: data.evidence,
-        finishedAt: Number(data.finishedAt) || Date.now(),
-      });
-    };
-    window.addEventListener("message", onMessage);
-    const timer = window.setTimeout(
-      () =>
-        done({
-          type: RESULT_HF27,
-          jobId,
-          outcome: "UNCERTAIN",
-          message:
-            "Shopling 판매중 자동전환 결과가 제한시간 안에 확인되지 않아 자동 재시도하지 않습니다.",
-          finishedAt: Date.now(),
-          evidence: { code: "INBOUND_AUTO_ONSALE_RESULT_TIMEOUT" },
-        }),
-      JOB_TIMEOUT_MS,
-    );
-  });
+export async function holdDetachedReceipt(draftId: string, row: ReceiptOnSaleRow) {
+  if (!row.canHold) throw new Error("진행 중인 전송의 결과를 기다려 주세요.");
+  await requireReceiptBridge();
+  await waitForShoplingStockIdle();
+  await post(draftId, "hold", { jobId: row.jobId, barcode: row.barcode });
 }
 
-async function executeOne(job: SyncJob) {
-  await recordSync(
-    job,
-    "STARTED",
-    `입고확정 후 자동 판매재개 시작 · 정확재고 ${job.exactInventoryQuantity}개`,
-    { desiredSince: job.desiredSince },
-  );
-  const resultPromise = waitForResult(job.jobId);
-  window.postMessage(
-    {
-      type: START,
-      job: {
-        ...job,
-        operationalQueue: true,
-        inboundAutoOnSale: true,
-        ignoreWindowClose: true,
-      },
-    },
-    window.location.origin,
-  );
-  const result = await resultPromise;
-  await recordSync(
-    job,
-    result.outcome,
-    result.message ||
-      (result.outcome === "SUCCEEDED"
-        ? "입고확정 후 Shopling 판매중 자동전환 완료"
-        : "입고확정 후 Shopling 판매중 자동전환 확인 필요"),
-    result.evidence,
-  );
-  return result.outcome;
-}
-
-export async function runInboundReceiptOnSaleSync(
-  barcodes: string[],
-  onProgress?: (message: string) => void,
-): Promise<InboundOnSaleSyncSummary> {
-  const targets = [
-    ...new Set(barcodes.map(normalizeBarcode).filter(Boolean)),
-  ];
-  const targetSet = new Set(targets);
-  if (!targets.length) {
-    return {
-      targetCount: 0,
-      attemptedCount: 0,
-      succeededCount: 0,
-      failedCount: 0,
-      alreadyOnSaleCount: 0,
-      blockedCount: 0,
-      extensionReady: false,
-      message: "판매중 자동전환 대상 B-code가 없습니다.",
-    };
+export async function runInboundReceiptOnSaleSync(draftId: string, progress?: (message: string) => void, selectedCodes?: string[], signal?: AbortSignal) {
+  const rows = (await post(draftId, "refresh")).rows;
+  const selected = selectedCodes && new Set(selectedCodes);
+  const todo = rows.filter(r => r.canStart && (!selected || selected.has(r.barcode)));
+  if (todo.length) {
+    progress?.("Shopling 확장 연결과 로그인 상태를 확인하고 있습니다.");
+    await requireReceiptBridge();
+    await waitForShoplingStockIdle();
+    await requireShoplingAuthenticatedSession();
   }
-
-  onProgress?.("입고확정 완료 · 최신 판매·재고를 확인해 판매중 자동전환 대상을 계산하고 있습니다.");
-  await inventoryStockReadClient.read(INVENTORY_REFRESH_PATH, false);
-  let queue = await inventoryStockReadClient.read<QueuePayload>(
-    INVENTORY_QUEUE_PATH,
-    true,
-  );
-
-  const relevantRows = queue.report.rows.filter((row) =>
-    targetSet.has(normalizeBarcode(row.barcode)),
-  );
-  const initialJobs = (queue.jobs ?? []).filter(
-    (job) =>
-      targetSet.has(normalizeBarcode(job.barcode)) &&
-      job.desiredStatus === "ON_SALE" &&
-      job.exactInventoryQuantity > 0,
-  );
-  const alreadyOnSaleCount = relevantRows.filter(
-    (row) => row.desiredStatus === "ON_SALE" && !row.syncNeeded,
-  ).length;
-  const initialBlocked = relevantRows.filter(
-    (row) =>
-      row.desiredStatus === "ON_SALE" && row.syncNeeded && row.syncBlocked,
-  ).length;
-
-  if (!initialJobs.length) {
-    const blockedCount = Math.max(
-      initialBlocked,
-      targets.length - alreadyOnSaleCount,
-    );
-    const message = blockedCount
-      ? `입고확정은 완료됐습니다. ${alreadyOnSaleCount}건은 이미 판매중이며 ${blockedCount}건은 정확재고·매핑 확인이 필요해 자동 판매재개를 보류했습니다.`
-      : `입고확정은 완료됐습니다. 대상 ${targets.length}건은 이미 Shopling 판매중 상태입니다.`;
-    return {
-      targetCount: targets.length,
-      attemptedCount: 0,
-      succeededCount: 0,
-      failedCount: 0,
-      alreadyOnSaleCount,
-      blockedCount,
-      extensionReady: false,
-      message,
-    };
+  for (const [index, item] of todo.entries()) {
+    await waitForShoplingStockIdle();
+    if (signal?.aborted) break;
+    progress?.(`판매중 전송 ${index + 1}/${todo.length} · ${item.barcode}`);
+    const claim = await post(draftId, "claim", { jobId: item.jobId });
+    if (!claim.job) continue; // Preflight hold recorded before any external write.
+    if (claim.job.jobId !== item.jobId || claim.job.barcode !== item.barcode || !claim.job.stockBatchPlan || claim.job.desiredStatus !== "ON_SALE") throw new Error("전송 계획과 입고 B코드가 일치하지 않습니다.");
+    const finished = await dispatch(claim.job, draftId);
+    if (finished.outcome !== "SUCCEEDED") break;
   }
-
-  const extensionReady = await waitForExtensionReady();
-  if (!extensionReady) {
-    return {
-      targetCount: targets.length,
-      attemptedCount: 0,
-      succeededCount: 0,
-      failedCount: 0,
-      alreadyOnSaleCount,
-      blockedCount: initialJobs.length + initialBlocked,
-      extensionReady: false,
-      message: `입고확정은 완료됐지만 재고상태 확장프로그램 연결을 확인하지 못해 판매중 자동전환 ${initialJobs.length}건을 보류했습니다. 재고·품절·판매재개 화면의 대기 큐에는 그대로 남습니다.`,
-    };
-  }
-
-  let attemptedCount = 0;
-  let succeededCount = 0;
-  let failedCount = 0;
-  const candidateBarcodes = [
-    ...new Set(initialJobs.map((job) => normalizeBarcode(job.barcode))),
-  ];
-
-  for (let index = 0; index < candidateBarcodes.length; index += 1) {
-    const code = candidateBarcodes[index];
-    queue = await inventoryStockReadClient.read<QueuePayload>(
-      INVENTORY_QUEUE_PATH,
-      true,
-    );
-    const job = (queue.jobs ?? []).find(
-      (candidate) =>
-        normalizeBarcode(candidate.barcode) === code &&
-        candidate.desiredStatus === "ON_SALE" &&
-        candidate.exactInventoryQuantity > 0,
-    );
-    if (!job) continue;
-
-    attemptedCount += 1;
-    onProgress?.(
-      `입고확정 완료 · 판매중 자동전환 ${attemptedCount}/${candidateBarcodes.length} 처리 중 · ${job.barcode}`,
-    );
-    try {
-      const outcome = await executeOne(job);
-      if (outcome === "SUCCEEDED") succeededCount += 1;
-      else failedCount += 1;
-    } catch {
-      failedCount += 1;
-    }
-  }
-
-  queue = await inventoryStockReadClient.read<QueuePayload>(
-    INVENTORY_QUEUE_PATH,
-    true,
-  );
-  const finalRows = queue.report.rows.filter((row) =>
-    targetSet.has(normalizeBarcode(row.barcode)),
-  );
-  const finalAlreadyOnSaleCount = finalRows.filter(
-    (row) => row.desiredStatus === "ON_SALE" && !row.syncNeeded,
-  ).length;
-  const pendingOrBlockedCount = finalRows.filter(
-    (row) => row.desiredStatus === "ON_SALE" && row.syncNeeded,
-  ).length;
-  const nonOnSaleDecisionCount = finalRows.filter(
-    (row) => row.desiredStatus !== "ON_SALE",
-  ).length;
-  const missingRowCount = Math.max(0, targets.length - finalRows.length);
-  const blockedCount = Math.max(
-    0,
-    pendingOrBlockedCount + nonOnSaleDecisionCount + missingRowCount,
-  );
-
-  const message =
-    blockedCount || failedCount
-      ? `입고확정 완료 · Shopling 판매중 자동전환 ${succeededCount}건 완료, 이미 판매중 ${finalAlreadyOnSaleCount}건, 확인 필요 ${Math.max(blockedCount, failedCount)}건입니다. 확인 필요 건은 자동 재시도하지 않고 기존 재고상태 큐에 남깁니다.`
-      : `입고확정 완료 · Shopling 판매중 자동전환 ${succeededCount}건 완료, 이미 판매중 ${finalAlreadyOnSaleCount}건입니다.`;
-
-  return {
-    targetCount: targets.length,
-    attemptedCount,
-    succeededCount,
-    failedCount,
-    alreadyOnSaleCount: finalAlreadyOnSaleCount,
-    blockedCount,
-    extensionReady: true,
-    message,
-  };
+  const status = await readInboundOnSale(draftId);
+  return { rows: status, message: `이번 차시 판매중 전송 · 접수 ${status.filter(r => r.state === "ACCEPTED").length}건 · 보류 ${status.filter(r => r.state === "HELD").length}건 · 진행 중 ${status.filter(r => r.state === "STARTED").length}건 · 대기 ${status.filter(r => r.state === "PENDING").length}건` };
 }

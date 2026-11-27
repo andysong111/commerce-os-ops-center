@@ -53,9 +53,11 @@ export async function loadMonthlyPriceRun(runId: string) {
   const result = await db.from("commerce_monthly_price_runs").select("*").eq("id", runId).maybeSingle();
   fail(result.error); if (!result.data) throw new Error("MONTHLY_PRICE_RUN_NOT_FOUND"); return result.data as MonthlyPriceRun;
 }
-export async function loadMonthlyPriceStatus(month: string) {
+export async function loadMonthlyPriceStatus(month: string, draftId?: string) {
   const db = await monthlyDb();
-  const result = await db.from("commerce_monthly_price_runs").select("*").eq("cycle_month", month).eq("policy_version", MONTHLY_PRICE_POLICY).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const runs = db.from("commerce_monthly_price_runs").select("*").eq("cycle_month", month).eq("policy_version", MONTHLY_PRICE_POLICY);
+  const scoped = draftId ? runs.eq("source_snapshot->>draftId", draftId) : runs.is("source_snapshot->>draftId", null);
+  const result = await scoped.order("created_at", { ascending: false }).limit(1).maybeSingle();
   fail(result.error);
   if (!result.data) return { run: null, items: [] as MonthlyPriceItem[] };
   return loadMonthlyPriceRunStatus(result.data as MonthlyPriceRun);
@@ -71,7 +73,7 @@ export async function loadMonthlyPriceRunStatus(run: MonthlyPriceRun) {
 export async function resumeMonthlyPriceRunPreflight(runId: string, source: MonthlyPriceSources) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runId)) throw new Error("MONTHLY_PRICE_ID_INVALID");
   const run = await loadMonthlyPriceRun(runId);
-  if (run.cycle_month !== source.month || run.policy_version !== MONTHLY_PRICE_POLICY) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
+  if (run.cycle_month !== source.month || run.source_snapshot.draftId !== source.draftId || run.policy_version !== MONTHLY_PRICE_POLICY) throw new Error("MONTHLY_PRICE_RUN_SCOPE_INVALID");
   if (run.source_snapshot.evidenceVersion !== source.evidenceVersion) throw new Error("MONTHLY_PRICE_SOURCE_CHANGED");
 
   const freshByGoodsKey = new Map(source.candidates.map((candidate) => [candidate.goodsKey, candidate]));
@@ -98,7 +100,7 @@ export async function createMonthlyPriceRun(source: MonthlyPriceSources) {
   if (!source.candidates.length || source.candidates.length > 1000) throw new Error("MONTHLY_PRICE_CANDIDATE_SCOPE_INVALID");
   // Do not strand a pending transmission when a new receipt/source revision
   // appears. Finish/check the immutable older run before creating a replacement.
-  const previous = await loadMonthlyPriceStatus(source.month);
+  const previous = await loadMonthlyPriceStatus(source.month, source.draftId);
   if (previous.run && previous.run.source_hash !== source.sourceHash && previous.items.some((item) => !["BLOCKED", "HELD", "TRANSMITTED"].includes(item.state))) return previous;
   const db = await monthlyDb();
   const result = await db.from("commerce_monthly_price_runs").upsert({ cycle_month: source.month, policy_version: MONTHLY_PRICE_POLICY, source_hash: source.sourceHash, source_snapshot: source }, { onConflict: "cycle_month,policy_version,source_hash", ignoreDuplicates: true });
