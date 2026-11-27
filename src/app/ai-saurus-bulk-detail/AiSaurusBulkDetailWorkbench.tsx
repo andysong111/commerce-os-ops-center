@@ -51,7 +51,6 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [maxCredits, setMaxCredits] = useState<number | null>(null);
-  const [queue, setQueue] = useState<string[]>([]);
   const studio = useRef<Window | null>(null);
 
   useEffect(() => {
@@ -79,12 +78,14 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
 
   const products = batch?.products ?? [];
   const visible = products.filter((item) => matching[view](item.stage));
-  const editable = visible.filter((item) => item.stage === "draft" || item.stage === "waiting_connection");
+  const editable = visible.filter((item) => !batch?.queuedIds?.includes(item.id) &&
+    (item.stage === "draft" || item.stage === "waiting_connection"));
   const chosen = editable.filter((item) => selected.includes(item.id));
   const selectable = view === "success" ? visible.filter((item) => item.stage === "awaiting_review")
     : view === "failed" ? visible : editable;
   const allSelected = selectable.length > 0 && selectable.every(({ id }) => selected.includes(id));
   const running = products.find((item) => item.stage === "running");
+  const nextQueued = batch?.queuedIds?.[0];
   const resultsSelected = selectable.filter(({ id }) => selected.includes(id)).map(({ id }) => id);
   const setItemOptions = (id: string, value: string) => setOptions((current) => ({ ...current, [id]: value }));
 
@@ -118,11 +119,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         if (cancelled) return;
         setBatch(saved);
         if (saved.products.some((product) => product.stage === "running")) return;
-        if (queue.length && studio.current && !studio.current.closed) {
-          const [nextId, ...remaining] = queue;
+        const nextId = saved.queuedIds?.[0];
+        if (nextId && studio.current && !studio.current.closed) {
           const next = await batchRequest({ action: "start", batchId, revision: saved.revision, itemIds: [nextId], maxCredits });
           setBatch(next.batch);
-          setQueue(remaining);
           navigateStudio(next.launchUrl);
         }
       } catch (cause) {
@@ -134,7 +134,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     };
     let timer = window.setTimeout(() => void check(), 6000);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [batch, batchId, busy, connected, maxCredits, queue, running]);
+  }, [batch, batchId, busy, connected, maxCredits, running]);
 
   async function save(action: "save" | "prepare") {
     if (!batch || !chosen.length || busy) return;
@@ -167,7 +167,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     }
   }
 
-  async function connectAction(action: "start" | "resume" | "retry" | "approve") {
+  async function connectAction(action: "start" | "continue" | "resume" | "retry" | "approve" | "clear_queue") {
     if (!batch || busy) return;
     setBusy(true);
     setError("");
@@ -182,9 +182,15 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           edits: ids.map((id) => ({ id, options: lines(options[id] ?? "") })),
         });
         setBatch(prepared.batch);
-        const { batch: saved, launchUrl } = await dispatch("start", prepared.batch, [ids[0]]);
+        const { batch: saved, launchUrl } = await batchRequest({
+          action: "start", batchId, revision: prepared.batch.revision, itemIds: [ids[0]], maxCredits, queueIds: ids,
+        });
         setBatch(saved);
-        setQueue(ids.slice(1));
+        navigateStudio(launchUrl);
+      } else if (action === "continue" && nextQueued) {
+        openStudio();
+        const { batch: saved, launchUrl } = await dispatch("start", batch, [nextQueued]);
+        setBatch(saved);
         navigateStudio(launchUrl);
       } else if (action === "resume" && running) {
         openStudio();
@@ -196,6 +202,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         const { batch: saved } = await dispatch(action, batch, resultsSelected);
         setBatch(saved);
         setMessage(action === "approve" ? "승인한 상품의 상세페이지 이미지 URL을 저장했습니다." : "선택한 실패 품목을 다시 준비했습니다.");
+      } else if (action === "clear_queue") {
+        const { batch: saved } = await dispatch(action, batch, []);
+        setBatch(saved);
+        setMessage("대기 목록을 비웠습니다.");
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "작업을 진행하지 못했습니다.");
@@ -213,7 +223,13 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           : "실제 제작을 켜면 같은 Chrome의 1688 로그인과 AI 사우루스 운영 릴리스·Importer를 확인한 뒤 진행합니다."}</p>
         {running && !running.dispatch?.providerJobId &&
           <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("resume")}>현재 상품 제작 창 다시 열기</button>}
-        {queue.length > 0 && <p className="mt-2">이 제작 창에서 다음 상품 {queue.length}개를 이어서 시작합니다.</p>}
+        {nextQueued && <p className="mt-2">제작 대기 {batch?.queuedIds?.length}개</p>}
+        {nextQueued && !running &&
+          <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("continue")}>
+            대기 상품 제작 이어가기{maxCredits ? ` · 건당 ${maxCredits}크레딧` : ""}
+          </button>}
+        {nextQueued && <button type="button" className={`ml-2 mt-2 ${secondary}`} disabled={busy || !connected}
+          onClick={() => void connectAction("clear_queue")}>대기 목록 비우기</button>}
         {connected && error.includes("OPS에 로그인") &&
           <Link className="mt-2 inline-block underline" href={`/login?force=1&next=${encodeURIComponent(`${AI_SAURUS_BATCH_PAGE}?batch=${batchId}`)}`}>OPS 로그인</Link>}
       </section>
@@ -262,7 +278,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                   className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50">
                   선택 상품 제작 준비
                 </button>
-                <button type="button" className={secondary} disabled={!connected || busy || !chosen.length || Boolean(running)}
+                <button type="button" className={secondary} disabled={!connected || busy || !chosen.length || Boolean(running || nextQueued)}
                   onClick={() => void connectAction("start")}>선택 상품 제작 시작{maxCredits ? ` · 건당 ${maxCredits}크레딧` : ""}</button>
               </div>
             </section>
@@ -287,7 +303,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           {visible.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">이 상태의 상품이 없습니다.</p>}
           <ul className="space-y-3">
             {visible.map((item) => {
-              const canEdit = item.stage === "draft" || item.stage === "waiting_connection";
+              const canEdit = !batch.queuedIds?.includes(item.id) && (item.stage === "draft" || item.stage === "waiting_connection");
               const canSelect = canEdit || item.stage === "failed" || item.stage === "awaiting_review";
               const currentText = options[item.id] ?? "";
               const picked = lines(currentText);

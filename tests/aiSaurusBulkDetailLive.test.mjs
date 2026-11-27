@@ -29,6 +29,9 @@ test("loads the current production release on demand and rejects manifest drift"
 test("prevents duplicate starts and saves only the QA-verified final URL after exact asset and credit evidence", () => {
   const batch = newSaurusBatch("batch", ["p1"], [product], date);
   const prepared = updateSaurusPreparation(batch, [{ id: "p1", options: ["단품"] }], true, date);
+  assert.throws(() => updateSaurusPreparation({ ...prepared, queuedIds: ["p1"] }, [
+    { id: "p1", options: ["안전하지 않은 변경"] },
+  ], false, date), /준비 중인/);
   const latest = { deployment, importer: "0.4.62", engine: "engine", maxCredits: 13 };
   const running = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, latest);
   assert.throws(() => startOpsSaurusProduct(running.batch, "p1", "owner@example.com", date, latest), /제작 중/);

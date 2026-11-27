@@ -242,8 +242,8 @@ export const moduleRegistry: readonly CommerceModule[] = [
     outputType: "상품별 준비·제작·검수 상태, 승인한 상세페이지 이미지 URL",
     historySupport: true,
     externalProject: false,
-    note: "현재 상품과 옵션을 준비할 수 있습니다. AI 사우루스 연결 후 제작과 결과 저장을 사용할 수 있습니다.",
-    helperNote: "준비 모드 · 연결 대기",
+    note: "AI 사우루스 운영판과 같은 Chrome에서 제작합니다. 검수 승인한 상세페이지 이미지 URL을 진행관리에 저장합니다.",
+    helperNote: "상품 옵션·제작 상태·검수 승인",
     actionLabel: "일괄 작업판 열기",
   },
   {

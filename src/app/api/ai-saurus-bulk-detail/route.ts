@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
   const owner = auth.value.userId;
   const input = object(await request.json().catch(() => null));
   const now = new Date().toISOString();
-  const live = ["start", "resume", "refresh", "approve", "retry"].includes(String(input.action));
+  const live = ["start", "resume", "refresh", "approve", "retry", "clear_queue"].includes(String(input.action));
   if (live && connection() !== "connected") {
     return result({ ok: false, code: "AI_SAURUS_CONNECTION_LOCKED", message: "AI 사우루스 실제 연결은 준비 단계에서 잠겨 있습니다." }, 409);
   }
@@ -128,6 +128,10 @@ export async function POST(request: NextRequest) {
       return result({ ok: false, message: "다른 곳에서 작업을 수정했습니다. 새로고침 후 다시 저장해 주세요." }, 409);
     }
     if (live) {
+      if (input.action === "clear_queue") {
+        const next = { ...batch, queuedIds: [], updatedAt: now, revision: batch.revision + 1 };
+        return result({ ok: true, batch: await saveSaurusBatch(config.value, owner, next) });
+      }
       const ids = parseSaurusSelection(input.itemIds);
       const selected = ids.map((id) => batch.products.find((product) => product.id === id));
       if (selected.some((product) => !product || (product.dispatch && product.dispatch.email !== email))) {
@@ -143,6 +147,12 @@ export async function POST(request: NextRequest) {
           if (input.maxCredits !== release.maxCredits) {
             return result({ ok: false, message: "제작에 필요한 크레딧이 변경됐습니다. 작업판을 새로고침해 확인해 주세요." }, 409);
           }
+          const queuedIds = input.queueIds === undefined ? batch.queuedIds ?? [] : parseSaurusSelection(input.queueIds);
+          if ((batch.queuedIds?.length && input.queueIds !== undefined) ||
+              (queuedIds.length && queuedIds[0] !== ids[0]) ||
+              queuedIds.some((id) => !batch.products.some((row) => row.id === id && row.stage === "waiting_connection"))) {
+            return result({ ok: false, message: "저장된 제작 순서와 선택한 상품이 일치하지 않습니다." }, 409);
+          }
           const current = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
           if (current.sourceUrl !== product.sourceUrl || current.name !== product.name ||
               current.originalDetailImageUrl !== product.originalDetailImageUrl) {
@@ -150,7 +160,7 @@ export async function POST(request: NextRequest) {
           }
           const start = startOpsSaurusProduct(batch, ids[0], email, now, release);
           const launchUrl = browserLaunchUrl(start.product);
-          const saved = await saveSaurusBatch(config.value, owner, start.batch);
+          const saved = await saveSaurusBatch(config.value, owner, { ...start.batch, queuedIds: queuedIds.slice(1) });
           return result({ ok: true, batch: saved, launchUrl });
         }
         if (product.stage !== "running") return result({ ok: true, batch });

@@ -92,7 +92,7 @@ export function updateSaurusPreparation(batch: AiSaurusDetailBatch, edits: unkno
   const updates = new Map(edits.map((entry, index) => [ids[index], parseSaurusOptions(object(entry).options)]));
   for (const id of ids) {
     const row = byId.get(id);
-    if (!row || (row.stage !== "draft" && row.stage !== "waiting_connection")) {
+    if (!row || batch.queuedIds?.includes(id) || (row.stage !== "draft" && row.stage !== "waiting_connection")) {
       throw new Error("준비 중인 상품만 편집할 수 있습니다.");
     }
     if (prepare && (!updates.get(id)?.length || !is1688ProductUrl(row.sourceUrl))) {
@@ -114,7 +114,7 @@ export function refreshSaurusPreparation(batch: AiSaurusDetailBatch, fresh: AiSa
   const byId = new Map(fresh.products.map((product) => [product.id, product]));
   const products = batch.products.map((product) => {
     const current = byId.get(product.id);
-    if (!current || !["draft", "waiting_connection"].includes(product.stage) ||
+    if (!current || batch.queuedIds?.includes(product.id) || !["draft", "waiting_connection"].includes(product.stage) ||
         (current.sourceUrl === product.sourceUrl && current.name === product.name && current.model === product.model &&
         current.originalDetailImageUrl === product.originalDetailImageUrl &&
         JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions))) return product;

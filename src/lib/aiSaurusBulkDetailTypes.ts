@@ -74,5 +74,6 @@ export type AiSaurusDetailBatch = {
   createdAt: string;
   updatedAt: string;
   selectionHash: string;
+  queuedIds?: string[];
   products: AiSaurusBatchProduct[];
 };
