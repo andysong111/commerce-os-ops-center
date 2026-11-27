@@ -396,3 +396,31 @@ test("earlier receipt drafts can be reviewed without scheduling a new listing", 
   assert.equal(rows[0].runId, "");
   assert.match(rows[0].rotation, /이전 차시 조회/);
 });
+
+test("all saved rotation rows remain visible past the default 1000-row limit and a failed page cannot authorize a partial list", async () => {
+  const { readSeoPages, readSeoPagesResult } = await import(
+    "../src/lib/seoStoragePages.ts"
+  );
+  const rows = Array.from({ length: 1572 }, (_, id) => ({ id }));
+  const query =
+    (fail = false) =>
+    () => ({
+      order(column) {
+        assert.equal(column, "id");
+        return this;
+      },
+      range(start, end) {
+        return Promise.resolve(
+          fail && start === 400
+            ? { data: null, error: { message: "fixture error" } }
+            : { data: rows.slice(start, end + 1), error: null },
+        );
+      },
+    });
+  assert.equal((await readSeoPages(query(), "id")).at(-1).id, 1571);
+  assert.deepEqual(await readSeoPagesResult(query(true), "id"), {
+    data: null,
+    error: { message: "fixture error" },
+  });
+  await assert.rejects(readSeoPages(query(true), "id"), /fixture error/);
+});

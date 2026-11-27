@@ -77,6 +77,7 @@ export function ReceiptSeoPanel({ draftId }: { draftId: string }) {
   };
   return (
     <section
+      id="receipt-seo"
       aria-label="입고건 SEO 대량등록·물갈이"
       className="mt-4 border-t border-slate-600 pt-3 text-xs text-slate-200"
     >

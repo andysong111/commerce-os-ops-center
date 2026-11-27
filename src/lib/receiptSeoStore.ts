@@ -363,7 +363,18 @@ export async function readReceiptSeoReport(
       ].includes(text(r.state));
       if (terminal && Date.parse(text(r.completed_at || r.created_at)) < after)
         return count;
-      return count + codes(r.run_ids).length;
+      const jobCount = codes(r.run_ids).length;
+      const productCount = receiptSeoRecord(r.result).productReservationCount;
+      return (
+        count +
+        (newCodes &&
+        typeof productCount === "number" &&
+        Number.isInteger(productCount) &&
+        productCount >= 0 &&
+        productCount <= jobCount
+          ? productCount
+          : jobCount)
+      );
     }, 0);
   }
   const report = buildReceiptSeoReport({

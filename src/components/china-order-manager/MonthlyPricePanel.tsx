@@ -595,7 +595,7 @@ function MonthlyPricePanelForMonth({ month, draftId, ready, children }: { month:
   const heldBCodeCount = bCodeRows.filter((row) => row.tone === "hold").length;
   const blockedBCodeCount = bCodeRows.filter((row) => row.tone === "blocked").length;
   return <section id="monthly-price" className="rounded-xl border border-cyan-700 bg-slate-900 p-3" data-testid="monthly-price-panel">
-    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정{children && " · 판매중 전송"}</h3></div>
+    <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-xs font-black text-slate-950">6</span><h3 className="font-black text-white">입고 후 가격조정{children && " · 판매중 전송 · SEO 대량등록"}</h3></div>
     <p className="mt-2 text-xs leading-5 text-slate-300">{month} {draftId ? "선택 차시의 입고상품" : "입고상품"}만 처리합니다. 구재고·혼재 원가는 현재가를 보호하고, 검증된 원가 기준 인상만 실행합니다. 재고수량·과거 원가는 변경하지 않습니다. 옵션별 최종 판매가는 각 B코드의 보호원가로 재계산하며 현재 최종가격보다 낮추지 않습니다.</p>
     {existingRunResume ? (
       <button type="button" onClick={() => void applyChanges(true)} disabled={!ready || busy} className="mt-3 w-full rounded-lg bg-amber-300 px-3 py-3 text-sm font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">

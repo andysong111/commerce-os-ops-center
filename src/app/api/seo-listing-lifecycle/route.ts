@@ -1,3 +1,4 @@
+import { readSeoPagesResult } from "@/lib/seoStoragePages";
 import { readReceiptSeoReport } from "@/lib/receiptSeoStore";
 import { NextRequest } from "next/server";
 import {
@@ -223,14 +224,14 @@ export async function GET(request: NextRequest) {
           )
           .eq("owner_id", context.identity.userId)
           .maybeSingle(),
-        admin
-          .from("seo_listing_lifecycle_records")
+        readSeoPagesResult(
+          () => admin.from("seo_listing_lifecycle_records")
           .select(
             "id,market_account_key,launch_item_id,model_number,product_name,state,attempt_count,current_run_id,goods_key,live_started_at,last_verified_live_at,sales_count_during_attempt,next_eligible_at,exposure_verified,requires_review,review_reason,evidence,evaluated_at,updated_at",
           )
-          .eq("owner_id", context.identity.userId)
-          .order("evaluated_at", { ascending: false })
-          .limit(1000),
+          .eq("owner_id", context.identity.userId),
+          "id",
+        ),
         admin
           .from("ops_dispatch_tasks")
           .select(

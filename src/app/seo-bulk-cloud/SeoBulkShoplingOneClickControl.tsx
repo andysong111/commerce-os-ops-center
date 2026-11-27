@@ -813,7 +813,7 @@ export default function SeoBulkShoplingOneClickControl() {
       const needsBridge =
         plannedIds.length > 0 ||
         candidates.some((candidate) => candidate.dispatchToday) ||
-        marketOnlyRuns.length > 0;
+        marketOnlyRuns.length > 0 || (Array.isArray(scheduledRun.receiptResumeRunIds) && scheduledRun.receiptResumeRunIds.length > 0);
       let bridgeAvailable = true;
       if (needsBridge) {
         setMessage("오늘 배달 전 브라우저 에이전트 연결을 확인합니다…");
@@ -887,7 +887,8 @@ export default function SeoBulkShoplingOneClickControl() {
         );
         return;
       }
-      await startPipeline("full_pipeline", targets, bridgeAvailable);
+      const onlyResume = targets.every(r => resumeSet.has(r.run_id) && !plannedSet.has(r.run_id));
+      await startPipeline(onlyResume ? "market_only" : "full_pipeline", targets, bridgeAvailable);
     } catch (startError) {
       setError(
         startError instanceof Error

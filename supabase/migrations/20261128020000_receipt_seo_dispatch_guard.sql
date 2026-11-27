@@ -7,6 +7,7 @@ declare
   ids text[];
   market_reserved int;
   product_reserved int;
+  new_products int;
 begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('seo-dispatch:' || new.owner_id::text, 0));
   select array_agg(id) into ids from jsonb_array_elements_text(new.run_ids) as t(id);
@@ -26,20 +27,23 @@ begin
     order by o.created_at desc limit 1;
   end if;
   if budget is not null then
+    new_products := case when new.result->>'mode'='market_only' then 0 else
+      coalesce((new.result->>'productReservationCount')::int,cardinality(ids)) end;
+    if new_products not between 0 and cardinality(ids) then raise exception '상품코드 예약 수량 확인 필요'; end if;
     if jsonb_typeof(budget) <> 'object' or not (budget ?& array['marketObservedAt','marketLimit','productObservedAt','productLimit'])
        or coalesce((budget->>'marketObservedAt')::timestamptz, '-infinity') < now() - interval '24 hours'
-       or (coalesce(new.result->>'mode','full_pipeline') <> 'market_only' and coalesce((budget->>'productObservedAt')::timestamptz, '-infinity') < now() - interval '24 hours') then
+       or (new_products > 0 and coalesce((budget->>'productObservedAt')::timestamptz, '-infinity') < now() - interval '24 hours') then
       raise exception '현재 마켓 등록 자리 확인이 필요합니다.';
     end if;
     select
       coalesce(sum(jsonb_array_length(o.run_ids)) filter (where o.state in ('waiting_upload','uploading','market_ready','market_claimed','market_running')
          or coalesce(o.completed_at, o.created_at) >= (budget->>'marketObservedAt')::timestamptz), 0),
-      coalesce(sum(jsonb_array_length(o.run_ids)) filter (where coalesce(o.result->>'mode','full_pipeline') <> 'market_only'
+      coalesce(sum(coalesce((o.result->>'productReservationCount')::int,jsonb_array_length(o.run_ids))) filter (where coalesce(o.result->>'mode','full_pipeline') <> 'market_only'
         and (o.state in ('waiting_upload','uploading','market_ready','market_claimed','market_running')
          or coalesce(o.completed_at,o.created_at) >= (budget->>'productObservedAt')::timestamptz)), 0)
     into market_reserved, product_reserved from public.shopling_market_auto_orchestrations o where o.owner_id = new.owner_id;
     if market_reserved + cardinality(ids) > coalesce((budget->>'marketLimit')::int,0)
-       or (coalesce(new.result->>'mode','full_pipeline') <> 'market_only' and product_reserved + cardinality(ids) > coalesce((budget->>'productLimit')::int,0)) then
+       or (new_products > 0 and product_reserved + new_products > coalesce((budget->>'productLimit')::int,0)) then
       raise exception '다른 등록 작업이 자리를 사용했습니다. 최신 마켓 한도를 확인하세요.';
     end if;
   end if;

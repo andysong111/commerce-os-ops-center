@@ -205,11 +205,12 @@ test("the production collector retains the real tracker fallback contents for li
   assert.doesNotMatch(result.source.supportingText, /문구 > 정리/);
 });
 
-function routeFixture(authorized = true) {
+function routeFixture(authorized = true, readReceiptSeoReport = noCall) {
   const rows = [];
   let reads = 0;
   const route = loadModule("src/app/api/seo-run-jobs/route.ts", {
     "next/server": { after: () => {} },
+    "@/lib/receiptSeoStore": { readReceiptSeoReport },
     "@/lib/seoBulkShoplingSource": { seoBulkShoplingGoodsKeys: adapter().seoBulkShoplingGoodsKeys },
     "@/lib/productLaunchSeoMaterialReadiness": materialReadiness,
     "@/lib/legacySeoRegistrationPolicy": {
@@ -265,6 +266,28 @@ test("unauthenticated enqueue remains blocked before source reads or writes", as
   assert.equal((await fixture.route.POST(enqueueRequest())).status, 401);
   assert.equal(fixture.reads, 0);
   assert.equal(fixture.rows.length, 0);
+});
+
+test("receipt enqueue uses the exact draft and server eligibility, and never auto-submits after generation", async () => {
+  const draftId = "fast-purchase-draft:5cabcbeeffd1b884a074", runId = "seo-run-receipt-fixture20261128";
+  const request = () => new Request("https://ops.invalid/api/seo-run-jobs", {method:"POST",body:JSON.stringify({
+    receiptDraftId:draftId, runs:[{id:input.launchItemId,runId,autoQueueShoplingRegistration:true}]
+  })});
+  for (const state of ["HOLD","NEW"]) {
+    let probes=0;
+    const fixture=routeFixture(true,async (context,selected)=>{
+      probes++; assert.equal(context.identity.userId,"owner-fixture"); assert.equal(selected,draftId);
+      return {rows:[{itemId:input.launchItemId,runId,state}],coveredItemIds:[input.launchItemId]};
+    });
+    const response=await fixture.route.POST(request());
+    assert.equal(response.status,state==="NEW"?200:409);assert.equal(probes,1);
+    assert.equal(fixture.rows.length,state==="NEW"?1:0);
+    if(state==="NEW") assert.equal(fixture.rows[0].input_payload.autoQueueShoplingRegistration,false);
+    else assert.equal(fixture.reads,0);
+  }
+  const unauthorized=routeFixture(false);
+  assert.equal((await unauthorized.route.POST(request())).status,401);
+  assert.equal(unauthorized.reads,0);
 });
 
 test("actual tracker handoff creates a new run for linkless products without issuing registration", async () => {

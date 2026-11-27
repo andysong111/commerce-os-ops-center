@@ -697,6 +697,7 @@ export async function createMarketAutoOrchestration(
       state: accepted.some((job) => job.registration_status === "success") ? "uploading" : "waiting_upload",
       result: {
         mode: "full_pipeline",
+        productReservationCount: accepted.filter(job => job.registration_status !== "success").length,
         ...(receiptBudget ? { receiptBudget } : {}),
         requestedCount: runIds.length,
         acceptedCount: acceptedRunIds.length,

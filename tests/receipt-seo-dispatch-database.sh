@@ -33,6 +33,13 @@ psql -X -v ON_ERROR_STOP=1 -c "update shopling_market_auto_orchestrations set st
 if psql -X -v ON_ERROR_STOP=1 -c "select test_receipt_claim('$owner','run-b','b','market_only',1);"; then exit 1; fi
 psql -X -v ON_ERROR_STOP=1 -c "select test_receipt_claim('00000000-0000-4000-8000-000000000002','run-a','different-owner','market_only',1);"
 test "$(psql -XAtc 'select count(*) from shopling_market_auto_orchestrations')" = 2
+psql -X -v ON_ERROR_STOP=1 <<'SQL'
+-- A mixed handoff needs only one new Shopling product for two market submissions.
+insert into shopling_market_auto_orchestrations(owner_id,run_ids,token_hash,state,result)
+values('00000000-0000-4000-8000-000000000003','["new","already-uploaded"]','mixed','waiting_upload',
+ jsonb_build_object('mode','full_pipeline','productReservationCount',1,'receiptBudget',
+   jsonb_build_object('marketLimit',2,'productLimit',1,'marketObservedAt',now(),'productObservedAt',now())));
+SQL
 echo "PASS original handoff deduplication and last-slot concurrency"
 
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
