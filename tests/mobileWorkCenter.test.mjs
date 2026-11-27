@@ -71,25 +71,45 @@ test("expired and ambiguous jobs are never executed again after connection loss"
   assert.equal(applyWorkQueue(ambiguous, { type: "acknowledge", id: request.id, confirmed: true }, start + 120_000).state.jobs[0].status, "acknowledged");
 });
 
-test("the real bridge logic sends one loopback POST and only completes on the original run ID", async () => {
+test("the Windows runId contract completes only on the original terminal receipt after one POST", async () => {
   let posts = 0;
   let ticks = 0;
   const adapter = createWindowsWorkAdapter({
     now: () => start + ticks,
     wait: async () => { ticks += 1000; },
     fetchImpl: async (url, options) => {
-      if (url.endsWith("/api/state")) return json({ ok: true, state: center({ recentRuns: ticks > 1000 ? [{ id: "local-run", status: "succeeded" }] : [{ id: "unrelated", status: "succeeded" }] }) });
+      if (url.endsWith("/api/state")) {
+        const receipt = { runId: ticks > 1000 ? "local-run" : "unrelated", actionId: "full-operations", status: "succeeded" };
+        return json({ ok: true, state: center({ recentRuns: [receipt] }) });
+      }
       if (url.endsWith("/")) return new Response(`let TOKEN = "${"a".repeat(48)}";`);
       assert.equal(url, "http://127.0.0.1:43121/api/actions/full-operations");
       assert.equal(options.headers["x-commerce-os-token"], "a".repeat(48));
       assert.equal(JSON.parse(options.body).execute, true);
       posts += 1;
-      return json({ ok: true, run: { id: "local-run", actionId: "full-operations" } }, 202);
+      return json({ ok: true, run: { runId: "local-run", actionId: "full-operations" } }, 202);
     },
   });
   assert.deepEqual(await adapter.execute(command("full-operations", { execute: true, confirmed: true })), { status: "completed", code: "DONE" });
   assert.equal(posts, 1);
   assert.equal(ticks, 2000);
+});
+
+test("the original Windows needs_attention result blocks repeat live work", async () => {
+  let ticks = 0;
+  const adapter = createWindowsWorkAdapter({
+    now: () => start + ticks,
+    wait: async () => { ticks += 1000; },
+    fetchImpl: async (url) => {
+      if (url.endsWith("/api/state")) return json({ ok: true, state: center({
+        recentRuns: [{ runId: "live-run", actionId: "full-operations", status: "needs_attention" }],
+      }) });
+      if (url.endsWith("/")) return new Response(`let TOKEN = "${"a".repeat(48)}";`);
+      return json({ ok: true, run: { runId: "live-run", actionId: "full-operations" } }, 202);
+    },
+  });
+  assert.deepEqual(await adapter.execute(command("full-operations", { execute: true, confirmed: true })), { status: "ambiguous", code: "CHECK_PC" });
+  assert.equal(ticks, 1000);
 });
 
 test("a dropped live action response is held for review without replay", async () => {

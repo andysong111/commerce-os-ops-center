@@ -20,3 +20,4 @@
 - `node --test tests/mobileWorkCenter.test.mjs`로 확인 문구, 목록 외 작업 차단, 입력 고정, 재전송 방지, 정상/불명확 완료, 대상 Chrome 탭 선택을 검사한다. GitHub Actions CI의 `Test mobile Work Center request safety` 단계에 포함했다.
 - `node tests/fixtures/mobileWorkCenterBrowserFixture.mjs`는 Supabase 세션·대기열만 로컬 격리 환경에 대체한다. 실제 Windows 업무센터에는 연결 시험용 읽기 요청만 보내고 거래 버튼은 실행 전에 차단한다.
 - 테스트 브라우저에서 미로그인 화면, 합성 계정 로그인, Windows 연결 시험 완료, 출금 확인 체크 전 실행 잠금, 390px 너비 레이아웃을 확인했다. 운영 배포, 실제 휴대폰 홈 화면 추가와 실제 거래는 검증에 포함하지 않았다.
+- 운영 적용 준비 중 실제 Windows 상태 응답의 완료 식별자가 `runId`임을 확인했다. 동일 실행 ID와 업무 ID를 확인하도록 수신기를 고치고, Windows `needs_attention` 결과의 재실행 차단을 회귀 검사에 추가했다.

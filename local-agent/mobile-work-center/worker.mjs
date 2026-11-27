@@ -96,15 +96,15 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
       return result("ambiguous", "RESULT_UNCERTAIN");
     }
     const { run } = response.body;
-    if (typeof run?.id !== "string" || run.actionId !== command.actionId) return result("ambiguous", "MISSING_PROOF");
+    if (typeof run?.runId !== "string" || !run.runId || run.actionId !== command.actionId) return result("ambiguous", "MISSING_PROOF");
 
     const deadline = now() + JOB_TIMEOUT;
     while (now() < deadline) {
       await wait(5_000);
       const current = await getCenter().catch(() => null);
-      const receipt = current?.recentRuns?.find(({ id }) => id === run.id);
+      const receipt = current?.recentRuns?.find(({ runId, actionId }) => runId === run.runId && actionId === command.actionId);
       if (receipt?.status === "succeeded") return result("completed", "DONE");
-      if (["failed", "blocked", "cancelled", "canceled", "stopped", "interrupted", "partial"].includes(receipt?.status)) {
+      if (["failed", "needs_attention", "blocked", "cancelled", "canceled", "stopped", "interrupted", "partial"].includes(receipt?.status)) {
         return command.execute ? result("ambiguous", "CHECK_PC") : result("needs_pc", "CHECK_PC");
       }
     }
