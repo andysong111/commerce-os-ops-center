@@ -3,6 +3,19 @@ name: SEO Listing Lifecycle CI
 on:
   pull_request:
     paths:
+      - "src/lib/receiptSeo*.ts"
+      - "src/lib/receiptOnSale*.ts"
+      - "src/lib/internalChinaReceipt.ts"
+      - "src/lib/seoStoragePages.ts"
+      - "src/lib/seoMarketBrowserBridge.ts"
+      - "src/app/api/china-order-manager/receipt-seo/**"
+      - "src/app/api/seo-run-jobs/route.ts"
+      - "src/app/api/shopling-market-auto-orchestration/route.ts"
+      - "src/components/china-order-manager/ReceiptSeoPanel.tsx"
+      - "tests/receipt-seo*"
+      - "tests/seoListingLifecycleShadowRefreshContract.test.mjs"
+      - "scripts/receipt-seo-browser-check.mjs"
+      - "supabase/migrations/*receipt_seo*"
       - "src/lib/seoListingLifecyclePolicy.ts"
       - "src/lib/seoListingLifecycleReconciliation.ts"
       - "src/lib/seoListingLifecycleReconciliationServer.ts"
@@ -72,6 +85,13 @@ jobs:
       - name: Lint SEO listing lifecycle
         run: >-
           npx eslint
+          src/lib/receiptSeo*.ts
+          src/lib/seoStoragePages.ts
+          src/lib/seoMarketBrowserBridge.ts
+          src/app/api/china-order-manager/receipt-seo/route.ts
+          src/app/api/seo-run-jobs/route.ts
+          src/app/api/shopling-market-auto-orchestration/route.ts
+          src/components/china-order-manager/ReceiptSeoPanel.tsx
           src/lib/seoListingLifecyclePolicy.ts
           src/lib/seoListingLifecycleReconciliation.ts
           src/lib/seoListingLifecycleReconciliationServer.ts
@@ -114,6 +134,8 @@ jobs:
       - name: Test lifecycle policy and capacity safety
         run: >-
           node --experimental-strip-types --test
+          tests/receipt-seo-portfolio.test.mjs
+          tests/seoListingLifecycleShadowRefreshContract.test.mjs
           tests/seoListingLifecyclePolicy.test.mjs
           tests/seoListingLifecycleReconciliation.test.mjs
           tests/seoListingLegacyOnboarding.test.mjs

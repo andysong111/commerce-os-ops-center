@@ -260,7 +260,7 @@ function productId(row: UnknownRecord) {
   return text(row.launch_item_id);
 }
 
-function freshCodeRelistReady(
+export function freshCodeRelistReady(
   product: SeoReadyProduct,
   rows: UnknownRecord[],
   now: Date,

@@ -50,6 +50,8 @@ type Dashboard = {
   summary: {
     seoReadyProductCount: number;
     materialReadyProductCount: number;
+    receiptBarcodeCount: number;
+    receiptHeldBarcodeCount: number;
     deliveryPreparationCandidateCount: number;
     deliveryPreparationPlannedCount: number;
     deliveryPreparationBacklogCount: number;
@@ -245,6 +247,8 @@ function normalizeDashboard(body: UnknownRecord): Dashboard {
     summary: {
       seoReadyProductCount: count(summary.seoReadyProductCount),
       materialReadyProductCount: count(summary.materialReadyProductCount),
+      receiptBarcodeCount: count(summary.receiptBarcodeCount),
+      receiptHeldBarcodeCount: count(summary.receiptHeldBarcodeCount),
       deliveryPreparationCandidateCount: count(
         summary.deliveryPreparationCandidateCount,
       ),
@@ -611,6 +615,9 @@ export default function SeoBulkAutomationPanel() {
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
             검증된 판매 {dashboard?.summary.verifiedSalesCount ?? 0}건
           </span>
+          {!!dashboard?.summary.receiptBarcodeCount && <span className="rounded-full bg-sky-100 px-3 py-1 text-sky-800">
+            입고 B코드 {dashboard.summary.receiptBarcodeCount}개 · 보류 {dashboard.summary.receiptHeldBarcodeCount}개
+          </span>}
           <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
             등록 실패 확인 {dashboard?.summary.registrationFailedProductCount ?? 0}개
           </span>

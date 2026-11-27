@@ -419,3 +419,28 @@ export function calculateSeoPortfolioCapacity(
     reasonCodes: [],
   };
 }
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function seoMarketCapacityInput(row: Record<string, unknown>): SeoMarketCapacityInput {
+  return {
+    marketAccountKey: String(row.market_account_key ?? ""),
+    marketName: String(row.market_name ?? ""),
+    accountLabel: String(row.account_label ?? ""),
+    maximumListingCount: numberOrNull(row.maximum_listing_count),
+    activeListingCount: numberOrNull(row.active_listing_count),
+    inFlightCount: numberOrNull(row.in_flight_count),
+    safetyBuffer: numberOrNull(row.safety_buffer),
+    observationStatus:
+      row.observation_status === "verified" ||
+      row.observation_status === "error"
+        ? row.observation_status
+        : "unknown",
+    observedAt: String(row.observed_at ?? "") || null,
+    requiredForAutoBatch: row.required_for_auto_batch !== false,
+  };
+}

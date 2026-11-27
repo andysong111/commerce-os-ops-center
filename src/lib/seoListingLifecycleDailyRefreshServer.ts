@@ -1,3 +1,4 @@
+import { readSeoPages, readSeoIdPages } from "@/lib/seoStoragePages";
 import {
   buildSeoListingDailyRefreshPlan,
   type SeoListingDailyRecordUpdate,
@@ -11,7 +12,6 @@ import {
 
 type UnknownRecord = Record<string, unknown>;
 
-const READ_LIMIT = 2000;
 const WRITE_BATCH_SIZE = 250;
 
 function text(value: unknown) {
@@ -82,19 +82,14 @@ export async function refreshSeoListingLifecycleShadowDaily(
   const admin = await createSupabaseAdminClient();
   if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
 
-  const lifecycleResult = await admin
-    .from("seo_listing_lifecycle_records")
-    .select("*")
-    .eq("owner_id", ownerId)
-    .in("state", ["LIVE", "PROTECTED"])
-    .limit(READ_LIMIT);
-  await throwIfError("SEO_LIFECYCLE_DAILY_RECORD_READ_FAILED", lifecycleResult);
+  const storedRows = await readSeoPages(() => admin.from("seo_listing_lifecycle_records").select("*")
+    .eq("owner_id",ownerId).in("state", ["LIVE", "PROTECTED"]),"id");
   const activeIsolations = await readActiveSeoListingLifecycleIsolations(
     admin,
     ownerId,
   );
   const lifecycleRows = excludeActiveSeoListingLifecycleIsolations(
-    asRows(lifecycleResult.data),
+    storedRows,
     activeIsolations.launchItemIds,
   );
   const launchItemIds = [
@@ -104,36 +99,17 @@ export async function refreshSeoListingLifecycleShadowDaily(
     ...new Set(lifecycleRows.map((row) => text(row.goods_key)).filter(Boolean)),
   ];
 
-  const launchItemResult = launchItemIds.length
-    ? await admin
-        .from("product_launch_items")
-        .select(
-          "owner_id,item_id,barcode,option_barcodes,option_barcode_nos,updated_at",
-        )
-        .eq("owner_id", ownerId)
-        .in("item_id", launchItemIds)
-        .limit(READ_LIMIT)
-    : { data: [], error: null };
-  await throwIfError("SEO_LIFECYCLE_DAILY_ITEM_READ_FAILED", launchItemResult);
-  const launchItems = asRows(launchItemResult.data);
+  const launchItems = await readSeoIdPages(launchItemIds, ids => admin.from("product_launch_items")
+    .select("owner_id,item_id,barcode,option_barcodes,option_barcode_nos,updated_at").eq("owner_id",ownerId).in("item_id",ids),"item_id");
   const barcodes = launchItemBarcodes(launchItems);
-
-  const salesResult = barcodes.length
-    ? await admin
-        .from("product_lifecycle_states")
-        .select(
-          "barcode,last_sale_at,sales_quantity_30,sales_quantity_90,sales_quantity_365,evaluated_at,updated_at",
-        )
-        .in("barcode", barcodes)
-        .limit(READ_LIMIT)
-    : { data: [], error: null };
-  await throwIfError("SEO_LIFECYCLE_DAILY_SALES_READ_FAILED", salesResult);
+  const salesRows = await readSeoIdPages(barcodes, ids => admin.from("product_lifecycle_states")
+    .select("barcode,last_sale_at,sales_quantity_30,sales_quantity_90,sales_quantity_365,evaluated_at,updated_at").in("barcode",ids),"barcode");
 
   const snapshot = await loadShoplingLifecycleStatusSnapshot(goodsKeys);
   const plan = buildSeoListingDailyRefreshPlan({
     lifecycleRows,
     launchItems,
-    salesRows: asRows(salesResult.data),
+    salesRows,
     shoplingStatuses: snapshot.statuses as unknown as UnknownRecord[],
     now: options.now,
   });

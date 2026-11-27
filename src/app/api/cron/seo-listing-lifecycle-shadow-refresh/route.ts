@@ -1,3 +1,4 @@
+import { readSeoPages } from "@/lib/seoStoragePages";
 import { timingSafeEqual } from "node:crypto";
 import { getProductLaunchAdminConfig } from "@/lib/productLaunchTrackerServer";
 import { refreshSeoListingLifecycleShadowDaily } from "@/lib/seoListingLifecycleDailyRefreshServer";
@@ -57,21 +58,11 @@ export async function GET(request: Request) {
     if (!configResult.ok) {
       throw new Error(`SEO_LIFECYCLE_CONFIG_UNAVAILABLE:${configResult.body.code}`);
     }
-    const ownersResult = await admin
-      .from("seo_listing_lifecycle_records")
-      .select("owner_id")
-      .in("state", ["LIVE", "PROTECTED"])
-      .limit(2000);
-    if (ownersResult.error) {
-      throw new Error(`SEO_LIFECYCLE_OWNER_READ_FAILED:${ownersResult.error.message}`);
-    }
-    const ownerIds = [
-      ...new Set(
-        (Array.isArray(ownersResult.data) ? ownersResult.data : [])
-          .map((row) => text(row.owner_id))
-          .filter(Boolean),
-      ),
-    ];
+    const [records, registrations] = await Promise.all([
+      readSeoPages(() => admin.from("seo_listing_lifecycle_records").select("id,owner_id").in("state", ["LIVE", "PROTECTED"]),"id"),
+      readSeoPages(() => admin.from("seo_run_jobs").select("run_id,owner_id").eq("registration_status","success"),"run_id"),
+    ]);
+    const ownerIds = [...new Set([...records,...registrations].map(r => text(r.owner_id)).filter(Boolean))];
     const summaries: Array<Record<string, unknown>> = [];
     for (const ownerId of ownerIds) {
       const reconciliation = await reconcileSeoListingLifecycleShadow(

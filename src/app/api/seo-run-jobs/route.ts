@@ -1,3 +1,4 @@
+import { readReceiptSeoReport } from "@/lib/receiptSeoStore";
 import { seoBulkShoplingGoodsKeys } from "@/lib/seoBulkShoplingSource";
 import { productLaunchSeoMaterialReadiness } from "@/lib/productLaunchSeoMaterialReadiness";
 import { legacySeoRegistrationExclusion } from "@/lib/legacySeoRegistrationPolicy";
@@ -235,6 +236,25 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    }
+    const receiptRuns = requested.filter(run => run.runId.startsWith("seo-run-receipt-"));
+    if (receiptRuns.length || body.receiptDraftId !== undefined || requested.some(r => r.autoQueueShoplingRegistration)) {
+      if (body.receiptDraftId !== undefined && (typeof body.receiptDraftId !== "string" || receiptRuns.length !== requested.length)) {
+        return Response.json({ok:false, message:"입고 차시의 등록 대상을 확인하세요."}, {status:409});
+      }
+      const report = await readReceiptSeoReport(context, typeof body.receiptDraftId === "string" ? body.receiptDraftId : undefined);
+      const covered = new Set(report.coveredItemIds);
+      if (requested.some(r => covered.has(r.itemId) && r.autoQueueShoplingRegistration && !receiptRuns.includes(r))) {
+        return Response.json({ok:false,message:"입고 상품의 기존 회차를 6단계 또는 오늘 자동운영에서 이어가세요."},{status:409});
+      }
+      for (const run of receiptRuns) {
+        const rows = report.rows.filter(row => row.itemId === run.itemId && row.runId === run.runId);
+        if (!rows.length || rows.some(row => !["NEW","ACTIVE","READY"].includes(row.state))) {
+          return Response.json({ok:false, message:"입고·가격·판매중·마켓 근거가 변경됐습니다. 현재 대상을 확인하세요."}, {status:409});
+        }
+        // Recheck the market proof and capacity after generation, at the actual handoff.
+        run.autoQueueShoplingRegistration = false;
+      }
     }
     const itemIds = [...new Set(requested.map((row) => row.itemId))];
     const items = await readProductLaunchNormalizedItems(

@@ -345,6 +345,7 @@ export async function recordInternalChinaReceipt(input: InternalChinaReceiptInpu
       actor_type: "OPS_OPERATOR", input_snapshot: event,
       result_snapshot: {
         accepted: true, receiptId, draftId, cycleMonth: actualCycleMonth, barcode: code,
+        seoRotationIntakeVersion: 1,
         receivedNow, cumulativeReceived, fullyReceived: finished,
         // Durable recovery source is written with the quantity event, BEFORE any
         // warehouse activation, launch creation or downstream cache/network write.

@@ -1,3 +1,4 @@
+import type { ReceiptSeoBudget } from "./receiptSeoPortfolio";
 import { createHash, randomBytes } from "node:crypto";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -202,6 +203,20 @@ async function readOrchestrationByTokenHash(
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
   return result.data ? record(result.data) : null;
+}
+
+/** Recover the exact original handoff after a lost response, even if eligibility has since changed. */
+export async function readReceiptMarketHandoff(context: SeoRunJobContext, rawToken: unknown, rawIds: unknown, mode: string) {
+  const token = validMarketAutoToken(rawToken);
+  if (!token) throw new Error("원래 등록 작업 확인값이 올바르지 않습니다.");
+  const db = await requireAdmin();
+  const row = await readOrchestrationByTokenHash(db,context.identity.userId,hashToken(token));
+  if (!row) return null;
+  if (text(record(row.result).mode || "full_pipeline") !== mode || !marketAutoRunIdSetsEqual(row.run_ids,uniqueIds(rawIds))) {
+    throw new Error("원래 등록 작업과 입고 상품이 일치하지 않습니다.");
+  }
+  return {orchestrationId:text(row.id),state:text(row.state),terminal:TERMINAL_STATES.has(text(row.state)),
+    activeAgent:!!row.agent_id && Date.parse(text(row.lease_until)) > Date.now(),error:text(row.error_message)};
 }
 
 async function assertNoActiveRunOverlap(
@@ -596,6 +611,7 @@ export async function createMarketAutoOrchestration(
   context: SeoRunJobContext,
   rawRunIds: unknown,
   rawHandoffToken?: unknown,
+  receiptBudget?: ReceiptSeoBudget,
 ) {
   const runIds = uniqueIds(rawRunIds);
   if (!runIds.length) throw new Error("원클릭 등록 대상으로 선택할 SEO RUN이 없습니다.");
@@ -648,6 +664,7 @@ export async function createMarketAutoOrchestration(
     newlyReservedProductCount,
   );
   const acceptedRunIds = accepted.map((job) => job.run_id);
+  if (receiptBudget && !marketAutoRunIdSetsEqual(runIds,acceptedRunIds)) throw new Error("입고 상품의 등록 가능 상태가 변경되었습니다. 다시 확인하세요.");
   const batchIds = [...new Set(accepted.map((job) => text(job.batch_id)).filter(Boolean))];
   let inserted = await readOrchestrationByTokenHash(
     supabase,
@@ -680,6 +697,7 @@ export async function createMarketAutoOrchestration(
       state: accepted.some((job) => job.registration_status === "success") ? "uploading" : "waiting_upload",
       result: {
         mode: "full_pipeline",
+        ...(receiptBudget ? { receiptBudget } : {}),
         requestedCount: runIds.length,
         acceptedCount: acceptedRunIds.length,
       },
@@ -731,6 +749,7 @@ export async function createMarketOnlyOrchestration(
   context: SeoRunJobContext,
   rawRunIds: unknown,
   rawHandoffToken: unknown,
+  receiptBudget?: ReceiptSeoBudget,
 ) {
   const runIds = uniqueIds(rawRunIds);
   if (!runIds.length) throw new Error("마켓전송만 재개할 SEO RUN이 없습니다.");
@@ -838,6 +857,7 @@ export async function createMarketOnlyOrchestration(
       state: "market_ready",
       result: {
         mode: "market_only",
+        ...(receiptBudget ? { receiptBudget } : {}),
         requestedCount: runIds.length,
         acceptedCount: runIds.length,
         verifiedProductCount: verifiedJobs.length,
@@ -997,7 +1017,7 @@ export async function pollMarketAutoAgent(token: string, agentId: string) {
     if (!["market_claimed", "market_running"].includes(state)) {
       await patchOrchestration(found.supabase, orchestrationId, {
         state: successfulJobIds.length ? "uploading" : "waiting_upload",
-        result: { uploadReadyCount: successfulJobIds.length, uploadPendingCount: pendingUploads.length, failedUploadRunIds },
+        result: { ...record(row.result), uploadReadyCount: successfulJobIds.length, uploadPendingCount: pendingUploads.length, failedUploadRunIds },
       });
     }
     return {
@@ -1034,7 +1054,7 @@ export async function pollMarketAutoAgent(token: string, agentId: string) {
       state: "exception",
       completed_at: new Date().toISOString(),
       error_message: "마켓전송 가능한 Shopling 업로드 성공 건이 없습니다.",
-      result: summary,
+      result: { ...record(row.result), ...summary },
     });
     return { terminal: true, ready: false, state: "exception", orchestrationId, result: summary };
   }
@@ -1055,7 +1075,7 @@ export async function pollMarketAutoAgent(token: string, agentId: string) {
     lease_until: leaseIso(),
     heartbeat_at: new Date().toISOString(),
     market_started_at: row.market_started_at || new Date().toISOString(),
-    result: summary,
+    result: { ...record(row.result), ...summary },
   });
   return {
     terminal: false,
@@ -1132,7 +1152,7 @@ export async function reportMarketAutoAgent(
     agent_id: agentId,
     lease_until: null,
     heartbeat_at: new Date().toISOString(),
-    result: summary,
+    result: { ...record(row.result), ...summary },
   });
   return { terminal: false, state: "market_ready", orchestrationId: text(row.id), result: summary };
 }
