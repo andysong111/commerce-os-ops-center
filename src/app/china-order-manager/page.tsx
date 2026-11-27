@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ForwarderInvoiceEntry } from "@/components/china-order-manager/ForwarderInvoiceEntry";
+import { loadForwarderInvoice } from "@/lib/internalChinaForwarderInvoice";
 import { MonthlyPricePanel } from "@/components/china-order-manager/MonthlyPricePanel";
 import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
@@ -46,7 +48,7 @@ import {
   resolveInternalChinaReceiptOrderEvidence,
 } from "@/lib/internalChinaReceiptWorkspace";
 import { loadLatestInternalChinaOndolpassReceiptObservation } from "@/lib/internalChinaOndolpassReceiptObservation";
-import { build1688PaymentOrderTemplate, INTERNAL_CHINA_PAYMENT_FX } from "@/lib/internalChinaPaymentEvidence";
+import { INTERNAL_CHINA_PAYMENT_FX } from "@/lib/internalChinaPaymentEvidence";
 import styles from "./monthly-workspace.module.css";
 
 export const dynamic = "force-dynamic";
@@ -435,6 +437,13 @@ export default async function ChinaOrderManagerPage({
   const receiptDone = orderedQuantity > 0 && inboundOpenQuantity === 0;
   const barcodeStageDone = Boolean(barcodeCompletion) || receiptDone;
   const forwarderDone = selectedForwarderCloses.length > 0;
+  const invoiceScope = barcodeCompletion && barcodeCompletion.cycleMonth === selectedMonth && !forwarderDone
+    ? barcodeCompletion : null;
+  const invoiceRead = invoiceScope
+    ? await loadForwarderInvoice(invoiceScope).then(invoice => ({ invoice, failed: false }))
+        .catch(() => ({ invoice: null, failed: true }))
+    : { invoice: null, failed: false };
+  const invoiceAmount = invoiceScope ? invoiceRead.invoice?.amountKrw ?? null : undefined;
   const paymentEvidenceForEntry = !confirmedPurchase && !forwarderDone
     ? barcodeReceiptEvidence
     : null;
@@ -665,10 +674,7 @@ export default async function ChinaOrderManagerPage({
               <InternalChinaPaymentEvidencePanel
                 key={selectedDraftId}
                 draftId={selectedDraftId}
-                barcodeEvidenceHash={paymentEvidenceForEntry.evidenceHash}
-                goodsEstimateCny={barcodeGoodsEstimateCny}
                 orderCount={barcodeOrderCount}
-                orderTemplate={build1688PaymentOrderTemplate(paymentEvidenceForEntry.lines)}
               />
             ) : null}
             {costRows.map((row) => {
@@ -692,6 +698,7 @@ export default async function ChinaOrderManagerPage({
                     key={row.draftId}
                     draftId={row.draftId}
                     cycleMonth={selectedMonth}
+                    invoiceAmount={invoiceAmount}
                     warning={row.warning}
                   />
                 );
@@ -701,6 +708,7 @@ export default async function ChinaOrderManagerPage({
                   key={`${row.draftId}:${ondolpassObservation?.snapshotHash ?? "manual"}`}
                   draftId={row.draftId}
                   cycleMonth={selectedMonth}
+                  invoiceAmount={invoiceAmount}
                   forwarderCost={row.summary}
                   lines={receiptWorkspaceLines}
                   observation={ondolpassObservationSummary}
@@ -789,7 +797,7 @@ export default async function ChinaOrderManagerPage({
                   : !barcodeCompletion
                     ? "바코드 업무 종결 후 진행"
                     : paymentEvidenceForEntry
-                      ? "1688 실결제 자료를 저장하면 입고 입력이 열립니다."
+                      ? "업무센터 5-5에서 결제·환불 대조 결과를 확인하세요."
                       : !confirmedPurchase || !receiptOrderEvidence.ok
                         ? "실결제·바코드·수량 원장 대조 필요"
                         : inboundOpenQuantity
@@ -798,35 +806,35 @@ export default async function ChinaOrderManagerPage({
               }
               href={
                 paymentEvidenceForEntry
-                  ? "#purchase-run-payment-evidence-rows"
+                  ? "#purchase-run-payment-check"
                   : barcodeCompletion && hasOrder && costRows.length > 0
                     ? "#purchase-run-input-workspace"
                     : undefined
               }
               actionLabel={
                 paymentEvidenceForEntry
-                  ? "1688 실결제 등록으로 이동"
+                  ? "5-5 결제 대조 안내"
                   : receiptDone ? "입고·원가 입력 보기" : "입고 처리로 이동"
               }
             />
             <FlowStep
               number="5"
               title="배송대행 실제비용·원가"
-              state={forwarderDone ? "done" : receiptDone ? "active" : "wait"}
-              detail={
-                forwarderDone
-                  ? `실제 부대비용 ${money.format(forwarderCostKrw)}원`
-                  : receiptDone
-                    ? "최종 청구액 직접 입력"
-                    : "전량 입고 후 진행"
-              }
-              href={receiptDone ? "#purchase-run-input-workspace" : undefined}
-              actionLabel={
-                forwarderDone
-                  ? "실제비용·원가 내역 보기"
-                  : "실제비용·원가 입력"
-              }
-            />
+              id="purchase-run-forwarder-cost"
+              state={forwarderDone ? "done" : invoiceScope || receiptDone ? "active" : "wait"}
+              detail={forwarderDone
+                ? `실제 부대비용 ${money.format(forwarderCostKrw)}원`
+                : invoiceScope ? "청구액을 먼저 저장할 수 있습니다. 원가는 결제 대조와 전량 입고 후 확정합니다."
+                : receiptDone ? "최종 청구액 직접 입력" : "배송대행지 바코드 출력 후 입력"}
+              href={receiptDone && costRows.length > 0 ? "#purchase-run-input-workspace" : undefined}
+              actionLabel={forwarderDone ? "실제비용·원가 내역 보기" : "실제비용·원가 입력"}
+            >
+              {invoiceScope && (invoiceRead.failed
+                ? <p role="alert" className="mt-2 text-sm text-amber-200">저장된 청구액을 읽지 못했습니다. 새로고침해 주세요.</p>
+                : <ForwarderInvoiceEntry key={`${invoiceScope.draftId}:${invoiceScope.evidenceHash}:${invoiceRead.invoice?.revision ?? ""}`}
+                    draftId={invoiceScope.draftId} cycleMonth={selectedMonth} evidenceHash={invoiceScope.evidenceHash}
+                    invoice={invoiceRead.invoice} />)}
+            </FlowStep>
             <MonthlyPricePanel month={selectedMonth} ready={receiptDone && forwarderDone} />
             <FlowStep
               number="7"
@@ -1252,13 +1260,15 @@ function MiniCard({
 }
 
 function FlowStep({
-  number,
+  id, children, number,
   title,
   state,
   detail,
   href,
   actionLabel,
 }: {
+  id?: string;
+  children?: ReactNode;
   number: string;
   title: string;
   state: "done" | "active" | "wait";
@@ -1281,13 +1291,14 @@ function FlowStep({
   // Let the browser reveal an anchor inside closed disclosure content.
   const ActionLink = href?.startsWith("#") ? "a" : Link;
   return (
-    <div className={`flex gap-3 rounded-xl border bg-slate-900 p-3 ${border}`}>
+    <div id={id} className={`flex scroll-mt-8 gap-3 rounded-xl border bg-slate-900 p-3 ${border}`}>
       <span className={`grid size-8 shrink-0 place-items-center rounded-lg text-sm font-black ${marker}`}>
         {state === "done" ? "✓" : number}
       </span>
       <div className="min-w-0 flex-1">
         <strong className="text-sm text-white">{title}</strong>
         <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+        {children}
         {href && actionLabel ? (
           <ActionLink
             href={href}

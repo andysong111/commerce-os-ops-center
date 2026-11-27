@@ -267,12 +267,14 @@ type ForwarderCostResponse = {
 export function InternalChinaReceiptPanel({
   draftId,
   cycleMonth,
+  invoiceAmount,
   lines,
   forwarderCost,
   observation,
 }: {
   draftId: string;
   cycleMonth: string;
+  invoiceAmount?: number | null;
   lines: InternalChinaReceiptPanelLine[];
   forwarderCost: InternalChinaForwarderCostSummary;
   observation: ReceiptObservationSummary | null;
@@ -324,7 +326,7 @@ export function InternalChinaReceiptPanel({
     .filter((line) => line.quantity > 0);
   const selectedQuantity = selected.reduce((sum, line) => sum + line.quantity, 0);
   const remainingTotal = openLines.reduce((sum, line) => sum + line.openQuantity, 0);
-  const actualForwarderCostKrw = won(forwarderCostInput);
+  const actualForwarderCostKrw = invoiceAmount === undefined ? won(forwarderCostInput) : invoiceAmount ?? 0;
   const existingForwarderCostKrw = forwarderCost.actualCostKrw ?? 0;
   const actualMultiplierPreview =
     actualForwarderCostKrw > 0 && forwarderCost.orderPaymentCostKrw > 0
@@ -671,6 +673,11 @@ export function InternalChinaReceiptPanel({
                     : `예상 도착 총액 ${number.format(forwarderCost.estimatedTotalOutflowKrw)}원 · 결제원가 ×${forwarderCost.estimatedMultiplier.toFixed(2)}`}
                 />
               <div className="rounded-lg border border-blue-200 bg-white p-3">
+                {invoiceAmount !== undefined ? (
+                  <a href="#purchase-run-forwarder-cost" className="text-sm font-bold text-blue-800 underline">
+                    {invoiceAmount ? `5번에 저장한 청구액 ${number.format(invoiceAmount)}원` : "5번에서 청구액 입력"}
+                  </a>
+                ) : (<>
                 <label
                   htmlFor={`forwarder-cost-${draftId}`}
                   className="block text-xs font-bold text-slate-600"
@@ -688,6 +695,7 @@ export function InternalChinaReceiptPanel({
                   placeholder="예: 907820"
                   className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-right font-black outline-none focus:border-blue-500"
                 />
+                </>)}
                 <span className="mt-1 block text-[11px] text-slate-500">
                   관세·부가세·스티커 작업 등 최종 청구 총액
                 </span>

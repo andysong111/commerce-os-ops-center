@@ -19,17 +19,19 @@ function won(value: unknown) {
 export function InternalChinaForwarderCostFallback({
   draftId,
   cycleMonth,
+  invoiceAmount,
   warning,
 }: {
   draftId: string;
   cycleMonth: string;
+  invoiceAmount?: number | null;
   warning: string;
 }) {
   const router = useRouter();
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
-  const actualCostKrw = won(value);
+  const actualCostKrw = invoiceAmount === undefined ? won(value) : invoiceAmount ?? 0;
 
   async function save() {
     if (actualCostKrw <= 0) {
@@ -105,6 +107,11 @@ export function InternalChinaForwarderCostFallback({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <div>
+          {invoiceAmount !== undefined ? (
+            <a href="#purchase-run-forwarder-cost" className="text-sm font-bold text-blue-800 underline">
+              {invoiceAmount ? `5번에 저장한 청구액 ${number.format(invoiceAmount)}원` : "5번에서 청구액 입력"}
+            </a>
+          ) : (<>
           <label
             htmlFor={`forwarder-cost-fallback-${draftId}`}
             className="block text-xs font-bold text-slate-600"
@@ -122,6 +129,7 @@ export function InternalChinaForwarderCostFallback({
             placeholder="예: 907820"
             className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-right font-black outline-none focus:border-blue-500"
           />
+          </>)}
           <span className="mt-1 block text-[11px] text-slate-500">
             1688 실결제와 월드퍼스트 콰징바오 수수료를 기준으로 실제 배송대행비를 배분합니다.
           </span>
