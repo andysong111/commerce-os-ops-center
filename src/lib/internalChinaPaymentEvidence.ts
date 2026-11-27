@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalize1688RefundRequests, type RefundRequest } from "../../local-agent/src/alibaba1688-refund-requests.mjs";
 import { WORLDFIRST_KUAJINGBAO_FEE_BPS } from "./productDecisionEngine/purchaseCostPolicy.ts";
 
 export const INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX = "internal-china-verified-payment:";
@@ -12,6 +13,7 @@ type PaidLine = OrderQuantity & {
   freightFen: number;
   serviceFen: number;
 };
+type SettledOrder = { orderNo: string; status: "PAID" | "CANCELLED"; paidFen: number; refundedFen: number; pendingRefunds?: RefundRequest[] };
 
 const ORDER_NO = /^\d{6,32}$/;
 const BARCODE = /^[A-Z]{3}\d+-\d+$/;
@@ -88,12 +90,46 @@ function snapshotHash(payload: object) {
   return `sha256:${createHash("sha256").update(JSON.stringify(payload)).digest("hex")}`;
 }
 
+function normalizeSettledOrders(value: unknown, rows: readonly PaidLine[]): SettledOrder[] {
+  if (!Array.isArray(value) || !value.length || value.length > 2000) throw new Error("PAYMENT_SETTLEMENT_INVALID");
+  const remaining = new Map<string, number>();
+  for (const row of rows) remaining.set(row.orderNo, (remaining.get(row.orderNo) ?? 0) + totalFen(row));
+  const seen = new Set<string>();
+  const refundOwners = new Map<string, string>();
+  const orders = value.map((raw): SettledOrder => {
+    if (!raw || typeof raw !== "object") throw new Error("PAYMENT_SETTLEMENT_INVALID");
+    const { orderNo, status, paidFen, refundedFen } = raw;
+    if (typeof orderNo !== "string" || !/^\d{19}$/.test(orderNo) || seen.has(orderNo) ||
+        !Number.isSafeInteger(paidFen) || !Number.isSafeInteger(refundedFen) ||
+        refundedFen < 0 || paidFen >= 10_000_000_000 || refundedFen > paidFen) {
+      throw new Error("PAYMENT_SETTLEMENT_INVALID");
+    }
+    seen.add(orderNo);
+    const pendingRefunds = raw.pendingRefunds === undefined ? undefined : normalize1688RefundRequests(raw.pendingRefunds);
+    for (const { refundId } of pendingRefunds ?? []) {
+      if (!refundId) continue;
+      if (refundOwners.has(refundId) && refundOwners.get(refundId) !== orderNo) throw new Error("PAYMENT_REFUND_REQUEST_CONFLICT");
+      refundOwners.set(refundId, orderNo);
+    }
+    const expected = remaining.get(orderNo);
+    if (status === "PAID" && expected !== undefined && paidFen - refundedFen === expected) {
+      remaining.delete(orderNo);
+    } else if (status !== "CANCELLED" || expected !== undefined || (paidFen !== refundedFen && !pendingRefunds)) {
+      throw new Error("PAYMENT_SETTLEMENT_ORDER_CONFLICT:" + orderNo);
+    }
+    return { orderNo, status, paidFen, refundedFen, ...(pendingRefunds ? { pendingRefunds } : {}) };
+  });
+  if (remaining.size) throw new Error("PAYMENT_PAID_ORDER_MISSING:" + remaining.keys().next().value);
+  return orders.sort((a, b) => a.orderNo.localeCompare(b.orderNo, "en"));
+}
+
 export function build1688PaymentEvidence(input: {
   draftId: string;
   cycleMonth: string;
   barcodeEvidenceHash: string;
   rows: readonly PaidLine[];
   paidTotalFen: number;
+  settledOrders?: unknown;
   paymentFeeBps?: number;
   exchangeRateKrwPerCny?: number;
 }) {
@@ -109,8 +145,10 @@ export function build1688PaymentEvidence(input: {
   }
   const seen = new Set<string>();
   const rows = input.rows.map(row => {
+    if (!row || typeof row !== "object") throw new Error("PAYMENT_SETTLEMENT_INVALID");
     const { orderNo, barcode, quantity, goodsFen, freightFen, serviceFen } = row;
-    if (!ORDER_NO.test(orderNo) || !BARCODE.test(barcode) || !Number.isSafeInteger(quantity) || quantity <= 0 ||
+    if (typeof orderNo !== "string" || !ORDER_NO.test(orderNo) || typeof barcode !== "string" || !BARCODE.test(barcode) ||
+        !Number.isSafeInteger(quantity) || quantity <= 0 ||
         ![goodsFen, freightFen, serviceFen].every(value => Number.isSafeInteger(value) && Math.abs(value) < 10_000_000_000) ||
         goodsFen <= 0 || serviceFen < 0 || totalFen(row) <= 0 || seen.has(key(row))) {
       throw new Error(`PAYMENT_LINE_INVALID_OR_DUPLICATE:${key(row)}`);
@@ -123,15 +161,22 @@ export function build1688PaymentEvidence(input: {
     throw new Error("PAYMENT_GRAND_TOTAL_CONFLICT");
   }
   const payload = { schema: PAYMENT_EVIDENCE_SCHEMA, draftId, cycleMonth, barcodeEvidenceHash, rows, paidTotalFen,
-    paymentFeeBps, exchangeRateKrwPerCny };
+    paymentFeeBps, exchangeRateKrwPerCny,
+    ...(input.settledOrders === undefined ? {} : { settledOrders: normalizeSettledOrders(input.settledOrders, rows) }) };
   const actualOrderPaidKrwAtInternalFx = Math.round(paidTotalFen * exchangeRateKrwPerCny / 100);
   const worldFirstFeeKrw = Math.round(actualOrderPaidKrwAtInternalFx * paymentFeeBps / 10_000);
+  // A closed original has no incoming units. Its outstanding payment still consumes cash.
+  const unreturnedCancelledFen = (payload.settledOrders ?? []).reduce((sum, order) =>
+    sum + (order.status === "CANCELLED" ? order.paidFen - order.refundedFen : 0), 0);
+  const cashOutflowFen = paidTotalFen + unreturnedCancelledFen;
+  const cashOutflowKrw = Math.round(cashOutflowFen * exchangeRateKrwPerCny / 100);
   return {
     ...payload,
     paymentEvidenceHash: snapshotHash(payload),
     actualOrderPaidKrwAtInternalFx,
     worldFirstFeeKrw,
-    budgetSpendKrw: actualOrderPaidKrwAtInternalFx + worldFirstFeeKrw,
+    ...(unreturnedCancelledFen ? { unreturnedCancelledFen, cashOutflowFen } : {}),
+    budgetSpendKrw: cashOutflowKrw + Math.round(cashOutflowKrw * paymentFeeBps / 10_000),
   };
 }
 
@@ -147,6 +192,19 @@ export function create1688PaymentEvidence(input: {
   match1688PaymentQuantities(rows, input.expected);
   const paidTotalFen = moneyFen(String(input.grandTotalCny ?? "").trim());
   return build1688PaymentEvidence({ ...input, rows, paidTotalFen });
+}
+
+export function create1688SettledPaymentEvidence(
+  input: Pick<Parameters<typeof create1688PaymentEvidence>[0], "draftId" | "cycleMonth" | "barcodeEvidenceHash" | "expected">,
+  raw: unknown,
+) {
+  if (!raw || typeof raw !== "object") throw new Error("PAYMENT_SETTLEMENT_INVALID");
+  const settlement = raw as Record<string, unknown>;
+  if (!Array.isArray(settlement.orders)) throw new Error("PAYMENT_SETTLEMENT_INVALID");
+  const paid = build1688PaymentEvidence({ ...input, rows: settlement.rows as PaidLine[],
+    paidTotalFen: settlement.netTotalFen as number, settledOrders: settlement.orders });
+  match1688PaymentQuantities(paid.rows, input.expected);
+  return paid;
 }
 
 /** Match independent, per-order paid amounts before the existing receipt can be stored. */
@@ -197,12 +255,14 @@ export function read1688PaymentEvidence(snapshot: Record<string, unknown>, sourc
     paidTotalFen: snapshot.paidTotalFen as number,
     paymentFeeBps: snapshot.paymentFeeBps as number,
     exchangeRateKrwPerCny: snapshot.exchangeRateKrwPerCny as number,
+    settledOrders: snapshot.settledOrders,
   });
   if (snapshot.schema !== PAYMENT_EVIDENCE_SCHEMA || snapshot.paymentEvidenceHash !== evidence.paymentEvidenceHash ||
       sourceEventId !== INTERNAL_CHINA_PAYMENT_SOURCE_PREFIX + evidence.draftId ||
       snapshot.actualOrderPaidKrwAtInternalFx !== evidence.actualOrderPaidKrwAtInternalFx ||
       snapshot.worldFirstFeeKrw !== evidence.worldFirstFeeKrw ||
-      snapshot.budgetSpendKrw !== evidence.budgetSpendKrw) {
+      snapshot.budgetSpendKrw !== evidence.budgetSpendKrw ||
+      snapshot.unreturnedCancelledFen !== evidence.unreturnedCancelledFen || snapshot.cashOutflowFen !== evidence.cashOutflowFen) {
     throw new Error("PAYMENT_EVIDENCE_HASH_INVALID");
   }
   return evidence;
