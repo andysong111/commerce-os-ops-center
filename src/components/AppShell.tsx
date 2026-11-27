@@ -1,4 +1,5 @@
 import { Suspense, type ReactNode } from "react";
+import { AppShellRouteFrame } from "@/components/AppShellRouteFrame";
 import { FreightBarcodePrintEnhancer } from "@/components/FreightBarcodePrintEnhancer";
 import { OpsAiHelpDesk } from "@/components/OpsAiHelpDesk";
 import { OpsCategoryUpdateCancelControl } from "@/components/OpsCategoryUpdateCancelControl";
@@ -16,8 +17,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
   const { user } = loginDisabled ? { user: null } : await getOpsCurrentUser();
   const email = user?.email ?? "";
 
-  return (
-    <div className="app-shell min-h-screen bg-slate-50">
+  const tools = (
+    <>
       <Suspense fallback={null}>
         <Sidebar
           showDetailPageCosts={isDetailPageCostAdmin(email)}
@@ -39,9 +40,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           <OpsCategoryUpdateCancelControl />
         </>
       ) : null}
-      <main className="app-main min-w-0 px-4 py-6 sm:px-6 lg:ml-60 lg:px-8 lg:py-8">
-        <div className="app-content mx-auto max-w-[1600px]">{children}</div>
-      </main>
-    </div>
+    </>
   );
+  return <AppShellRouteFrame tools={tools}>{children}</AppShellRouteFrame>;
 }

@@ -18,6 +18,8 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
+      - name: Test mobile Work Center request safety
+        run: node --test tests/mobileWorkCenter.test.mjs
       - name: Verify OpenAI cost attribution
         run: node scripts/check-openai-cost-attribution.mjs
       - name: Lint changed integration files
