@@ -286,7 +286,10 @@ export async function POST(request: Request) {
       ),
     ];
     const stockBatch = inputJobs.length && body.stockPlanVersion === 1
-      ? await prepareShoplingStockBatch(inputJobs)
+      ? await prepareShoplingStockBatch(inputJobs).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : "샵플링 응답 확인 필요";
+          throw new Error(`품절·판매중 입력을 저장하기 전 상품·옵션 조회에서 중단했습니다. B코드의 상품 연결과 옵션 상태를 확인해 주세요. (${reason})`);
+        })
       : null;
     const jobs: (typeof inputJobs[number] & StockBatchPlanFields)[] = stockBatch ? bindStockBatchPlans(inputJobs, stockBatch) : inputJobs;
     const commandRequest: ShoplingStockRetransmissionRequest | null = jobs.length

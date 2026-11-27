@@ -180,3 +180,34 @@ test("later invalid listings and incompatible legacy clients cause zero writes; 
   assert.equal(rows[0].productSaleStatus,"B");
   assert.equal(rows[2].productSaleStatus,"C");
 });
+
+test("Task 4's stockout-only batch includes the signed plan before storing a baseline; a failed preflight leaves no baseline", async () => {
+  const events = [];
+  let deny = true;
+  const planner = {
+    prepareShoplingStockBatch: async (jobs) => {
+      events.push("preflight");
+      if (deny) throw new Error("SHOPLING_STOCK_BATCH_PRODUCT_MISSING:120867");
+      return {items:jobs.map((j,i)=>({...j,stockBatchPlan:"signed-plan-"+i,dependencies:i ? [jobs[0].barcode] : []}))};
+    },
+  };
+  const preflight = loadModule("../src/lib/shoplingStockBatchPreflight.ts",{});
+  const {POST} = loadModule("../src/app/api/inventory-stock-control/batch/route.ts", {
+    "@/lib/inventoryStockControl": {normalizeStockoutResetInput:(v)=>v,INVENTORY_STOCKOUT_RESET_OPERATION_TYPE:"stockout"},
+    "@/lib/inventoryStockBulkStore": {storeInventoryOperationBatch:async (rows)=>{events.push("store");return {count:rows.length};}},
+    "@/lib/shopling/shoplingStockBatchService": planner, "@/lib/shoplingStockBatchPreflight":preflight,
+    "@/lib/opsLoginBypass": {isSameOriginOpsRequest:()=>true},
+    "@/lib/productMasterInventoryIdentity": {normalizeInventoryBarcode:(v)=>v,
+      loadProductMasterInventoryIdentities:async (barcodes)=>barcodes.map(barcode=>({barcode,state:"READY",productKind:"OPTION",modelNo:"AAA365"}))},
+  });
+  const post = () => POST(new Request("https://example.invalid/api/batch",{method:"POST",
+    body:JSON.stringify({batchId:"task4",stockPlanVersion:1,barcodes:codes})}));
+  assert.equal((await post()).ok,false);
+  assert.deepEqual(events,["preflight"]);
+  deny = false;
+  const response = await (await post()).json();
+  assert.ok(response.ok);
+  assert.deepEqual(response.jobs.map(j=>j.stockBatchPlan),["signed-plan-0","signed-plan-1"]);
+  assert.deepEqual(response.jobs[1].stockBatchDependencies,[codes[0]]);
+  assert.deepEqual(events,["preflight","preflight","store"]);
+});

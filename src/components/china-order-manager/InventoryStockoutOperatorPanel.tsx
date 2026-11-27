@@ -1113,7 +1113,7 @@ function InventoryStockoutGenericPanel() {
       !extensionReadyRef.current
     ) {
       setNotice(
-        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.62을 연결해 주세요.",
+        "품절·판매중 전송 전에 Shopling 자동화 확장 v0.6.62를 연결해 주세요.",
       );
       return;
     }
@@ -1418,11 +1418,13 @@ function InventoryStockoutGenericPanel() {
           }`}
         >
           <p className="text-base font-black">
-            {shoplingDirectRunSummaryText(directRunProgress)}
+            {directRunProgress.status === "COMPLETED" && directRunResultDetails.some((detail) => detail.code === "HF99_ENDED_ONLY_NO_TRANSMISSION")
+              ? `전체 작업 끝남 · 전송 접수 ${directRunResultDetails.filter((detail) => detail.outcome === "SUCCEEDED" && detail.code !== "HF99_ENDED_ONLY_NO_TRANSMISSION").length}건 · 판매종료 제외 ${directRunResultDetails.filter((detail) => detail.code === "HF99_ENDED_ONLY_NO_TRANSMISSION").length}건`
+              : shoplingDirectRunSummaryText(directRunProgress)}
           </p>
           <p className="mt-1 text-xs font-bold leading-5">
             {directRunProgress.status === "COMPLETED"
-              ? "Commerce OS가 모든 B코드의 Shopling 처리화면 도달을 확인했습니다. 원본 전송 접수 영수증도 확인됐으며 마켓별 최종 결과는 Shopling에서 계속 처리됩니다."
+              ? "전송을 실행한 건은 Shopling 처리화면 도달을 확인했습니다. 마켓별 최종 결과는 Shopling에서 확인할 수 있습니다."
               : directRunProgress.status === "COMPLETED_WITH_EXCEPTIONS"
                 ? "모든 B코드의 전송 시도는 끝났습니다. 성공·마켓 경고·실패 원인은 바로 아래 이번 실행 상세에서 확인할 수 있습니다."
               : directRunProgress.status === "STOPPED"
@@ -1444,6 +1446,8 @@ function InventoryStockoutGenericPanel() {
                 const successful = detail.outcome === "SUCCEEDED";
                 const statusLabel = marketWarning
                   ? `전송 접수 성공 · 마켓 경고 ${detail.marketFailureCount}/${detail.marketTotalCount}`
+                  : detail.code === "HF99_ENDED_ONLY_NO_TRANSMISSION" && successful
+                    ? "판매종료 · 전송 제외"
                   : successful
                     ? "전송 접수 성공"
                     : detail.outcome === "FAILED"
