@@ -16,6 +16,8 @@ on:
       - "src/lib/shopling/shoplingGoodsKeyTransmission.ts"
       - "src/lib/shopling/shoplingStockBatch*.ts"
       - "src/lib/shoplingStockBatchPreflight.ts"
+      - "src/lib/shoplingDirectCommand.ts"
+      - "tests/shoplingStockBatchPlan.test.mjs"
       - "src/app/api/inventory-stock-control/unified-batch/**"
       - "tests/shoplingStockBatch*.test.mjs"
       - "tests/shoplingStockStateHf102.test.mjs"

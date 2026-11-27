@@ -11,6 +11,8 @@ on:
       - 'scripts/shopling-stock-batch-browser-check.mjs'
       - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
       - 'src/lib/shoplingStockBatchPreflight.ts'
+      - 'src/lib/shoplingDirectCommand.ts'
+      - 'src/lib/shoplingDirectRunRecovery.ts'
       - 'public/shopling-stock-state-sync/**'
       - 'src/app/api/shopling-stock-state-sync/**'
       - 'src/components/china-order-manager/StockSyncHF15Bridge.tsx'
@@ -61,7 +63,7 @@ jobs:
           node /tmp/inventory-ui-tools/check.mjs
         env:
           INVENTORY_UI_BASE_URL: http://127.0.0.1:3210
-      - name: Check serial BCD8 restoration and missing receipt at the normal batch entry point
+      - name: Check repeat B-code commands after success or failure, full input coverage and phased receipts
         run: |
           cp scripts/shopling-stock-batch-browser-check.mjs /tmp/inventory-ui-tools/batch-browser-check.mjs
           node /tmp/inventory-ui-tools/batch-browser-check.mjs

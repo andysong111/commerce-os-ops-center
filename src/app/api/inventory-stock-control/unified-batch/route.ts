@@ -3,6 +3,7 @@ import {
   normalizeStockoutResetInput,
 } from "@/lib/inventoryStockControl";
 import { storeInventoryOperationBatch } from "@/lib/inventoryStockBulkStore";
+import { directStockCommandId, directStockJobId } from "@/lib/shoplingDirectCommand";
 import {
   INVENTORY_MANUAL_ON_SALE_OPERATION_TYPE,
   normalizeInventoryManualOnSaleInput,
@@ -60,6 +61,7 @@ function unauthorized() {
 }
 
 function directJob(
+  requestId: string,
   event: {
     barcode: string;
     productKind: "OPTION" | "SINGLE";
@@ -74,7 +76,8 @@ function directJob(
   manualStatusOnly = false,
 ) {
   return {
-    jobId: `stock-sync:${event.barcode}:${desiredStatus}:${event.occurredAt}`,
+    jobId: directStockJobId(requestId, event.barcode, desiredStatus),
+    retransmissionRequestId: requestId,
     barcode: event.barcode,
     productName:
       identity.productName || identity.optionName || event.barcode,
@@ -101,7 +104,7 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    const batchId = text(body.batchId).slice(0, 160);
+    const batchId = text(body.batchId);
     const rawStockout = Array.isArray(body.stockoutBarcodes)
       ? body.stockoutBarcodes
       : [];
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
       ? (body.stockEstimateItems as RawStockEstimateItem[])
       : [];
     if (!batchId) throw new Error("INVENTORY_UNIFIED_BATCH_ID_REQUIRED");
+    if (batchId.length > 160) throw new Error("INVENTORY_UNIFIED_BATCH_ID_TOO_LONG");
 
     const invalidBarcodes = [...rawStockout, ...rawOnSale].filter(
       (value) => !normalizeInventoryBarcode(value),
@@ -268,9 +272,11 @@ export async function POST(request: Request) {
       });
     });
 
+    const requestId = directStockCommandId(batchId);
     const inputJobs = [
       ...stockoutEvents.map((event) =>
         directJob(
+          requestId,
           event,
           identityByBarcode.get(event.barcode) || {},
           "SOLD_OUT",
@@ -278,6 +284,7 @@ export async function POST(request: Request) {
       ),
       ...onSaleEvents.map((event) =>
         directJob(
+          requestId,
           event,
           identityByBarcode.get(event.barcode) || {},
           "ON_SALE",
@@ -294,7 +301,7 @@ export async function POST(request: Request) {
     const jobs: (typeof inputJobs[number] & StockBatchPlanFields)[] = stockBatch ? bindStockBatchPlans(inputJobs, stockBatch) : inputJobs;
     const commandRequest: ShoplingStockRetransmissionRequest | null = jobs.length
       ? {
-          requestId: `unified-command:${batchId}`.slice(0, 180),
+          requestId,
           occurredAt,
           reportFingerprint: "DIRECT_OPERATOR_BCODE_COMMAND_V1",
           reason:
@@ -353,8 +360,7 @@ export async function POST(request: Request) {
             },
           ]
         : []),
-    ]);
-
+    ], {requireNewCommand: Boolean(commandRequest)});
     return Response.json(
       {
         ok: true,
@@ -382,6 +388,12 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
+    if (error instanceof Error && error.message === "INVENTORY_COMMAND_ALREADY_STORED") {
+      return Response.json({
+        ok: false, code: error.message,
+        message: "이 실행번호로 저장된 작업이 있습니다. 중복 전송을 막기 위해 이번 호출을 중단했습니다. 기존 실행 기록을 확인해 주세요.",
+      }, {status: 409, headers: {"cache-control": "no-store"}});
+    }
     return Response.json(
       {
         ok: false,

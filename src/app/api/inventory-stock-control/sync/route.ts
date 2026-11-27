@@ -281,7 +281,7 @@ function queueJob(
   };
 }
 
-function semanticQueueIdentity(job: ReturnType<typeof queueJob>) {
+function semanticQueueIdentity(job: Pick<ReturnType<typeof queueJob>, "barcode" | "productKind" | "desiredStatus" | "desiredSince">) {
   return [
     job.barcode,
     job.productKind,
@@ -349,10 +349,12 @@ export async function GET(request: Request) {
     // same Shopling mutation with different job IDs. Keep the audited replay job
     // so its request ledger reaches a terminal state, but never dispatch both.
     // An audited planned job must never return as an unplanned normal job after a partial send.
-    const plannedCommandJobs = new Set(retransmission.batches.flatMap((batch) => batch.items.filter((item) => item.stockBatchPlan).map((item) => item.jobId)));
-    const jobsBySemanticIdentity = new Map(
-      normalJobs.filter((job) => !plannedCommandJobs.has(job.jobId)).map((job) => [semanticQueueIdentity(job), job] as const),
-    );
+    const jobsBySemanticIdentity = new Map(normalJobs.map((job) => [semanticQueueIdentity(job), job] as const));
+    for (const batch of retransmission.batches) {
+      for (const item of batch.items) {
+        if (item.stockBatchPlan) jobsBySemanticIdentity.delete(semanticQueueIdentity(item));
+      }
+    }
     for (const replayJob of replayJobs) {
       jobsBySemanticIdentity.set(semanticQueueIdentity(replayJob), replayJob);
     }

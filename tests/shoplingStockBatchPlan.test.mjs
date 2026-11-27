@@ -5,8 +5,61 @@ import * as planner from "../src/lib/shopling/shoplingStockBatchPlan.ts";
 import * as transmission from "../src/lib/shopling/shoplingGoodsKeyTransmission.ts";
 import * as simpleXml from "../src/lib/shopling/simpleXml.ts";
 import { loadModule } from "./monthly-price-module.mjs";
+import * as directCommand from "../src/lib/shoplingDirectCommand.ts";
+import * as preflight from "../src/lib/shoplingStockBatchPreflight.ts";
 
 const codes = ["BCD8-1", "BCD8-2"];
+
+test("each explicit command covers every input after past successes and failures; a duplicate HTTP submit cannot dispatch twice", async () => {
+  const persisted = new Map();
+  const table = {
+    insert: rows => ({select: async () => {
+      if (rows.some(r => persisted.has(r.source_event_id))) return {error:{code:"23505"}};
+      for (const row of rows) persisted.set(row.source_event_id, row.input_snapshot);
+      return {data:rows};
+    }}),
+    select: () => ({in: (_field, ids) => ({limit: async () => ({
+      data: ids.filter(id => persisted.has(id)).map(source_event_id => ({source_event_id})),
+    })})}),
+  };
+  const store = loadModule("../src/lib/inventoryStockBulkStore.ts", {
+    "@/lib/supabase/admin": {createSupabaseAdminClient: async () => ({from: () => table})},
+  });
+  const {POST} = loadModule("../src/app/api/inventory-stock-control/unified-batch/route.ts", {
+    "@/lib/opsLoginBypass": {isSameOriginOpsRequest: () => true},
+    "@/lib/inventoryStockControl": {INVENTORY_STOCKOUT_RESET_OPERATION_TYPE:"reset", normalizeStockoutResetInput:v=>v},
+    "@/lib/inventoryManualOnSale": {INVENTORY_MANUAL_ON_SALE_OPERATION_TYPE:"sale", normalizeInventoryManualOnSaleInput:v=>v},
+    "@/lib/inventoryStockBulkStore": store, "@/lib/shoplingDirectCommand": directCommand,
+    "@/lib/inventoryStocktakeBaselines": {}, "@/lib/inventoryStockEstimateBaselines": {},
+    "@/lib/inventoryShoplingRetransmission": {SHOPLING_STOCK_RETRANSMISSION_REQUEST_OPERATION_TYPE:"command"},
+    "@/lib/productMasterInventoryIdentity": {normalizeInventoryBarcode:v=>v, loadProductMasterInventoryIdentities:async values=>values.map(barcode=>({barcode, state:"READY", productKind:"OPTION"}))},
+    "@/lib/shoplingStockBatchPreflight": preflight,
+    "@/lib/shopling/shoplingStockBatchService": {prepareShoplingStockBatch:async jobs=>({products:[], items:jobs.map(j=>({...j, stockBatchPlan:"signed", dependencies:[]}))})},
+  });
+  const submit = (batchId, stockoutBarcodes, onSaleBarcodes) => POST(new Request("https://example.invalid/api/unified-batch", {
+    method:"POST", body:JSON.stringify({batchId, stockoutBarcodes, onSaleBarcodes, stockPlanVersion:1, occurredAt:"2026-11-27T04:00:00.000Z"}),
+  }));
+  const ids = new Set();
+  for (const [batchId, sold, sale] of [["first",[],codes],["second",[],codes],["reverse",codes,[]],["mixed",[codes[0]],[codes[1]]]]) {
+    const res = await submit(batchId,sold,sale);
+    assert.equal(res.status,201);
+    const payload = await res.json();
+    const jobs = directCommand.verifyDirectStockCommand(batchId,sold,sale,payload);
+    assert.deepEqual(jobs.map(j=>j.barcode),[...sold,...sale]);
+    assert.ok(jobs.every(j=>!ids.has(j.jobId)));
+    jobs.forEach(j=>ids.add(j.jobId));
+    assert.deepEqual(persisted.get("shopling-stock-retransmission:"+payload.commandRequestId).items.map(j=>j.jobId).join(","),jobs.map(j=>j.jobId).join(","));
+    assert.throws(()=>directCommand.verifyDirectStockCommand(batchId,sold,sale,{...payload,jobs:jobs.slice(0,1)}),/BCD8-2/);
+    assert.throws(()=>directCommand.verifyDirectStockCommand(batchId,sold,sale,{...payload,jobs:[jobs[0],jobs[0]]}),/BCD8-2/);
+    assert.throws(()=>directCommand.verifyDirectStockCommand("foreign",sold,sale,payload),/실행번호/);
+  }
+  const count = persisted.size;
+  assert.equal((await submit("first",[],codes)).status,409);
+  assert.equal((await submit("first",["BCC5-1"],[])).status,409);
+  assert.equal(persisted.size,count);
+  const concurrent = await Promise.all([submit("race",[],codes),submit("race",[],codes)]);
+  assert.deepEqual(concurrent.map(r=>r.status).sort(),[201,409]);
+});
 const options = (states = "CC", parent = "C", goodsKey = "120867") => [...states].map((optionStatus, i) => ({
   goodsKey, productName: "컨트롤러 레이싱그립", partnerGoodsCode: "AAA365", productSaleStatus: parent,
   optionId: String(4416178 + i), partnerOptionCode: codes[i] || "", optionQuantity: "999", optionStatus,
