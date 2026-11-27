@@ -20,7 +20,7 @@ const center = (extra = {}) => ({
     { id: "full-operations", mutates: true, requiresShoplingLogin: true },
     { id: "1688-cart-staging", mutates: true, requiresShoplingLogin: false },
   ],
-  shoplingSession: { ready: true },
+  shoplingSession: { ready: true, matchedAccount: "fixture-account" },
   recentRuns: [],
   ...extra,
 });
@@ -123,6 +123,82 @@ test("a dropped live action response is held for review without replay", async (
   } });
   assert.deepEqual(await adapter.execute(command("full-operations", { execute: true, confirmed: true })), { status: "ambiguous", code: "RESULT_UNCERTAIN" });
   assert.equal(posts, 1);
+});
+
+function mobileLoginFixture(phases, { disable = false, occupied = false, advanceBy = 10_000, dropAction = false } = {}) {
+  const input = command("post-packing-invoices", {
+    execute: true, confirmed: true, invoiceNumbers: ["123456789012"], inventoryShortageInvoiceNumbers: ["123456789013"],
+  });
+  const phasesSeen = [];
+  const loginRequests = [];
+  const businessRequests = [];
+  let clock = start;
+  let ready = false;
+  const adapter = createWindowsWorkAdapter({
+    now: () => clock,
+    wait: async () => { clock += advanceBy; },
+    fetchImpl: async (url, options) => {
+      if (url.endsWith("/api/state")) return json({ ok: true, state: center({
+        shoplingSession: { ready, matchedAccount: ready ? "fixture-account" : null }, settings: { shoplingAutoLoginEnabled: !disable }, shoplingAutoLogin: { credentialConfigured: true },
+        actions: [{ id: input.actionId, mutates: true, requiresShoplingLogin: true }],
+        pendingLoginAction: ready && occupied ? { actionId: input.actionId } : null,
+        recentRuns: businessRequests.length ? [{ actionId: input.actionId, runId: "original", status: "succeeded" }] : [],
+      }) });
+      if (url.endsWith("/")) return new Response(`let TOKEN = "${"a".repeat(48)}";`);
+      if (url.endsWith("/api/shopling/mobile-login")) {
+        const body = JSON.parse(options.body);
+        loginRequests.push(body);
+        const phase = phases.shift();
+        if (!phase) throw new Error("Lost authentication response");
+        ready = phase === "ready";
+        return json({ ok: true, requestId: phase === "wrong-id" ? id() : body.requestId, phase });
+      }
+      assert.equal(url, "http://127.0.0.1:43121/api/actions/post-packing-invoices");
+      businessRequests.push(JSON.parse(options.body));
+      if (dropAction) throw new Error("Lost business receipt");
+      return json({ ok: true, run: { actionId: input.actionId, runId: "original" } });
+    },
+  });
+  return { input, loginRequests, businessRequests, phasesSeen, run: () => adapter.execute(input, (phase) => phasesSeen.push(phase)) };
+}
+
+test("a human Kakao answer resumes only the original mobile command, including both invoice groups", async () => {
+  const flow = mobileLoginFixture(["captcha", "captcha", "ready"]);
+  assert.deepEqual(await flow.run(), { status: "completed", code: "DONE" });
+  assert.deepEqual(flow.phasesSeen, ["LOGIN_CHECKING", "KAKAO_CAPTCHA", "KAKAO_CAPTCHA", null]);
+  assert.deepEqual(flow.loginRequests, Array(3).fill({ requestId: flow.input.id }));
+  assert.deepEqual(flow.businessRequests, [{ verifiedShoplingAccount: "fixture-account", execute: true, confirmed: true,
+    invoiceNumbers: flow.input.invoiceNumbers, inventoryShortageInvoiceNumbers: flow.input.inventoryShortageInvoiceNumbers }]);
+});
+
+test("manual or expired auth, a lost or mismatched reply, and PC contention never start a mobile task", async () => {
+  for (const [phases, options, code] of [
+    [["manual"], {}, "LOGIN_REQUIRED"], [["wrong-id"], {}, "LOGIN_REQUIRED"], [[], {}, "LOGIN_REQUIRED"],
+    [["expired"], {}, "LOGIN_EXPIRED"], [["captcha"], { advanceBy: 4 * 60 * 60_000 }, "LOGIN_EXPIRED"],
+    [["ready"], { occupied: true }, "AGENT_BUSY"], [["busy"], {}, "AGENT_BUSY"], [[], { disable: true }, "LOGIN_REQUIRED"],
+  ]) {
+    const flow = mobileLoginFixture(phases, options);
+    assert.deepEqual(await flow.run(), { status: "needs_pc", code });
+    assert.equal(flow.businessRequests.length, 0);
+    if (options.disable) assert.equal(flow.loginRequests.length, 0);
+  }
+  const lost = mobileLoginFixture(["ready"], { dropAction: true });
+  assert.deepEqual(await lost.run(), { status: "ambiguous", code: "RESULT_UNCERTAIN" });
+  assert.equal(lost.businessRequests.length, 1);
+});
+
+test("only the current claimed mobile request can show or clear Kakao progress", () => {
+  const request = command("full-operations");
+  const queued = applyWorkQueue(online, { type: "enqueue", command: request }, start).state;
+  const running = applyWorkQueue(queued, poll, start).state;
+  const heartbeat = (state, requestId, code) => applyWorkQueue(state,
+    { ...poll, canClaim: false, progress: { id: requestId, code } }, start + 1000).state ?? state;
+  assert.equal(heartbeat(running, id(), "KAKAO_CAPTCHA").jobs[0].code, null);
+  assert.equal(heartbeat(running, request.id, "private auth details").jobs[0].code, null);
+  const waiting = heartbeat(running, request.id, "KAKAO_CAPTCHA");
+  assert.equal(publicQueue(waiting, start + 1000).jobs[0].code, "KAKAO_CAPTCHA");
+  assert.equal(waiting.jobs[0].status, "running");
+  assert.equal(heartbeat(waiting, request.id, null).jobs[0].code, null);
 });
 
 test("a PC connection check traverses the same queue and worker without calling any write route", async () => {

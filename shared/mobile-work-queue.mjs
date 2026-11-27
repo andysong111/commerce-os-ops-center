@@ -4,7 +4,7 @@ import { AGENT_ONLINE_MS, REQUEST_MAX_AGE_MS, isAgentOnline, isMobileRequestId, 
 const TERMINAL_STATES = new Set(["completed", "failed", "needs_pc", "ambiguous"]);
 const PUBLIC_CODES = new Set([
   "PC_READY", "DONE", "CHECK_PC", "RESULT_UNCERTAIN", "AGENT_BUSY", "REJECTED_BY_PC",
-  "LOGIN_REQUIRED", "MISSING_PROOF", "PARTIAL_RESULT", "EXTENSION_UNAVAILABLE",
+  "LOGIN_REQUIRED", "LOGIN_EXPIRED", "MISSING_PROOF", "PARTIAL_RESULT", "EXTENSION_UNAVAILABLE",
 ]);
 
 export function emptyQueue() {
@@ -57,6 +57,10 @@ export function applyWorkQueue(state, event, now) {
       || state.agent.ready !== agent.ready || state.agent.busy !== agent.busy
       || JSON.stringify(state.agent.actions) !== JSON.stringify(agent.actions);
     const next = stateChanged ? { ...state, agent } : state;
+    if (job?.status === "running" && event.canClaim === false && event.progress?.id === job.id
+      && [null, "LOGIN_CHECKING", "KAKAO_CAPTCHA"].includes(event.progress.code) && job.code !== event.progress.code) {
+      return { status: 200, state: updateJob(next, job, { code: event.progress.code, updatedAt: now }) };
+    }
     if (job?.status === "running" && event.canClaim === true && now - job.updatedAt >= REQUEST_MAX_AGE_MS) {
       return { status: 200, state: updateJob(next, job, { status: "ambiguous", code: "RESULT_UNCERTAIN", updatedAt: now }) };
     }

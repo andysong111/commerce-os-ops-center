@@ -16,7 +16,10 @@ const STATUS: Record<string, string> = {
 };
 const MESSAGES: Record<string, string> = {
   PC_READY: "휴대폰 → PC → 업무센터 연결을 확인했습니다.",
-  LOGIN_REQUIRED: "PC에서 샵플링 전용 Chrome에 로그인한 뒤 다시 요청하세요.",
+  LOGIN_CHECKING: "PC에서 샵플링 로그인을 확인하고 있습니다.",
+  KAKAO_CAPTCHA: "카카오톡으로 받은 확인 링크에 캡차 숫자를 입력하세요. 로그인이 확인되면 선택한 업무가 자동으로 시작됩니다.",
+  LOGIN_REQUIRED: "샵플링 로그인을 완료하지 못했습니다. PC 업무센터의 자동 로그인 설정과 전용 Chrome 상태를 확인하세요.",
+  LOGIN_EXPIRED: "인증 대기 시간이 끝났습니다. 업무를 다시 요청하세요.",
   CHECK_PC: "PC 업무센터의 실행 기록에서 상세 내용을 확인하세요.",
   RESULT_UNCERTAIN: "실제 반영 여부를 PC와 원래 서비스에서 확인하세요. 확인할 때까지 새 요청을 받지 않습니다.",
   MISSING_PROOF: "완료 기록을 확인할 수 없습니다. PC 업무센터나 원래 서비스의 결과를 확인하세요.",
@@ -238,7 +241,7 @@ export function MobileWorkCenter() {
             onClick={() => void submit(MOBILE_ACTIONS["connection-check"], { execute: false })}>PC 연결 시험</button>
         </div>
         {latest && <div className="mt-3 border-t border-slate-200 pt-3 text-sm" aria-live="polite">
-          <p className="font-semibold">{MOBILE_ACTIONS[latest.actionId]?.label} · {STATUS[latest.status] ?? latest.status}</p>
+          <p className="font-semibold">{MOBILE_ACTIONS[latest.actionId]?.label} · {latest.status === "running" && latest.code === "KAKAO_CAPTCHA" ? "카카오톡 인증 대기" : STATUS[latest.status] ?? latest.status}</p>
           {latest.code && MESSAGES[latest.code] && <p className="mt-1 leading-6 text-slate-600">{MESSAGES[latest.code]}</p>}
           {latest.connectionLost && <p className="mt-1 text-slate-700">PC의 응답이 끊겼습니다. PC가 다시 연결되면 결과를 확인합니다.</p>}
           {latest.status === "ambiguous" && <button className={`${buttonStyle} mt-2 border border-slate-300`} disabled={sending} onClick={() => void acknowledge()}>결과 확인 완료</button>}
