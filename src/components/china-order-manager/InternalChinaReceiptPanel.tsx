@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   receiptRequestFingerprint,
@@ -280,6 +280,8 @@ export function InternalChinaReceiptPanel({
   observation: ReceiptObservationSummary | null;
 }) {
   const router = useRouter();
+  const receiptSync = useRef<AbortController | null>(null);
+  useEffect(() => () => receiptSync.current?.abort(), [draftId]);
   const openLines = useMemo(
     () => lines.filter((line) => line.openQuantity > 0),
     [lines],
@@ -510,42 +512,30 @@ export function InternalChinaReceiptPanel({
       clearPendingReceiptRequest(receiptRequest);
 
       const receiptMessage = body.message || "입고확정을 완료했습니다.";
+      let costMessage = "";
+      if (fullReceipt && (existingForwarderCostKrw <= 0 || existingForwarderCostKrw !== actualForwarderCostKrw)) {
+        try {
+          const saved = await persistForwarderCost();
+          costMessage = saved.message || "배송대행 비용과 실제 원가를 마감했습니다.";
+        } catch (error) {
+          setNotice(`${receiptMessage} 배송대행 비용 저장 확인 필요 · ${error instanceof Error ? error.message : "입력값을 확인하세요."} 판매중 전송은 6단계에서 이어갈 수 있습니다.`);
+          setExpanded(true); router.refresh(); return;
+        }
+      }
       let onSaleMessage = "";
       try {
+        receiptSync.current = new AbortController();
         const onSale = await runInboundReceiptOnSaleSync(
-          selected.map((line) => line.barcode),
-          setNotice,
+          draftId, setNotice, selected.map((line) => line.barcode), receiptSync.current.signal,
         );
         onSaleMessage = onSale.message;
       } catch (error) {
-        onSaleMessage = `입고확정은 완료됐습니다. 다만 Shopling 판매중 자동전환 확인 과정은 실패했습니다. 재고·품절·판매재개 큐에서 다시 확인하세요: ${
+        onSaleMessage = `입고확정은 완료됐습니다. 다만 Shopling 판매중 자동전환 확인 과정은 실패했습니다. 6단계의 판매중 전송 결과를 확인하세요. ${
           error instanceof Error ? error.message : "재시도 필요"
         }`;
       }
 
-      if (
-        fullReceipt &&
-        (existingForwarderCostKrw <= 0 ||
-          existingForwarderCostKrw !== actualForwarderCostKrw)
-      ) {
-        try {
-          const costBody = await persistForwarderCost();
-          setNotice(
-            `${receiptMessage} ${costBody.message || "배송대행 비용과 실제 원가배수도 마감했습니다."} ${onSaleMessage}`,
-          );
-        } catch (error) {
-          setNotice(
-            `${receiptMessage} ${onSaleMessage} 다만 배송대행 비용·실제 원가 마감은 실패했습니다. 아래 입력값을 확인해 다시 저장하세요: ${
-              error instanceof Error ? error.message : "재시도 필요"
-            }`,
-          );
-          setExpanded(true);
-          router.refresh();
-          return;
-        }
-      } else {
-        setNotice(`${receiptMessage} ${onSaleMessage}`);
-      }
+      setNotice([receiptMessage, costMessage, onSaleMessage].filter(Boolean).join(" "));
       setExpanded(false);
       router.refresh();
     } catch (error) {

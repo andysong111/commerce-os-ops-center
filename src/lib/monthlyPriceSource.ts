@@ -5,9 +5,9 @@ import { buildInternalChinaMonthlyPurchaseSummaryFromRows } from "@/lib/internal
 import { buildInternalChinaForwarderCostSummaryFromDraft, loadActualPurchaseCostDraft } from "@/lib/internalChinaForwarderCost";
 import { loadProductPlanningSnapshot } from "@/lib/productDecisionLiveRefresh";
 import { loadShoplingProductGroupsByGoodsKey } from "@/lib/shopling/shoplingProductGroupRegistry";
-import { monthlyCostsFromEvidence, monthlyHash, monthlyRecord, monthlyMonth, monthlyProtectedCosts, MONTHLY_PRICE_POLICY, type MonthlyCost, type MonthlyPriceCandidate } from "@/lib/monthlyPriceCore";
+import { monthlyCostsFromEvidence, monthlyHash, monthlyRecord, monthlyMonth, purchaseRunDraftId, monthlyProtectedCosts, MONTHLY_PRICE_POLICY, type MonthlyCost, type MonthlyPriceCandidate } from "@/lib/monthlyPriceCore";
 
-export type MonthlyPriceSources = { month: string; sourceHash: string; candidates: MonthlyPriceCandidate[]; costs: MonthlyCost[]; warnings: string[]; scope: string[]; evidenceVersion: string };
+export type MonthlyPriceSources = { month: string; draftId?: string; sourceHash: string; candidates: MonthlyPriceCandidate[]; costs: MonthlyCost[]; warnings: string[]; scope: string[]; evidenceVersion: string };
 const LIMIT = 500;
 async function allOperations(operation: string, source?: string) {
   const db = await createSupabaseAdminClient();
@@ -25,7 +25,7 @@ async function allOperations(operation: string, source?: string) {
   }
   throw new Error("MONTHLY_PRICE_SOURCE_TRUNCATED");
 }
-export async function loadMonthlyPriceSources(monthInput: unknown): Promise<MonthlyPriceSources> {
+export async function loadMonthlyPriceSources(monthInput: unknown, selectedDraft?: string): Promise<MonthlyPriceSources> {
   const month = monthlyMonth(monthInput);
   const [receipts, closes, preps, overrides, planning] = await Promise.all([
     allOperations("CHINA_ORDER_COMMITMENT_EVENT", "ops-center-internal-china-receipt"),
@@ -34,7 +34,11 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     allOperations("INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE"),
     loadProductPlanningSnapshot(),
   ]);
-  const currentReceipts = receipts.filter((row) => monthlyRecord(row.result_snapshot).cycleMonth === month);
+  const selection = selectedDraft === undefined ? {} : { draftId: purchaseRunDraftId(selectedDraft) };
+  const currentReceipts = receipts.filter((row) => {
+    const result = monthlyRecord(row.result_snapshot);
+    return result.cycleMonth === month && (!selection.draftId || result.draftId === selection.draftId) && Number(result.receivedNow) > 0;
+  });
   if (!currentReceipts.length) throw new Error("MONTHLY_PRICE_RECEIPT_REQUIRED");
   const scope = [...new Set(currentReceipts.map((row) => String(monthlyRecord(row.result_snapshot).barcode ?? "")))].sort();
   const scopeSet = new Set(scope);
@@ -45,6 +49,7 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
   const grouped = new Map<string, Record<string, unknown>[]>();
   for (const row of receipts) {
     const r = monthlyRecord(row.result_snapshot);
+    if (r.actualOrderEvidenceReconciled === true && !r.receiptId) continue;
     const id = String(r.draftId ?? "");
     grouped.set(id, [...(grouped.get(id) ?? []), row]);
   }
@@ -53,9 +58,10 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     const relevant = rows.some((row) => scopeSet.has(String(monthlyRecord(row.result_snapshot).barcode)));
     if (!relevant) continue;
     const monthOfDraft = String(monthlyRecord(rows[0].result_snapshot).cycleMonth);
+    const selected = monthOfDraft === month && (!selection.draftId || selection.draftId === draftId);
     if (monthOfDraft > month) continue;
     const closeRows = closes.filter((row) => monthlyRecord(row.result_snapshot).draftId === draftId);
-    if (closeRows.length !== 1) { warnings.push(`${draftId}:MONTHLY_PRICE_FINAL_COST_REQUIRED`); if (monthOfDraft === month) rows.forEach((row) => invalidCurrent.add(String(monthlyRecord(row.result_snapshot).barcode))); continue; }
+    if (closeRows.length !== 1) { warnings.push(`${draftId}:MONTHLY_PRICE_FINAL_COST_REQUIRED`); if (selected) rows.forEach((row) => invalidCurrent.add(String(monthlyRecord(row.result_snapshot).barcode))); continue; }
     const storedClose = monthlyRecord(closeRows[0].result_snapshot);
     try {
       const saved = preps.filter((row) => monthlyRecord(monthlyRecord(row.result_snapshot).snapshot).draftId === draftId);
@@ -95,11 +101,11 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
       const costs = monthlyCostsFromEvidence({ draft, close, receiptRows: rows });
       sourceProofs.push({ draftId, storedClose, effectiveClose: close, draft, receiptRows: rows.map((row) => ({ input: row.input_snapshot, result: row.result_snapshot })) });
       history.push(...costs);
-      if (monthOfDraft === month) currentCosts.push(...costs);
+      if (selected) currentCosts.push(...costs);
     } catch (error) {
       const message = error instanceof Error ? error.message.split(":", 1)[0] : "MONTHLY_PRICE_COST_UNVERIFIED";
       warnings.push(`${draftId}:${message}`);
-      if (monthOfDraft === month) rows.forEach((row) => invalidCurrent.add(String(monthlyRecord(row.result_snapshot).barcode)));
+      if (selected) rows.forEach((row) => invalidCurrent.add(String(monthlyRecord(row.result_snapshot).barcode)));
     }
   }
   const current = scope.flatMap((barcode) => {
@@ -130,19 +136,33 @@ export async function loadMonthlyPriceSources(monthInput: unknown): Promise<Mont
     candidates.push({ goodsKey: `UNRESOLVED:${code}`, productName: code, productGroup: "", inventoryCostBasis: "UNKNOWN_COST", options: [{ barcode: code, optionId: "", productName: code, unitsPerOrder: 0, currentCostKrw: costsByCode.get(code)?.unitCostKrw ?? 0, protectedCostKrw: protectedCosts.get(code) ?? 0 }], reason: "MONTHLY_PRICE_LISTING_MAPPING_REQUIRED" });
   }
   candidates.sort((a, b) => a.goodsKey.localeCompare(b.goodsKey));
-  const evidenceVersion = evidenceHash([receipts, closes, preps, overrides]);
-  return { month, evidenceVersion, sourceHash: monthlyHash({ policy: MONTHLY_PRICE_POLICY, month, evidenceVersion, candidates, sourceProofs, warnings: [...warnings].sort() }), candidates, costs: current, warnings, scope };
+  const evidenceVersion = evidenceHash([receipts, closes, preps, overrides], selection.draftId, month);
+  return { month, ...selection, evidenceVersion, sourceHash: monthlyHash({ ...selection, policy: MONTHLY_PRICE_POLICY, month, evidenceVersion, candidates, sourceProofs, warnings: [...warnings].sort() }), candidates, costs: current, warnings, scope };
 }
 
-function evidenceHash(groups: Record<string, unknown>[][]) {
-  return monthlyHash(groups.map((rows) => rows.map((row) => ({ id: row.source_event_id, input: row.input_snapshot, result: row.result_snapshot })).sort((a, b) => String(a.id).localeCompare(String(b.id)))));
+function evidenceHash(groups: Record<string, unknown>[][], draftId?: string, month?: string) {
+  let scoped = groups;
+  if (draftId) {
+    const [receipts, closes, preps, overrides] = groups;
+    const receiptData = receipts.map(row => monthlyRecord(row.result_snapshot));
+    const codes = new Set(receiptData.filter(r => r.draftId === draftId && Number(r.receivedNow) > 0).map(r => r.barcode));
+    const related = new Set(receiptData.filter(r => codes.has(r.barcode) && Number(r.receivedNow) > 0 && String(r.cycleMonth) <= String(month)).map(r => r.draftId));
+    related.add(draftId);
+    scoped = [
+      receipts.filter(row => related.has(monthlyRecord(row.result_snapshot).draftId)),
+      closes.filter(row => related.has(monthlyRecord(row.result_snapshot).draftId)),
+      preps.filter(row => related.has(monthlyRecord(monthlyRecord(row.result_snapshot).snapshot).draftId)),
+      overrides.filter(row => related.has(monthlyRecord(row.input_snapshot).draftId)),
+    ];
+  }
+  return monthlyHash(scoped.map((rows) => rows.map((row) => ({ id: row.source_event_id, input: row.input_snapshot, result: row.result_snapshot })).sort((a, b) => String(a.id).localeCompare(String(b.id)))));
 }
-export async function assertMonthlyEvidenceUnchanged(expected: string) {
+export async function assertMonthlyEvidenceUnchanged(expected: string, scope?: Pick<MonthlyPriceSources, "draftId" | "month">) {
   const groups = await Promise.all([
     allOperations("CHINA_ORDER_COMMITMENT_EVENT", "ops-center-internal-china-receipt"),
     allOperations("INTERNAL_CHINA_FORWARDER_COST_CLOSE"),
     allOperations("INTERNAL_CHINA_PURCHASE_PREP"),
     allOperations("INTERNAL_CHINA_PURCHASE_QUANTITY_OVERRIDE"),
   ]);
-  if (evidenceHash(groups) !== expected) throw new Error("MONTHLY_PRICE_SOURCE_CHANGED");
+  if (evidenceHash(groups, scope?.draftId, scope?.month) !== expected) throw new Error("MONTHLY_PRICE_SOURCE_CHANGED");
 }
