@@ -62,7 +62,7 @@ function validStocktakeAuthority(row: StoredOperationRow) {
   const quantity = Number(source.baselineQuantity);
   return (
     Number.isSafeInteger(quantity) &&
-    quantity >= 1 &&
+    (quantity >= 1 || (source.observationSource === "PICKING_COUNT" && source.baselineQuantity === 0)) &&
     quantity <= 1_000_000
   );
 }

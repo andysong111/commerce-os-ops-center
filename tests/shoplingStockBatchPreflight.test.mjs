@@ -74,7 +74,7 @@ test("readback shows outstanding product send separately from accepted option se
 
 test("unified input saves all planned dependencies before mutations; operational recovery honors exact confirmed siblings", async () => {
   const [unified, queue, sync, ledger] = await Promise.all([
-    "src/app/api/inventory-stock-control/unified-batch/route.ts", "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
+    "src/lib/unifiedInventoryBatch.ts", "src/components/china-order-manager/StockSyncOperationalQueuePanel.tsx",
     "src/app/api/inventory-stock-control/sync/route.ts", "src/lib/inventoryShoplingRetransmission.ts",
   ].map((f) => readFile(f, "utf8")));
   assert.ok(unified.indexOf("await prepareShoplingStockBatch") < unified.indexOf("await storeInventoryOperationBatch"));

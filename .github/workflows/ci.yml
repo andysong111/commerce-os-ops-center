@@ -123,7 +123,7 @@ jobs:
           tests/shoplingPriceAdjustmentWorkflowFailure.test.mjs
           tests/priceAdjustmentEngineIntegration.test.mjs
       - name: Test public picking share token and completion safety
-        run: node --experimental-strip-types --test tests/pickingShare.test.mjs
+        run: node --experimental-strip-types --test tests/pickingShare.test.mjs tests/pickingInventoryFinish.test.mjs
       - name: Test human-approved Shopling CAPTCHA handoff
         run: node --experimental-strip-types --test tests/shoplingCaptchaWebApproval.test.mjs
       - name: Test managed Shopling sales scope and historical evidence safety
@@ -181,3 +181,26 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_price_auth_build_check
           PRICE_ADJUSTMENT_ENGINE_INTEGRATION_SECRET: ci-price-adjustment-secret
           PRICE_ADJUSTMENT_AUTOMATION_OWNER_ID: 0c23a96b-1cda-44b6-9c08-1fa1c1b45a36
+
+  picking-inventory-transaction:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: fixture
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: fixture
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify atomic picking finish and exclusive dispatch
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
+          sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/picking-ledger.sql
+          echo 'commit;' >> /tmp/picking-ledger.sql
+          psql -v ON_ERROR_STOP=1 -f /tmp/picking-ledger.sql -f supabase/migrations/202610130001_commerce_os_picking_snapshots.sql -f supabase/migrations/20261127085814_picking_inventory_finish.sql -f tests/pickingInventoryFinish.sql

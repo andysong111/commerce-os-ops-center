@@ -22,6 +22,7 @@ export type InventoryStocktakeBaselineEvent = {
   productKind: ShoplingStockProductKind;
   modelNo: string | null;
   baselineQuantity: number;
+  observationSource?: "PICKING_COUNT";
   occurredAt: string;
   note: string;
 };
@@ -114,9 +115,9 @@ function baselineFrom(
   const eventId = text(source.eventId) || text(row.source_event_id);
   const normalizedBarcode = barcode(source.barcode);
   const kind = productKind(source.productKind);
-  const baselineQuantity = positiveQuantity(source.baselineQuantity);
+  const baselineQuantity = source.observationSource === "PICKING_COUNT" && source.baselineQuantity === 0 ? 0 : positiveQuantity(source.baselineQuantity);
   const occurredAt = iso(source.occurredAt) || iso(row.started_at);
-  if (!eventId || !normalizedBarcode || !kind || !baselineQuantity || !occurredAt) {
+  if (!eventId || !normalizedBarcode || !kind || baselineQuantity === null || !occurredAt) {
     return null;
   }
   return {
@@ -400,18 +401,19 @@ export function normalizeInventoryStocktakeBaselineInput(input: {
   baselineQuantity?: unknown;
   occurredAt?: unknown;
   note?: unknown;
+  allowZero?: boolean;
 }): InventoryStocktakeBaselineEvent {
   const eventId = text(input.eventId);
   const normalizedBarcode = barcode(input.barcode);
   const kind = productKind(input.productKind);
-  const baselineQuantity = positiveQuantity(input.baselineQuantity);
+  const baselineQuantity = input.allowZero && input.baselineQuantity === 0 ? 0 : positiveQuantity(input.baselineQuantity);
   const occurredAt = input.occurredAt
     ? iso(input.occurredAt)
     : new Date().toISOString();
   if (!eventId) throw new Error("STOCKTAKE_EVENT_ID_REQUIRED");
   if (!normalizedBarcode) throw new Error("STOCKTAKE_BARCODE_INVALID");
   if (!kind) throw new Error("STOCKTAKE_PRODUCT_KIND_REQUIRED");
-  if (!baselineQuantity) throw new Error("STOCKTAKE_QUANTITY_POSITIVE_INTEGER_REQUIRED");
+  if (baselineQuantity === null) throw new Error("STOCKTAKE_QUANTITY_POSITIVE_INTEGER_REQUIRED");
   if (!occurredAt) throw new Error("STOCKTAKE_OCCURRED_AT_INVALID");
   return {
     eventId,
@@ -419,6 +421,7 @@ export function normalizeInventoryStocktakeBaselineInput(input: {
     productKind: kind,
     modelNo: text(input.modelNo) || null,
     baselineQuantity,
+    ...(input.allowZero ? {observationSource:"PICKING_COUNT" as const} : {}),
     occurredAt,
     note: text(input.note).slice(0, 500),
   };

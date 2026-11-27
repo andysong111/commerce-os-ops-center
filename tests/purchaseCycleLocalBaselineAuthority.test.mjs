@@ -134,3 +134,9 @@ test("purchase-cycle stock report invokes local authority preflight before natur
   );
   assert.match(source, /loadInventoryStockControlReport\(\{\s*supplementalResetEvents,\s*planning,\s*canonicalSales: canonical,/s);
 });
+
+test("a counted zero after picking remains an exact replenishment baseline",async()=>{
+  const result = await service(adminFor({stocktakes:[row({...validStocktake,baselineQuantity:0,observationSource:"PICKING_COUNT"})]}))
+    .assertPurchaseCycleLocalBaselineAuthorityReadable();
+  assert.equal(result.stocktakeCount,1);
+});

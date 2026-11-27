@@ -14,6 +14,7 @@ export type PickingShareItem = {
 };
 
 export type PickingSharePayload = {
+  inventoryFinished?: boolean;
   snapshotId: string;
   date: string;
   createdAt: string;
@@ -48,7 +49,7 @@ type PickingRow = {
   expires_at: string;
 };
 
-function tokenHash(token: string) {
+export function tokenHash(token: string) {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
@@ -89,9 +90,9 @@ export async function readPickingShare(token: string) {
   };
 }
 
-export async function updatePickingShareCompletion(token: string, barcode: string, completed: boolean) {
+export async function updatePickingShareCompletion(token: string, barcode: string, completed: boolean, expectedSnapshotId?: string) {
   if (!validPickingShareToken(token)) return { ok: false as const, status: 404, code: "PICKING_SHARE_NOT_FOUND" };
-  if (!/^[A-Z]{3}\d+-\d+$/.test(barcode)) return { ok: false as const, status: 400, code: "PICKING_BARCODE_INVALID" };
+  if (!/^(?:[A-Z]{3}\d+-\d+|\d{6,20})$/.test(barcode)) return { ok: false as const, status: 400, code: "PICKING_BARCODE_INVALID" };
   const admin = await createSupabaseAdminClient();
   if (!admin) return { ok: false as const, status: 503, code: "PICKING_SHARE_STORAGE_UNAVAILABLE" };
   const hash = tokenHash(token);
@@ -111,6 +112,8 @@ export async function updatePickingShareCompletion(token: string, barcode: strin
     const item = row?.payload.items.find((value) => value.barcode === barcode);
     if (!row || !item) return { ok: false as const, status: 404, code: "PICKING_ITEM_NOT_FOUND" };
 
+    if (expectedSnapshotId && row.payload.snapshotId !== expectedSnapshotId) return { ok:false as const, status:409, code:"PICKING_SNAPSHOT_CHANGED" };
+    if (row.payload.inventoryFinished) return { ok: false as const, status: 409, code: "PICKING_FINISHED" };
     const completion = completed
       ? { pickedQuantity: item.quantity, completedAt: now }
       : { pickedQuantity: 0, completedAt: now, completed: false };

@@ -14,9 +14,9 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
 }
 
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
-  let body: { barcode?: unknown; completed?: unknown };
+  let body: { barcode?: unknown; completed?: unknown; snapshotId?: string };
   try {
-    body = await request.json() as { barcode?: unknown; completed?: unknown };
+    body = await request.json() as { barcode?: unknown; completed?: unknown; snapshotId?: string };
   } catch {
     return noStore({ ok: false, code: "PICKING_REQUEST_INVALID" }, 400);
   }
@@ -24,6 +24,6 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     return noStore({ ok: false, code: "PICKING_REQUEST_INVALID" }, 400);
   }
   const { token } = await context.params;
-  const result = await updatePickingShareCompletion(token, body.barcode.trim().toUpperCase(), body.completed);
+  const result = await updatePickingShareCompletion(token, body.barcode.trim().toUpperCase(), body.completed, body.snapshotId);
   return result.ok ? noStore({ ok: true, completion: result.value }) : noStore({ ok: false, code: result.code }, result.status);
 }

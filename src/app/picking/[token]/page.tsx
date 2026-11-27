@@ -4,5 +4,5 @@ export const dynamic = "force-dynamic";
 
 export default async function PickingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  return <PickingClient token={token} />;
+  return <PickingClient key={token} token={token} />;
 }
