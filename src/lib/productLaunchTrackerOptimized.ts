@@ -451,6 +451,15 @@ export function applyProductLaunchTrackerMutation(
         changedIds.add(itemId);
         continue;
       }
+      if (Object.keys(patch).length === 1 && isRecord(patch.detailPageAsset) &&
+          Object.keys(patch.detailPageAsset).length === 1 && typeof patch.detailPageAsset.detailImageUrl === "string") {
+        items[index] = {
+          ...items[index],
+          detailPageAsset: { ...asRecord(items[index].detailPageAsset), detailImageUrl: patch.detailPageAsset.detailImageUrl },
+        };
+        changedIds.add(itemId);
+        continue;
+      }
       items[index] = patchItem(
         items[index],
         {

@@ -32,6 +32,12 @@ async function openWorkbench() {
       body: JSON.stringify({ action: "create", itemIds: ids }),
     });
     const result = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      const login = "/login?force=1&next=%2Fproduct-launch-tracker";
+      try { window.top.location.assign(login); }
+      catch { window.location.assign(login); }
+      return;
+    }
     if (!response.ok || !result.batch?.id) throw new Error(result.message || "AI 사우루스 작업 묶음을 열지 못했습니다.");
     const href = `/ai-saurus-bulk-detail?batch=${encodeURIComponent(result.batch.id)}`;
     try { window.top.location.assign(href); }

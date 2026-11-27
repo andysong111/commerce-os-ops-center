@@ -22,6 +22,7 @@ on:
       - 'src/components/shopling-category-review/**'
       - 'src/lib/detailPageManualDecision.ts'
       - 'src/lib/aiSaurusBulkDetail*.ts'
+      - 'src/lib/opsDetailDispatch.ts'
       - 'src/lib/extendedModuleRegistry.ts'
       - 'src/lib/opsWorkspace.ts'
       - 'src/lib/productLaunchTracker*.ts'
@@ -42,7 +43,7 @@ on:
       - 'src/lib/shoplingCategory*.ts'
       - 'src/lib/openAiStructuredOutput.ts'
       - 'supabase/migrations/*product_launch*.sql'
-      - 'supabase/migrations/*ai_saurus_detail_batches.sql'
+      - 'supabase/migrations/*ai_saurus_detail_batches*.sql'
       - 'supabase/migrations/*option_barcode*.sql'
       - 'supabase/migrations/*seo_run_shopling*.sql'
       - 'tests/productLaunchTracker*.test.mjs'
@@ -60,6 +61,7 @@ on:
       - 'tests/seoGroundedReservoirV11.test.mjs'
       - 'tests/detailPageAssetStorageRetry.test.mjs'
       - 'tests/aiSaurusBulkDetailPreparation.test.mjs'
+      - 'tests/aiSaurusBulkDetailLive.test.mjs'
       - 'tests/detailPageManualDecision.test.mjs'
       - 'tests/detailPageOpsV260807Connection.test.mjs'
       - 'tests/shoplingCategory*.test.mjs'
@@ -119,6 +121,7 @@ jobs:
           tests/seoGroundedReservoirV11.test.mjs
           tests/detailPageAssetStorageRetry.test.mjs
           tests/aiSaurusBulkDetailPreparation.test.mjs
+          tests/aiSaurusBulkDetailLive.test.mjs
           tests/detailPageManualDecision.test.mjs
           tests/detailPageOpsV260807Connection.test.mjs
           tests/shoplingCategoryCatalog.test.mjs

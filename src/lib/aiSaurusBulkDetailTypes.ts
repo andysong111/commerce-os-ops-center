@@ -53,6 +53,16 @@ export type AiSaurusBatchProduct = {
   stage: AiSaurusProductStage;
   attempts: number;
   inputHash: string;
+  dispatch?: {
+    attempt: string;
+    email: string;
+    importer: string;
+    deployment: string;
+    maxCredits: number;
+    startedAt: string;
+    providerJobId?: string;
+    progress?: number;
+  };
   run?: AiSaurusRun;
   receipt?: AiSaurusHostedReceipt;
   error?: string;
