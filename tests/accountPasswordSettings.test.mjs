@@ -3,12 +3,19 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { importTranspiledTypeScript } from "./transpileTypeScript.mjs";
 
-const { ACCOUNT_PASSWORD_MIN_LENGTH, validateAccountPassword, passwordRecoveryDestination } =
+const { ACCOUNT_PASSWORD_MIN_LENGTH, validateAccountPassword, passwordRecoveryResponse } =
   await importTranspiledTypeScript(
     new URL("../src/lib/accountPassword.ts", import.meta.url),
   );
 
 test("only a completed recovery code exchange opens the new password form", async () => {
+  async function passwordRecoveryDestination(params, exchange) {
+    const response = await passwordRecoveryResponse(params, exchange);
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    return response.headers.get("location");
+  }
   const data = { session: { user: { id: "fixture-account" } }, redirectType: "recovery" };
   const retry = "/forgot-password?error=link";
   const params = new URLSearchParams({ code: "one-use", sb_flow_id: "fixture-flow", next: "https://outside.example" });

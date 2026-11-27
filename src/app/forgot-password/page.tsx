@@ -18,8 +18,9 @@ async function requestRecovery(form: FormData) {
   if (!supabase) redirect("/forgot-password?error=unavailable");
 
   // Email links must return to a configured origin, independent of request headers.
-  const origin = process.env.MOBILE_WORK_CENTER_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL
-    || (process.env.NODE_ENV === "development" ? "http://localhost:3000" : "https://commerce-os-ops-center.vercel.app");
+  const origin = process.env.MOBILE_WORK_CENTER_ORIGIN || (process.env.VERCEL_ENV === "production"
+    ? "https://commerce-os-ops-center.vercel.app"
+    : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000");
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: new URL("/auth/recovery", origin).href,
   });
@@ -47,6 +48,7 @@ export default async function ForgotPasswordPage({ searchParams }: {
         ) : (
           <form action={requestRecovery} className="space-y-4">
             {message && <p role="alert" className="text-sm text-red-700">{message}</p>}
+            <p className="text-sm leading-6 text-slate-600">휴대폰에서는 Safari 또는 Chrome에서 메일을 요청하고, 메일 링크도 같은 브라우저에서 열어 주세요.</p>
             <label className="block text-sm font-semibold text-slate-700">운영 계정 이메일
               <input type="email" name="email" required maxLength={254} autoComplete="email" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
             </label>
