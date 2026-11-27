@@ -810,7 +810,11 @@ function InventoryStockoutGenericPanel() {
           `최근 저장된 Shopling 미전송 ${recovered.jobs.length}건을 복구했습니다. 관리자 로그인 확인 후 아래 버튼으로 다시 시도하세요.`,
         );
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        if (!cancelled && !submittedOnThisPage.current && !directRunProgressRef.current) {
+          setSyncNotice(error instanceof Error ? error.message : "최근 저장한 전송 목록을 확인하지 못했습니다.");
+        }
+      });
     return () => {
       cancelled = true;
     };

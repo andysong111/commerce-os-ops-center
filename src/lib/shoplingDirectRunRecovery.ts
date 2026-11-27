@@ -60,5 +60,15 @@ export function recoverLatestPendingDirectJobs(payload: unknown): {
     ];
   });
 
-  return jobs.length ? { requestId, jobs } : null;
+  const pendingItems = Array.isArray(latest.items)
+    ? latest.items.map(object).filter((item) => item.state === "PENDING") : null;
+  if (!jobs.length && !requestId.startsWith("unified-command:") &&
+      !pendingItems?.some((item) => item.directOperatorCommand === true)) return null;
+  const pendingCount = Number(latest.pendingCount);
+  if (jobs.length !== pendingCount || new Set(jobs.map((job) => job.barcode)).size !== pendingCount ||
+      (pendingItems && (pendingItems.length !== pendingCount || jobs.some((job) => !pendingItems.some((item) =>
+        item.jobId === job.jobId && item.barcode === job.barcode && item.desiredStatus === job.desiredStatus))))) {
+    throw new Error(`저장된 실행의 대기 ${pendingCount}건과 복구된 전송 목록이 일치하지 않습니다. 운영 큐에서 해당 실행을 확인해 주세요.`);
+  }
+  return { requestId, jobs };
 }

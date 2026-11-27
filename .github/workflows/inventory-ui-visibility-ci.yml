@@ -11,6 +11,8 @@ on:
       - 'scripts/shopling-stock-batch-browser-check.mjs'
       - 'src/components/china-order-manager/InventoryStockoutOperatorPanel.tsx'
       - 'src/lib/shoplingStockBatchPreflight.ts'
+      - 'src/lib/shoplingDirectCommand.ts'
+      - 'src/lib/shoplingDirectRunRecovery.ts'
       - 'public/shopling-stock-state-sync/**'
       - 'src/app/api/shopling-stock-state-sync/**'
       - 'src/components/china-order-manager/StockSyncHF15Bridge.tsx'
