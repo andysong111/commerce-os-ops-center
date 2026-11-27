@@ -11,7 +11,7 @@ const catalog = {
   "1688-cost-capture": ["발주·입고", "5-2. 가격·운임 기록", "draft"],
   "1688-unpaid-order": ["발주·입고", "5-3. 미결제 주문 생성", "order"],
   "1688-final-payment-verification": ["발주·입고", "5-4. 결제 직전 일치 검증", "draft"],
-  "1688-payment-review": ["발주·입고", "5-5. 1688 결제 완료 대조", "draft", true],
+  "1688-payment-review": ["발주·입고", "5-5. 1688 결제 완료 대조", "draft"],
   "ondolpass-application": ["발주·입고", "11. 온돌패스 LCL 신청서 작성", "draft", false, "extension"],
   "ondolpass-tracking": ["발주·입고", "11-1. 온돌패스 트레킹번호 입력", "standard", false, "extension"],
   "ondolpass-receipt-status": ["발주·입고", "11-2. 온돌패스 입고현황 확인", "draft", true, "extension"],

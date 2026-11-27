@@ -116,6 +116,7 @@ function WorkForm({ action, disabled, close, submit }: {
           <input className="h-5 w-5 accent-emerald-800" type="checkbox" required checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
           {action.id === "domeggook-withdrawal-execute" ? "4개 계정의 출금 가능 잔액 전액을 실제 신청합니다." :
             action.id === "1688-unpaid-order" ? "선택한 초안의 1688 미결제 주문을 실제 생성합니다." :
+            action.id === "1688-payment-review" ? "대조가 완료되면 선택한 차시의 입고 원가에 실제 반영합니다." :
             action.id === "ondolpass-application" ? "PC에 열려 있는 온돌패스 신청서에 선택 초안의 데이터를 채웁니다." :
             "위 업무를 PC에서 실제로 실행합니다."}
         </label>

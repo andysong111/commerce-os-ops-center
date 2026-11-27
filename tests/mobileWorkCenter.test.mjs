@@ -30,6 +30,7 @@ test("unknown actions, stale commands, live actions without confirmation and wro
   for (const candidate of [
     command("run-shell"),
     command("full-operations", { execute: true }),
+    command("1688-payment-review", { execute: true, draftId }),
     command("domeggook-withdrawal-execute", { confirmed: true }),
     command("1688-unpaid-order", { execute: true, confirmed: true, draftId }),
     command("1688-unpaid-order", { execute: true, confirmed: true, draftId: "different", confirmation: UNPAID_ORDER_PHRASE }),
