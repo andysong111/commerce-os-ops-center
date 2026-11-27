@@ -35,7 +35,7 @@ export function recoverLatestPendingDirectJobs(payload: unknown): {
   }
 
   const seen = new Set<string>();
-  const jobs = (Array.isArray(root.jobs) ? root.jobs : []).flatMap((value) => {
+  const jobs: RecoveredShoplingDirectJob[] = (Array.isArray(root.jobs) ? root.jobs : []).flatMap((value) => {
     const job = object(value);
     const jobId = text(job.jobId);
     const barcode = text(job.barcode);
