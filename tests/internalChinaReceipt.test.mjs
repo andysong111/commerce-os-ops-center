@@ -183,19 +183,22 @@ test("active receipt and actual-cost steps link to the visible purchase-run inpu
   assert.equal(panel.includes("상품정보 확인 중"), false);
 });
 
-test("stage 4 opens the payment form when evidence is pending and links to receipt input when ready", async () => {
-  const paymentPanel = await readFile(
-    "src/components/china-order-manager/InternalChinaPaymentEvidencePanel.tsx",
-    "utf8",
-  );
-  assert.match(page, /const paymentEvidenceForEntry = !confirmedPurchase && !forwarderDone\s*\? barcodeReceiptEvidence/);
-  assert.match(page, /paymentEvidenceForEntry\s*\? "#purchase-run-payment-evidence-rows"\s*:\s*barcodeCompletion && hasOrder && costRows\.length > 0\s*\? "#purchase-run-input-workspace"/);
-  assert.match(page, /paymentEvidenceForEntry\s*\? "1688 실결제 등록으로 이동"/);
-  assert.match(page, /const ActionLink = href\?\.startsWith\("#"\) \? "a" : Link/);
-  assert.match(paymentPanel, /<details[\s\S]*?<textarea id="purchase-run-payment-evidence-rows"/);
-  assert.match(paymentPanel, /1688 실결제 합계 \(위안\)/);
-  assert.match(paymentPanel, /aria-describedby="purchase-run-payment-total-help"/);
-  assert.match(paymentPanel, /월드퍼스트 수수료와 배송대행비는 별도 항목/);
+test("stage 4 offers the 5-5 payment check without exposing manual payment entry", async () => {
+  const paymentPanel = await readFile("src/components/china-order-manager/InternalChinaPaymentEvidencePanel.tsx", "utf8");
+  assert.match(page, /paymentEvidenceForEntry\s*\? "#purchase-run-payment-check"\s*:\s*barcodeCompletion && hasOrder && costRows\.length > 0\s*\? "#purchase-run-input-workspace"/);
+  assert.match(paymentPanel, /id="purchase-run-payment-check"/);
+  assert.match(paymentPanel, /href=\{workCenterUrl\}/);
+  assert.doesNotMatch(paymentPanel, /<textarea|<form|실결제 자료 등록/);
+});
+
+test("step 5 renders the invoice inline before payment and inventory close, without unlocking prices", async () => {
+  const entry = await readFile("src/components/china-order-manager/ForwarderInvoiceEntry.tsx", "utf8");
+  assert.match(page, /const invoiceScope = barcodeCompletion && barcodeCompletion.cycleMonth === selectedMonth && !forwarderDone/);
+  assert.match(page, /number="5"[\s\S]*?id="purchase-run-forwarder-cost"[\s\S]*?<ForwarderInvoiceEntry[\s\S]*?<\/FlowStep>/);
+  assert.doesNotMatch(entry, /<details|window.confirm|api\/china-order-manager\/forwarder-cost/);
+  assert.match(entry, /<input id="forwarder-invoice-amount"/);
+  assert.match(panel, /invoiceAmount === undefined \? won\(forwarderCostInput\) : invoiceAmount \?\? 0/);
+  assert.match(page, /ready=\{receiptDone && forwarderDone\}/);
 });
 
 test("receipt engine never receives more than the current open quantity", () => {

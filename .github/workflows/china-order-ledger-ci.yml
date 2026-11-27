@@ -13,6 +13,7 @@ on:
       - "src/lib/purchaseCyclePreflightSpend*.ts"
       - "src/lib/internalChinaPurchaseBudgetAudit.ts"
       - "src/lib/internalChinaReceipt.ts"
+      - "src/lib/internalChinaForwarderInvoice.ts"
       - "src/lib/internalChinaForwarderCost.ts"
       - "src/lib/internalChinaForwarderStoredClose.ts"
       - "src/lib/internalChinaFundingClose.ts"
@@ -47,6 +48,7 @@ on:
       - "tests/internalChinaPaymentEvidence.test.mjs"
       - "tests/internalChinaPurchaseBudgetAudit.test.mjs"
       - "tests/internalChinaReceipt.test.mjs"
+      - "tests/internalChinaForwarderInvoice.test.mjs"
       - "tests/internalChinaForwarderCost.test.mjs"
       - "tests/internalChinaFundingClose.test.mjs"
       - "tests/internalChinaPurchaseCycleHandoff.test.mjs"
@@ -85,6 +87,9 @@ jobs:
           src/lib/internalChinaOrderEvidence.ts
           src/lib/internalChinaPurchaseBudgetAudit.ts
           src/lib/internalChinaReceipt.ts
+          src/app/api/china-order-manager/forwarder-invoice/route.ts
+          src/components/china-order-manager/ForwarderInvoiceEntry.tsx
+          src/lib/internalChinaForwarderInvoice.ts
           src/lib/internalChinaForwarderCost.ts
           src/lib/internalChinaForwarderStoredClose.ts
           src/lib/internalChinaFundingClose.ts
@@ -139,6 +144,7 @@ jobs:
           tests/internalChinaPaymentEvidence.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
+          tests/internalChinaForwarderInvoice.test.mjs
           tests/internalChinaForwarderCost.test.mjs
           tests/internalChinaFundingClose.test.mjs
           tests/internalChinaPurchaseCycleHandoff.test.mjs
@@ -160,6 +166,7 @@ jobs:
           tests/productDecisionShadowReplay.test.mjs
           tests/internalChinaPurchaseBudgetAudit.test.mjs
           tests/internalChinaReceipt.test.mjs
+          tests/internalChinaForwarderInvoice.test.mjs
           tests/internalChinaForwarderCost.test.mjs
           tests/internalChinaFundingClose.test.mjs
           tests/internalChinaPurchaseCycleHandoff.test.mjs
