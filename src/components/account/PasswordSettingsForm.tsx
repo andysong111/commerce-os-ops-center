@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { FormEvent } from "react";
 import {
   ACCOUNT_PASSWORD_MIN_LENGTH,
@@ -13,7 +14,7 @@ type FormStatus =
   | { kind: "success"; message: string }
   | null;
 
-export function PasswordSettingsForm() {
+export function PasswordSettingsForm({ accountId, recovering }: { accountId: string; recovering: boolean }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,6 +41,11 @@ export function PasswordSettingsForm() {
         return;
       }
 
+      const current = await supabase.auth.getUser();
+      if (current.error || current.data.user?.id !== accountId) {
+        setStatus({ kind: "error", message: "로그인 계정이 바뀌었거나 인증이 만료됐습니다. 이메일 인증을 다시 진행하세요." });
+        return;
+      }
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
         setStatus({ kind: "error", message: error.message });
@@ -108,6 +114,9 @@ export function PasswordSettingsForm() {
         {saving ? "저장 중..." : "내 비밀번호 설정·변경"}
       </button>
 
+      {recovering && status?.kind === "success" && (
+        <Link href="/mobile-work-center" className="block py-2 text-center font-semibold text-blue-700 underline">모바일 업무센터 열기</Link>
+      )}
       {status ? (
         <p
           role={status.kind === "error" ? "alert" : "status"}

@@ -6,7 +6,8 @@ import { getOpsCurrentUser } from "@/lib/supabase/currentUser";
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountPasswordPage() {
+export default async function AccountPasswordPage({ searchParams }: { searchParams: Promise<{ recovery?: string }> }) {
+  const recovering = (await searchParams).recovery === "1";
   const { user } = await getOpsCurrentUser();
 
   if (!user) {
@@ -16,8 +17,8 @@ export default async function AccountPasswordPage() {
   return (
     <>
       <PageHeader
-        title="로그인 설정"
-        description="현재 로그인된 계정에 비밀번호를 추가하거나 변경합니다. 사용자 계정과 기존 데이터는 그대로 유지됩니다."
+        title={recovering ? "새 비밀번호 설정" : "로그인 설정"}
+        description={recovering ? "아래 계정에 사용할 새 비밀번호를 입력하세요." : "현재 로그인된 계정에 비밀번호를 추가하거나 변경합니다."}
         actions={
           <Link
             href="/"
@@ -47,7 +48,7 @@ export default async function AccountPasswordPage() {
             기존 사용자를 삭제하지 않습니다.
           </p>
           <div className="mt-6">
-            <PasswordSettingsForm />
+            <PasswordSettingsForm accountId={user.id} recovering={recovering} />
           </div>
         </section>
       </div>

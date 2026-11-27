@@ -1,5 +1,23 @@
 export const ACCOUNT_PASSWORD_MIN_LENGTH = 16;
 
+export type RecoveryExchange = (code: string, options?: { flowId: string }) => Promise<{
+  data: { session: { user: { id: string } } | null; redirectType?: string | null };
+  error: { message: string } | null;
+}>;
+
+export async function passwordRecoveryDestination(params: URLSearchParams, exchange?: RecoveryExchange) {
+  const code = params.get("code");
+  const flowId = params.get("sb_flow_id");
+  const retry = "/forgot-password?error=link";
+  if (!exchange || !code || params.has("error") || params.has("error_code")) return retry;
+  try {
+    const { data, error } = await exchange(code, flowId === null ? undefined : { flowId });
+    return !error && data.session?.user.id && data.redirectType === "recovery" ? "/account/password?recovery=1" : retry;
+  } catch {
+    return retry;
+  }
+}
+
 export type AccountPasswordValidation =
   | { ok: true }
   | { ok: false; message: string };

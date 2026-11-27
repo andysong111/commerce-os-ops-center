@@ -20,6 +20,8 @@ jobs:
       - run: npm ci
       - name: Test mobile Work Center request safety
         run: node --test tests/mobileWorkCenter.test.mjs
+      - name: Test account password recovery
+        run: node --test tests/accountPasswordSettings.test.mjs tests/supabaseSession.test.mjs
       - name: Verify OpenAI cost attribution
         run: node scripts/check-openai-cost-attribution.mjs
       - name: Lint changed integration files

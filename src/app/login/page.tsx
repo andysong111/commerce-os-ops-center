@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { getOpsCurrentUser } from "@/lib/supabase/currentUser";
 import { clearOpsAuthCookiesBeforeSignIn } from "@/lib/supabase/resetSession";
@@ -73,6 +74,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         >
           비밀번호로 로그인
         </button>
+        <Link href="/forgot-password" className="mt-2 block py-2 text-center text-sm font-semibold text-blue-700 underline">
+          비밀번호를 잊으셨나요?
+        </Link>
         <div className="my-4 flex items-center gap-3 text-xs text-slate-400">
           <span className="h-px flex-1 bg-slate-200" />
           또는

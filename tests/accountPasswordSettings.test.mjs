@@ -3,10 +3,34 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { importTranspiledTypeScript } from "./transpileTypeScript.mjs";
 
-const { ACCOUNT_PASSWORD_MIN_LENGTH, validateAccountPassword } =
+const { ACCOUNT_PASSWORD_MIN_LENGTH, validateAccountPassword, passwordRecoveryDestination } =
   await importTranspiledTypeScript(
     new URL("../src/lib/accountPassword.ts", import.meta.url),
   );
+
+test("only a completed recovery code exchange opens the new password form", async () => {
+  const data = { session: { user: { id: "fixture-account" } }, redirectType: "recovery" };
+  const retry = "/forgot-password?error=link";
+  const params = new URLSearchParams({ code: "one-use", sb_flow_id: "fixture-flow", next: "https://outside.example" });
+  assert.equal(await passwordRecoveryDestination(params, async (code, options) => {
+    assert.equal(code, "one-use");
+    assert.deepEqual(options, { flowId: "fixture-flow" });
+    return { data, error: null };
+  }), "/account/password?recovery=1");
+  for (const response of [
+    { data, error: { message: "expired" } },
+    { data: { ...data, session: null }, error: null },
+    { data: { ...data, redirectType: null }, error: null },
+  ]) assert.equal(await passwordRecoveryDestination(params, async () => response), retry);
+  assert.equal(await passwordRecoveryDestination(params, async () => { throw new Error("offline"); }), retry);
+  for (const invalid of ["", "code=one-use&error_code=otp_expired", "code=one-use&error=access_denied"]) {
+    let exchanged = false;
+    assert.equal(await passwordRecoveryDestination(new URLSearchParams(invalid), async () => {
+      exchanged = true; return { data, error: null };
+    }), retry);
+    assert.equal(exchanged, false);
+  }
+});
 
 test("계정 비밀번호는 16자 이상이며 두 입력값이 일치해야 한다", () => {
   assert.equal(ACCOUNT_PASSWORD_MIN_LENGTH, 16);

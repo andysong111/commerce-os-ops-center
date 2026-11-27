@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import type { RecoveryExchange } from "@/lib/accountPassword";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { getOpsAuthCookieOptions } from "@/lib/supabase/session";
 
@@ -19,7 +20,8 @@ type SupabaseServerClient = {
     }>;
     signInWithPassword: (credentials: { email: string; password: string }) => Promise<{ error: { message: string } | null }>;
     signInWithOtp: (credentials: { email: string; options?: { emailRedirectTo?: string } }) => Promise<{ error: { message: string } | null }>;
-    exchangeCodeForSession: (code: string) => Promise<{ error: { message: string } | null }>;
+    resetPasswordForEmail: (email: string, options: { redirectTo: string }) => Promise<{ error: { code?: string; status?: number } | null }>;
+    exchangeCodeForSession: RecoveryExchange;
     signOut: () => Promise<{ error: { message: string } | null }>;
   };
   from: (table: string) => SupabaseQueryBuilder;
