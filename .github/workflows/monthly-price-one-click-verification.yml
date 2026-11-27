@@ -6,6 +6,12 @@ on:
     paths:
       - 'src/lib/monthlyPrice*'
       - 'src/lib/receiptOnSale*'
+      - 'src/lib/receiptSeo*'
+      - 'src/lib/seoMarketBrowserBridge.ts'
+      - 'src/lib/internalChinaReceipt.ts'
+      - 'scripts/receipt-seo-browser-check.mjs'
+      - 'tests/receipt-seo*'
+      - 'supabase/migrations/*receipt_seo*'
       - 'src/lib/inboundReceiptOnSaleSync.ts'
       - 'tests/receipt-on-sale.test.mjs'
       - 'scripts/receipt-on-sale-browser-check.mjs'
@@ -62,6 +68,7 @@ jobs:
         run: |
           node scripts/monthly-price-browser-check.mjs
           node scripts/receipt-on-sale-browser-check.mjs
+          node scripts/receipt-seo-browser-check.mjs
       - name: Checkpoint source and validation evidence
         if: always()
         run: |
@@ -96,3 +103,5 @@ jobs:
           psql -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260921140000_monthly_price_increase_only.sql
           psql -v ON_ERROR_STOP=1 -f tests/monthly-price-database.sql
+      - name: Concurrent receipt SEO handoff and capacity
+        run: bash tests/receipt-seo-dispatch-database.sh

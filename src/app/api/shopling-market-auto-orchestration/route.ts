@@ -1,7 +1,10 @@
+import { listSeoRunJobs } from "@/lib/seoRunJobServer";
+import { readReceiptSeoReport } from "@/lib/receiptSeoStore";
 import { after, NextRequest } from "next/server";
 import { wakeOpsDispatchTask } from "@/lib/opsAdaptiveDispatcher";
 import { requireSeoTitleLedgerContext } from "@/lib/seoTitleLedgerServer";
 import {
+  readReceiptMarketHandoff,
   createMarketAutoOrchestration,
   createMarketOnlyOrchestration,
   heartbeatMarketAutoAgent,
@@ -100,10 +103,34 @@ export async function POST(request: NextRequest) {
 
   const authenticated = await requireSeoTitleLedgerContext(request);
   if (!authenticated.ok) return authenticated.response;
-  if (!["create", "create_market_only", "reconnect"].includes(action)) {
+  if (!["create", "create_market_only", "reconnect", "receipt_handoff_status"].includes(action)) {
     return Response.json({ ok: false, error: "unsupported_market_auto_action" }, { status: 400 });
   }
   try {
+    let receiptBudget;
+    if (action === "receipt_handoff_status") {
+      const handoff = await readReceiptMarketHandoff(authenticated.value,body.handoffToken,body.runIds,text(body.mode));
+      return Response.json({ok:true,handoff}, {headers:{"cache-control":"no-store"}});
+    }
+    if (action !== "reconnect" && Array.isArray(body.runIds) && body.runIds.length) {
+      if (body.receiptDraftId !== undefined && typeof body.receiptDraftId !== "string") throw new Error("입고 차시가 올바르지 않습니다.");
+      const mode = action === "create_market_only" ? "market_only" : "full_pipeline";
+      const report = await readReceiptSeoReport(authenticated.value,body.receiptDraftId as string | undefined);
+      if (body.receiptDraftId !== undefined || report.coveredItemIds.length) {
+        const ids = body.runIds.map(text);
+        const covered = new Set(report.coveredItemIds);
+        const scoped = body.receiptDraftId !== undefined ? ids : (await listSeoRunJobs(authenticated.value,{
+          runIds:ids,includeArchived:false,limit:ids.length})).filter(r => covered.has(r.launch_item_id)).map(r => r.run_id);
+        if (scoped.length) {
+          const existing = validMarketAutoToken(body.handoffToken) &&
+            await readReceiptMarketHandoff(authenticated.value,body.handoffToken,ids,mode);
+          if (existing) return Response.json({ok:true,...existing,handoffToken:body.handoffToken,idempotentReplay:true});
+          receiptBudget = report.dispatchBudget;
+          const eligible = new Set(report.rows.filter(r => r.state === "RESUME" || (mode === "full_pipeline" && r.state === "READY")).map(r => r.runId));
+          if (!receiptBudget || scoped.some(id => !eligible.has(id))) throw new Error("현재 입고 차시의 마켓 등록 가능 대상과 일치하지 않습니다.");
+        }
+      }
+    }
     const created = action === "reconnect"
       ? await reconnectMarketAutoOrchestration(
           authenticated.value,
@@ -115,11 +142,13 @@ export async function POST(request: NextRequest) {
           authenticated.value,
           body.runIds,
           body.handoffToken,
+          receiptBudget,
         )
       : await createMarketAutoOrchestration(
           authenticated.value,
           body.runIds,
           body.handoffToken,
+          receiptBudget,
         );
     if ("needsWorkerWake" in created && created.needsWorkerWake) {
       after(() => wakeShoplingWorker(authenticated.value.identity.userId));

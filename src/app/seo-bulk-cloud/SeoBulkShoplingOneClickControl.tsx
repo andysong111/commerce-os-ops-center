@@ -1,5 +1,6 @@
 "use client";
 
+import { createHandoffToken, probeExtension, handoffToExtension } from "@/lib/seoMarketBrowserBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   findActiveMarketAutoRunOverlap,
@@ -10,10 +11,6 @@ import {
 const SEO_RUN_API = "/api/seo-run-jobs";
 const AUTO_API = "/api/shopling-market-auto-orchestration";
 const LIFECYCLE_API = "/api/seo-listing-lifecycle";
-const BRIDGE_PROBE = "commerce-os-shopling-market-auto-probe-v0330";
-const BRIDGE_PROBE_ACK = "commerce-os-shopling-market-auto-probe-ack-v0330";
-const BRIDGE_HANDOFF = "commerce-os-shopling-market-auto-handoff-v0330";
-const BRIDGE_HANDOFF_ACK = "commerce-os-shopling-market-auto-handoff-ack-v0330";
 const PENDING_STORAGE_KEY = "commerceOs.shoplingMarketAutoHandoff.v0330";
 const LATEST_EXTENSION_DOWNLOAD =
   "/api/shopling-market-group-canary/v0349/download";
@@ -39,6 +36,7 @@ type DeliveryPreparationCandidate = {
   modelNumber: string;
   productName: string;
   dispatchToday: boolean;
+  runId?: string;
 };
 
 type PipelineMode = "full_pipeline" | "market_only";
@@ -73,13 +71,6 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function createHandoffToken() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 function runTimestamp(row: SeoRunRow) {
   const parsed = Date.parse(text(row.run_created_at || row.updated_at));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -98,6 +89,7 @@ function deliveryPreparationCandidates(value: unknown) {
         modelNumber: text(row.modelNumber),
         productName: text(row.productName),
         dispatchToday: row.dispatchToday === true,
+        runId: text(row.runId) || undefined,
       }),
     )
     .filter((row) => row.launchItemId);
@@ -122,46 +114,6 @@ async function requestJson(url: string, init?: RequestInit) {
     );
   }
   return body;
-}
-
-function waitForBridgeAck(type: string, requestId: string, timeoutMs: number) {
-  return new Promise<UnknownRecord | null>((resolve) => {
-    let done = false;
-    const finish = (value: UnknownRecord | null) => {
-      if (done) return;
-      done = true;
-      window.removeEventListener("message", onMessage);
-      window.clearTimeout(timer);
-      resolve(value);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== window || event.origin !== window.location.origin) return;
-      const row = record(event.data);
-      if (text(row.type) !== type || text(row.requestId) !== requestId) return;
-      finish(row);
-    };
-    const timer = window.setTimeout(() => finish(null), timeoutMs);
-    window.addEventListener("message", onMessage);
-  });
-}
-
-async function probeExtension() {
-  const requestId = crypto.randomUUID();
-  const pending = waitForBridgeAck(BRIDGE_PROBE_ACK, requestId, 1_800);
-  window.postMessage({ type: BRIDGE_PROBE, requestId }, window.location.origin);
-  const ack = await pending;
-  return ack?.ok === true && text(ack.version) === "0.3.30";
-}
-
-async function handoffToExtension(orchestrationId: string, token: string) {
-  const requestId = crypto.randomUUID();
-  const pending = waitForBridgeAck(BRIDGE_HANDOFF_ACK, requestId, 3_000);
-  window.postMessage(
-    { type: BRIDGE_HANDOFF, requestId, orchestrationId, token },
-    window.location.origin,
-  );
-  const ack = await pending;
-  return ack?.ok === true;
 }
 
 async function createOrResumeOrchestration(
@@ -218,6 +170,8 @@ export default function SeoBulkShoplingOneClickControl() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [bridgeReady, setBridgeReady] = useState<boolean | null>(null);
+  const [receiptCovered, setReceiptCovered] = useState<string[]>([]);
+  const [receiptResume, setReceiptResume] = useState<string[]>([]);
   const [scheduledRunIds, setScheduledRunIds] = useState<string[]>([]);
   const [scheduleReason, setScheduleReason] = useState("");
   const [preparationCandidates, setPreparationCandidates] = useState<
@@ -257,6 +211,8 @@ export default function SeoBulkShoplingOneClickControl() {
       try {
         const lifecycleBody = await requestJson(LIFECYCLE_API);
         const scheduledRun = record(lifecycleBody.scheduledRun);
+        setReceiptCovered(Array.isArray(scheduledRun.receiptItemIds) ? scheduledRun.receiptItemIds.map(text) : []);
+        setReceiptResume(Array.isArray(scheduledRun.receiptResumeRunIds) ? scheduledRun.receiptResumeRunIds.map(text) : []);
         setScheduledRunIds(
           Array.isArray(scheduledRun.runIds)
             ? scheduledRun.runIds.map(text).filter(Boolean)
@@ -303,13 +259,9 @@ export default function SeoBulkShoplingOneClickControl() {
   );
   const marketOnlyRuns = useMemo(
     () =>
-      latestBatchRuns.filter(
-        (job) =>
-          job.status === "ready" &&
-          job.registration_status === "success" &&
-          text(job.registration_job_id),
-      ),
-    [latestBatchRuns],
+      jobs.filter(job => job.status === "ready" && job.registration_status === "success" && text(job.registration_job_id) &&
+        (receiptCovered.includes(job.launch_item_id) ? receiptResume.includes(job.run_id) : latestBatchRuns.includes(job))),
+    [jobs, latestBatchRuns, receiptCovered, receiptResume],
   );
   const latest = orchestrations[0] ?? null;
   const automaticTargetCount = useMemo(
@@ -861,7 +813,7 @@ export default function SeoBulkShoplingOneClickControl() {
       const needsBridge =
         plannedIds.length > 0 ||
         candidates.some((candidate) => candidate.dispatchToday) ||
-        marketOnlyRuns.length > 0;
+        marketOnlyRuns.length > 0 || (Array.isArray(scheduledRun.receiptResumeRunIds) && scheduledRun.receiptResumeRunIds.length > 0);
       let bridgeAvailable = true;
       if (needsBridge) {
         setMessage("오늘 배달 전 브라우저 에이전트 연결을 확인합니다…");
@@ -874,7 +826,7 @@ export default function SeoBulkShoplingOneClickControl() {
         const batchId = `seo-bulk-daily-${crypto.randomUUID()}`;
         const runCreatedAt = new Date().toISOString();
         const requestedRuns = candidates.map((candidate) => {
-          const runId = `seo-run-${crypto.randomUUID()}`;
+          const runId = candidate.runId || `seo-run-${crypto.randomUUID()}`;
           const dispatchToday = candidate.dispatchToday;
           if (dispatchToday) generatedDispatchIds.add(runId);
           return {
@@ -912,9 +864,11 @@ export default function SeoBulkShoplingOneClickControl() {
       setScheduledRunIds(plannedIds);
       setScheduleReason(text(scheduledRun.reasonCode));
       const plannedSet = new Set([...plannedIds, ...generatedDispatchIds]);
-      const resumeSet = new Set(
-        marketOnlyRuns.map((row) => row.run_id),
-      );
+      const coveredNow = new Set(Array.isArray(scheduledRun.receiptItemIds) ? scheduledRun.receiptItemIds.map(text) : []);
+      const resumeSet = new Set([
+        ...marketOnlyRuns.filter(r => !coveredNow.has(r.launch_item_id)).map(r => r.run_id),
+        ...(Array.isArray(scheduledRun.receiptResumeRunIds) ? scheduledRun.receiptResumeRunIds.map(text) : []),
+      ]);
       const targets = freshJobs.filter(
         (row) => plannedSet.has(row.run_id) || resumeSet.has(row.run_id),
       );
@@ -933,7 +887,8 @@ export default function SeoBulkShoplingOneClickControl() {
         );
         return;
       }
-      await startPipeline("full_pipeline", targets, bridgeAvailable);
+      const onlyResume = targets.every(r => resumeSet.has(r.run_id) && !plannedSet.has(r.run_id));
+      await startPipeline(onlyResume ? "market_only" : "full_pipeline", targets, bridgeAvailable);
     } catch (startError) {
       setError(
         startError instanceof Error

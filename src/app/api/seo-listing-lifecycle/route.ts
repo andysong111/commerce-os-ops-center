@@ -1,3 +1,5 @@
+import { readSeoPagesResult } from "@/lib/seoStoragePages";
+import { readReceiptSeoReport } from "@/lib/receiptSeoStore";
 import { NextRequest } from "next/server";
 import {
   selectLatestSeoReadyProducts,
@@ -13,7 +15,7 @@ import {
   SEO_LISTING_MAX_ATTEMPTS,
   SEO_LISTING_RULE_VERSION,
   SEO_MARKET_CAPACITY_MAX_AGE_HOURS,
-  type SeoMarketCapacityInput,
+  seoMarketCapacityInput,
 } from "@/lib/seoListingLifecyclePolicy";
 import {
   planSeoDeliveryPreparation,
@@ -171,24 +173,6 @@ function throwUnexpectedStorageError(label: string, error: StorageError) {
   throw new Error(`${label}:${error.message}`);
 }
 
-function capacityInput(row: UnknownRecord): SeoMarketCapacityInput {
-  return {
-    marketAccountKey: text(row.market_account_key),
-    marketName: text(row.market_name),
-    accountLabel: text(row.account_label),
-    maximumListingCount: numberOrNull(row.maximum_listing_count),
-    activeListingCount: numberOrNull(row.active_listing_count),
-    inFlightCount: numberOrNull(row.in_flight_count),
-    safetyBuffer: numberOrNull(row.safety_buffer),
-    observationStatus:
-      row.observation_status === "verified" ||
-      row.observation_status === "error"
-        ? row.observation_status
-        : "unknown",
-    observedAt: text(row.observed_at) || null,
-    requiredForAutoBatch: row.required_for_auto_batch !== false,
-  };
-}
 
 export async function GET(request: NextRequest) {
   const authenticated = await requireSeoTitleLedgerContext(request);
@@ -240,14 +224,14 @@ export async function GET(request: NextRequest) {
           )
           .eq("owner_id", context.identity.userId)
           .maybeSingle(),
-        admin
-          .from("seo_listing_lifecycle_records")
+        readSeoPagesResult(
+          () => admin.from("seo_listing_lifecycle_records")
           .select(
             "id,market_account_key,launch_item_id,model_number,product_name,state,attempt_count,current_run_id,goods_key,live_started_at,last_verified_live_at,sales_count_during_attempt,next_eligible_at,exposure_verified,requires_review,review_reason,evidence,evaluated_at,updated_at",
           )
-          .eq("owner_id", context.identity.userId)
-          .order("evaluated_at", { ascending: false })
-          .limit(1000),
+          .eq("owner_id", context.identity.userId),
+          "id",
+        ),
         admin
           .from("ops_dispatch_tasks")
           .select(
@@ -338,7 +322,7 @@ export async function GET(request: NextRequest) {
       ),
     );
     const capacity = calculateSeoPortfolioCapacity(
-      capacityRows.map(capacityInput),
+      capacityRows.map(seoMarketCapacityInput),
       new Date(),
     );
     const shoplingProductDb = calculateSeoShoplingProductDbCapacity(
@@ -375,16 +359,23 @@ export async function GET(request: NextRequest) {
         numberOrNull(policyRow.cooldown_days) === SEO_LISTING_COOLDOWN_DAYS &&
         numberOrNull(policyRow.max_attempts) === SEO_LISTING_MAX_ATTEMPTS);
     const systemBlocked = !schemaReady || !policyMatchesCode;
+    const receipts = await readReceiptSeoReport(context);
+    const covered = new Set(receipts.coveredItemIds);
+    const receiptProducts = [...new Map(receipts.rows.filter(r => r.itemId).map(r => [r.itemId,r])).values()];
+    const receiptReady = systemBlocked ? [] : receiptProducts.filter(r => r.state === "READY");
+    const receiptNew = systemBlocked ? [] : receiptProducts.filter(r => r.state === "NEW");
+    const receiptResume = systemBlocked ? [] : receiptProducts.filter(r => r.state === "RESUME");
+    const receiptSlots = receiptReady.length + receiptResume.length;
     const scheduledPlan = planSeoScheduledPortfolioRun({
-      readyProducts,
+      readyProducts: readyProducts.filter(p => !covered.has(p.launchItemId)),
       lifecycleRows,
-      safeBatchCount: capacity.safeBatchCount,
+      safeBatchCount: Math.max(0, capacity.safeBatchCount - receiptSlots),
       capacityBlocked: systemBlocked || capacity.blocked,
       allowBoundedRegistrationWithoutCapacity:
         !systemBlocked && capacity.blocked,
       fallbackBatchCount: SEO_REGISTRATION_FALLBACK_BATCH_LIMIT,
       shoplingProductDbSafeNewProductCount:
-        shoplingProductDb.safeNewProductCount,
+        Math.max(0, shoplingProductDb.safeNewProductCount - receiptReady.length),
       shoplingProductDbBlocked: shoplingProductDb.blocked,
       shoplingProductDbReasonCode: shoplingProductDb.reasonCode,
       now: new Date(),
@@ -399,14 +390,16 @@ export async function GET(request: NextRequest) {
           shoplingProductDb.safeNewProductCount,
         );
     const deliveryPreparation = planSeoDeliveryPreparation({
-      productLaunchRows,
+      productLaunchRows: productLaunchRows.filter(r => !covered.has(text(r.item_id))),
       jobHistoryRows: jobHistory as unknown as UnknownRecord[],
       lifecycleRows: storedLifecycleRows,
       isolatedLaunchItemIds: activeIsolations.launchItemIds,
       scheduledBatchLimit,
-      scheduledRegistrationCount: scheduledPlan.selectedProducts.length,
+      scheduledRegistrationCount: scheduledPlan.selectedProducts.length + receiptSlots,
       systemBlocked: !schemaReady || !policyMatchesCode,
     });
+    const receiptCandidates = receiptNew.map(r => ({launchItemId:r.itemId,modelNumber:r.model,productName:r.model,runId:r.runId,dispatchToday:false}));
+    const scheduledIds = [...scheduledPlan.selectedProducts.map(p => p.runId), ...receiptReady.map(r => r.runId)];
     const warnings = [
       "SHADOW_ONLY_NO_MARKET_WRITE",
       ...(!schemaReady ? ["LIFECYCLE_SCHEMA_NOT_APPLIED"] : []),
@@ -458,13 +451,13 @@ export async function GET(request: NextRequest) {
       },
       summary: {
         materialReadyProductCount:
-          deliveryPreparation.materialReadyProductCount,
+          deliveryPreparation.materialReadyProductCount + receiptNew.length,
         deliveryPreparationCandidateCount:
-          deliveryPreparation.preparationCandidateCount,
+          deliveryPreparation.preparationCandidateCount + receiptNew.length,
         deliveryPreparationPlannedCount:
-          deliveryPreparation.plannedPreparationCount,
+          deliveryPreparation.plannedPreparationCount + receiptNew.length,
         deliveryPreparationBacklogCount:
-          deliveryPreparation.backlogPreparationCount,
+          deliveryPreparation.backlogPreparationCount + receiptNew.length,
         deliveryPreparationDispatchCount:
           deliveryPreparation.dispatchPreparationCount,
         deliveryPreparationInventoryCount:
@@ -473,9 +466,11 @@ export async function GET(request: NextRequest) {
           deliveryPreparation.queueTargetCount,
         dailyDispatchCount: deliveryPreparation.dailyDispatchCount,
         seoReadyProductCount: readyProducts.length,
-        shadowRegistrationCount: scheduledPlan.selectedProducts.length,
-        scheduledRegistrationCount: scheduledPlan.selectedProducts.length,
-        eligibleRegistrationCount: scheduledPlan.eligibleRegistrationCount,
+        shadowRegistrationCount: scheduledIds.length + receiptResume.length,
+        scheduledRegistrationCount: scheduledIds.length + receiptResume.length,
+        receiptBarcodeCount: receipts.rows.length,
+        receiptHeldBarcodeCount: receipts.rows.filter(r => r.state === "HOLD").length,
+        eligibleRegistrationCount: scheduledPlan.eligibleRegistrationCount + receiptSlots,
         excludedByLifecycleCount: scheduledPlan.excludedByLifecycleCount,
         limitedByCapacityCount: scheduledPlan.limitedByCapacityCount,
         soldOutDeleteDueCount: scheduledPlan.soldOutDeleteDueCount,
@@ -522,23 +517,25 @@ export async function GET(request: NextRequest) {
       shoplingProductDb,
       readyProducts: readyProducts.slice(0, 30),
       scheduledRun: {
-        executable: scheduledPlan.selectedProducts.length > 0,
+        executable: scheduledIds.length + receiptNew.length + receiptResume.length > 0,
         reasonCode: scheduledPlan.reasonCode,
-        runIds: scheduledPlan.selectedProducts.map((product) => product.runId),
+        runIds: scheduledIds,
+        receiptResumeRunIds: receiptResume.map(r => r.runId),
+        receiptItemIds: [...covered],
         products: scheduledPlan.selectedProducts,
         deliveryPreparation: {
           reasonCode: deliveryPreparation.reasonCode,
           materialReadyProductCount:
-            deliveryPreparation.materialReadyProductCount,
-          candidateCount: deliveryPreparation.preparationCandidateCount,
+            deliveryPreparation.materialReadyProductCount + receiptNew.length,
+          candidateCount: deliveryPreparation.preparationCandidateCount + receiptNew.length,
           queueTargetCount: deliveryPreparation.queueTargetCount,
           currentInventoryCount:
             deliveryPreparation.currentPreparationInventoryCount,
-          plannedCount: deliveryPreparation.plannedPreparationCount,
+          plannedCount: deliveryPreparation.plannedPreparationCount + receiptNew.length,
           dispatchTodayCount:
             deliveryPreparation.dispatchPreparationCount,
-          backlogOnlyCount: deliveryPreparation.backlogPreparationCount,
-          candidates: deliveryPreparation.candidates,
+          backlogOnlyCount: deliveryPreparation.backlogPreparationCount + receiptNew.length,
+          candidates: [...receiptCandidates, ...deliveryPreparation.candidates],
         },
         cadenceLabel: "재고 동기화가 끝난 뒤 하루 1회",
         capacityMode: scheduledPlan.capacityFallbackActive

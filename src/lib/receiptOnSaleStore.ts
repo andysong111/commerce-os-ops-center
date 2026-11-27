@@ -9,14 +9,16 @@ import { prepareShoplingStockBatch } from "./shopling/shoplingStockBatchService"
 
 const preflightType = "RECEIPT_ONSALE_PREFLIGHT";
 const receiptType = "CHINA_ORDER_COMMITMENT_EVENT";
-async function readRows(draftId: string, receipts: boolean) {
+export async function readReceiptJournal(draftId: string | undefined, receipts: boolean) {
   const db = await createSupabaseAdminClient();
   if (!db) throw new Error("입고 원장 연결을 확인하세요.");
   const all: Record<string, unknown>[] = [];
   for (let offset = 0; ; offset += 400) {
     const q = db.from("commerce_operation_runs").select("input_snapshot,result_snapshot,started_at").eq("status", "SUCCEEDED");
-    const query = receipts ? q.eq("operation_type", receiptType).eq("source", "ops-center-internal-china-receipt").eq("result_snapshot->>draftId", draftId)
+    if (!receipts && !draftId) throw new Error("판매중 전송 차시가 필요합니다.");
+    const query = receipts ? q.eq("operation_type", receiptType).eq("source", "ops-center-internal-china-receipt")
       : q.eq("correlation_id", "receipt-onsale:" + draftId).in("operation_type", [SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE, preflightType]);
+    if (receipts && draftId) query.eq("result_snapshot->>draftId", draftId);
     const { data, error } = await query.order("source_event_id").range(offset, offset + 399);
     if (error || !Array.isArray(data)) throw new Error("이번 차시의 입고·전송 원장을 읽지 못했습니다.");
     all.push(...data);
@@ -25,7 +27,7 @@ async function readRows(draftId: string, receipts: boolean) {
 }
 async function loadState(input: unknown, refreshTail = false) {
   const draftId = purchaseRunDraftId(input);
-  const [receipts, logs] = await Promise.all([readRows(draftId, true), readRows(draftId, false)]);
+  const [receipts, logs] = await Promise.all([readReceiptJournal(draftId, true), readReceiptJournal(draftId, false)]);
   const targets = receiptOnSaleTargets(draftId, receipts);
   const events = logs.map(r => receiptRecord(r.input_snapshot));
   const report = targets.length ? await loadAuthoritativeInventoryStockReport({ refreshTail })
@@ -79,7 +81,7 @@ export async function claimReceiptOnSale(input: unknown, jobId: unknown) {
 
 export async function finishReceiptOnSale(input: unknown, raw: Record<string, unknown>) {
   const draftId = purchaseRunDraftId(input);
-  const events = (await readRows(draftId, false)).map(r => receiptRecord(r.input_snapshot));
+  const events = (await readReceiptJournal(draftId, false)).map(r => receiptRecord(r.input_snapshot));
   const start = events.find(e => e.outcome === "STARTED" && e.jobId === raw.jobId);
   if (!start || start.barcode !== raw.barcode || !["SUCCEEDED","UNCERTAIN","FAILED"].includes(String(raw.outcome))) throw new Error("원래 전송과 결과가 일치하지 않습니다.");
   if (raw.holdDetached && !(Date.now() - Date.parse(String(start.occurredAt)) >= 31 * 60_000)) throw new Error("진행 중인 전송의 결과를 기다려 주세요.");

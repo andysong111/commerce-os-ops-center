@@ -49,7 +49,7 @@ export function ReceiptOnSalePanel({ draftId }: { draftId: string }) {
       const result = await runInboundReceiptOnSaleSync(draftId, setNotice, undefined, controller.current?.signal);
       setRows(result.rows); setNotice(result.message);
     } catch (e) { setNotice(e instanceof Error ? e.message : "전송 확인 필요"); }
-    finally { await refresh(); running.current = false; setBusy(false); }
+    finally { await refresh(); running.current = false; setBusy(false); window.dispatchEvent(new Event("commerce-receipt-step-changed")); }
   }
   return <section aria-label="이번 차시 입고 B코드 판매중 전송" className="mt-4 border-t border-slate-600 pt-3 text-xs text-slate-200">
     <h4 className="text-sm font-bold text-white">입고 B코드 판매중 전송</h4>

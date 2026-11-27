@@ -8,7 +8,8 @@ import {
   extractLegacyCurrentGoodsKeys,
 } from "@/lib/seoListingLegacyOnboarding";
 import type { SeoRunJobContext } from "@/lib/seoRunJobServer";
-import { listSeoRunJobs } from "@/lib/seoRunJobServer";
+import { receiptSeoSuccessors } from "./receiptSeoPortfolio";
+import { readSeoPages } from "@/lib/seoStoragePages";
 import { loadShoplingLifecycleStatusSnapshot } from "@/lib/shopling/shoplingLifecycleStatus";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -169,22 +170,18 @@ export async function reconcileSeoListingLifecycleShadow(
   const admin = await createSupabaseAdminClient();
   if (!admin) throw new Error("SUPABASE_ADMIN_NOT_CONFIGURED");
 
-  const jobs = await listSeoRunJobs(context, {
-    includeArchived: true,
-    limit: 1000,
-  });
-  const existingResult = await admin
-    .from("seo_listing_lifecycle_records")
-    .select("owner_id,market_account_key,launch_item_id,state,goods_key")
-    .eq("owner_id", ownerId)
-    .limit(READ_LIMIT);
-  await throwIfError("SEO_LIFECYCLE_EXISTING_READ_FAILED", existingResult);
+  const [jobs, existingRows] = await Promise.all([
+    readSeoPages(() => admin.from("seo_run_jobs").select("owner_id,launch_item_id,run_id,model_number,product_name,run_created_at,registration_status,registration_payload,updated_at")
+      .eq("owner_id",ownerId).eq("registration_status","success"),"run_id"),
+    readSeoPages(() => admin.from("seo_listing_lifecycle_records").select("id,owner_id,market_account_key,launch_item_id,state,goods_key,current_run_id,attempt_count,next_eligible_at,requires_review,sales_count_during_attempt,live_started_at,last_verified_live_at,evidence")
+      .eq("owner_id",ownerId),"id"),
+  ]);
   const activeIsolations = await readActiveSeoListingLifecycleIsolations(
     admin,
     ownerId,
   );
   const existingLifecycleRows = excludeActiveSeoListingLifecycleIsolations(
-    asRows(existingResult.data),
+    existingRows,
     activeIsolations.launchItemIds,
   );
   const successfulJobs = jobs.filter(
@@ -214,7 +211,7 @@ export async function reconcileSeoListingLifecycleShadow(
   );
 
   const launchItemIds = unique([
-    ...successfulJobs.map((row) => row.launch_item_id),
+    ...successfulJobs.map((row) => text(row.launch_item_id)),
     ...registryRows.map((row) => row.launch_item_id),
   ]);
   const launchItems: UnknownRecord[] = [];
@@ -265,6 +262,8 @@ export async function reconcileSeoListingLifecycleShadow(
     salesRows.push(...asRows(result.data));
   }
 
+  const successors = receiptSeoSuccessors(ownerId,existingLifecycleRows,successfulJobs,now);
+  const seedHistory = existingLifecycleRows.filter(r => !successors.has(text(r.launch_item_id)));
   const legacy = buildSeoListingLegacyOnboardingPlan({
     ownerId,
     registryRows,
@@ -279,9 +278,12 @@ export async function reconcileSeoListingLifecycleShadow(
   ]);
   const reconciliationJobs = [
     ...successfulJobs
-      .filter((row) => !legacyLaunchItemIds.has(text(row.launch_item_id)))
+      .filter((row) => {
+        const id = text(row.launch_item_id), successor = successors.get(id);
+        return successor ? successor.runId === row.run_id : !legacyLaunchItemIds.has(id);
+      })
       .map((row) => row as unknown as UnknownRecord),
-    ...legacy.syntheticJobs,
+    ...legacy.syntheticJobs.filter(row => !successors.has(text(row.launch_item_id))),
   ];
 
   const common = {
@@ -290,7 +292,7 @@ export async function reconcileSeoListingLifecycleShadow(
     marketLedgerRows,
     launchItems,
     salesRows,
-    existingLifecycleRows,
+    existingLifecycleRows: seedHistory,
     now,
   };
   const preflight = buildSeoListingShadowReconciliationPlan({
@@ -350,18 +352,29 @@ export async function reconcileSeoListingLifecycleShadow(
     };
   }
 
+  let advanced = 0;
+  for (const [id, successor] of successors) {
+    const proof = verifiedPlan.records.filter(r => r.launch_item_id === id && r.current_run_id === successor.runId);
+    if (proof.length !== 6 || proof.some(r => !r.exposure_verified || r.requires_review || !["LIVE","PROTECTED"].includes(r.state))) continue;
+    const result = await admin.rpc("advance_receipt_seo_rotation",{
+      p_owner:ownerId,p_item:id,p_previous:successor.previousRun,p_run:successor.runId,p_proof:proof
+    });
+    await throwIfError("SEO_RECEIPT_ROTATION_ADVANCE_FAILED",result);
+    advanced += Number(result.data) || 0;
+  }
   const persisted = await persistSeoListingLifecycleSeedRecords({
     admin,
     ownerId,
     generatedAt: plan.generatedAt,
-    records: plan.records,
+    records: plan.records.filter(r => !successors.has(r.launch_item_id)),
   });
 
   return {
     ...plan,
     internalWriteApplied: true,
     insertedRecordCount: persisted.insertedRecordCount,
-    insertedEventCount: persisted.insertedEventCount,
+    insertedEventCount: persisted.insertedEventCount + advanced,
+    advancedReceiptMarketCount: advanced,
     shoplingReadback: {
       requestedGoodsKeyCount: snapshot.requestedGoodsKeyCount,
       sourceRowCount: snapshot.sourceRowCount,
