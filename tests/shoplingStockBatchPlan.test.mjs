@@ -25,7 +25,7 @@ test("each explicit command covers every input after past successes and failures
   const store = loadModule("../src/lib/inventoryStockBulkStore.ts", {
     "@/lib/supabase/admin": {createSupabaseAdminClient: async () => ({from: () => table})},
   });
-  const {POST} = loadModule("../src/app/api/inventory-stock-control/unified-batch/route.ts", {
+  const {handleUnifiedInventoryRequest: POST} = loadModule("../src/lib/unifiedInventoryBatch.ts", {
     "@/lib/opsLoginBypass": {isSameOriginOpsRequest: () => true},
     "@/lib/inventoryStockControl": {INVENTORY_STOCKOUT_RESET_OPERATION_TYPE:"reset", normalizeStockoutResetInput:v=>v},
     "@/lib/inventoryManualOnSale": {INVENTORY_MANUAL_ON_SALE_OPERATION_TYPE:"sale", normalizeInventoryManualOnSaleInput:v=>v},

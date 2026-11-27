@@ -4,7 +4,7 @@ import test from "node:test";
 
 test("unified API validates all four inputs before one durable batch write", async () => {
   const source = await readFile(
-    "src/app/api/inventory-stock-control/unified-batch/route.ts",
+    "src/lib/unifiedInventoryBatch.ts",
     "utf8",
   );
   assert.match(source, /stockoutBarcodes/);
@@ -19,7 +19,7 @@ test("unified API validates all four inputs before one durable batch write", asy
   assert.match(source, /allBarcodes\.length > 50/);
   assert.match(source, /loadProductMasterInventoryIdentities\(allBarcodes\)/);
   assert.match(source, /identity\.state !== "READY"/);
-  assert.match(source, /const storage = await storeInventoryOperationBatch\(\[/);
+  assert.match(source, /await storeInventoryOperationBatch\(rows,/);
   assert.match(source, /INVENTORY_STOCKOUT_RESET_OPERATION_TYPE/);
   assert.match(source, /INVENTORY_MANUAL_ON_SALE_OPERATION_TYPE/);
   assert.match(source, /INVENTORY_STOCKTAKE_BASELINE_OPERATION_TYPE/);
@@ -28,7 +28,7 @@ test("unified API validates all four inputs before one durable batch write", asy
 
 test("unified API creates immediate Shopling jobs only for explicit status changes", async () => {
   const source = await readFile(
-    "src/app/api/inventory-stock-control/unified-batch/route.ts",
+    "src/lib/unifiedInventoryBatch.ts",
     "utf8",
   );
   const jobsBlock = source.slice(

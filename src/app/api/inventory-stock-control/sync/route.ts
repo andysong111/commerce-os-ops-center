@@ -585,12 +585,18 @@ export async function POST(request: Request) {
       message: body.message,
       evidence: body.evidence,
     });
+    // The same picking job can be seen by the stock page and by an operator
+    // recovering the queue. Only the first durable start may reach the extension.
+    const pickingStart = event.outcome === "STARTED" && event.jobId.startsWith("stock-command:unified-command:picking-");
     const stored = await storeInventoryOperation({
       operationType: SHOPLING_STOCK_STATUS_SYNC_OPERATION_TYPE,
-      sourceEventId: `shopling-stock-sync:${encodeURIComponent(event.eventId)}`,
+      sourceEventId: pickingStart ? "picking-stock-start:" + event.jobId : `shopling-stock-sync:${encodeURIComponent(event.eventId)}`,
       correlationId: `shopling-stock:${event.barcode}`,
       snapshot: event,
     });
+    if (pickingStart && stored.duplicate) {
+      return Response.json({ok:false,message:"이 피킹 품절 지시는 이미 시작했습니다. 기존 접수 결과를 확인해 주세요."},{status:409});
+    }
     return Response.json(
       {
         ok: true,

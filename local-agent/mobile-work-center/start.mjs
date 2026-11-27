@@ -1,3 +1,4 @@
+import { wakePickingDispatch } from "./picking-dispatch.mjs";
 import { createServer } from "node:net";
 import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -44,5 +45,8 @@ const worker = createMobileWorkWorker({
 
 for (;;) {
   await worker.tick();
+  if (!worker.isActive()) await wakePickingDispatch(config).catch(() => {
+    // No stock request was submitted here. A later tick can reopen the PC page.
+  });
   await delay(worker.isActive() ? 6_000 : 30_000);
 }

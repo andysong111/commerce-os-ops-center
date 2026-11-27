@@ -25,6 +25,7 @@ import {
   type ShoplingDirectRunProgress,
 } from "@/lib/shoplingDirectRunProgress";
 import { recoverLatestPendingDirectJobs } from "@/lib/shoplingDirectRunRecovery";
+import { selectExactShoplingStockQueueJob } from "@/lib/shoplingStockQueueSelection";
 import { verifyDirectStockCommand } from "@/lib/shoplingDirectCommand";
 import { shoplingStockResultDetail } from "@/lib/shoplingStockResponsibility";
 import {
@@ -682,6 +683,15 @@ function InventoryStockoutGenericPanel() {
     try {
       if (!mounted.current) return;
       await requireShoplingAuthenticatedSession();
+      const selected = plan.jobs[0];
+      if (selected.retransmissionRequestId?.startsWith("unified-command:picking-")) {
+        const response = await fetch("/api/inventory-stock-control/sync?mode=execute", {cache:"no-store"});
+        const queue = await response.json();
+        if (!response.ok || !queue.ok || !Array.isArray(queue.jobs)) throw new Error("운영 큐에서 현재 품절 지시를 확인하지 못했습니다.");
+        const latest = selectExactShoplingStockQueueJob<DirectInventoryJob>(queue.jobs,selected);
+        if (latest.stockBatchPlan !== selected.stockBatchPlan || latest.retransmissionRequestId !== selected.retransmissionRequestId)
+          throw new Error("피킹 이후 해당 B코드의 품절 지시가 변경되었습니다.");
+      }
     } catch (error) {
       launchingNext.current = false;
       setSyncing(false);
@@ -794,6 +804,7 @@ function InventoryStockoutGenericPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    if (new URLSearchParams(window.location.search).get("pickingDispatch") === "1") return;
     void loadLatestPendingDirectJobs()
       .then((recovered) => {
         if (cancelled || !recovered || submittedOnThisPage.current || directRunProgressRef.current) return;
@@ -1007,7 +1018,8 @@ function InventoryStockoutGenericPanel() {
         try {
           await batch.startRecordPromises.get(job.jobId);
           const attempt = attemptsByJob.current.get(job.jobId) || 1;
-          const autoRetry = attempt < MAX_SHOPLING_STOCK_ATTEMPTS && isSafeShoplingStockRetry(result);
+          const autoRetry = attempt < MAX_SHOPLING_STOCK_ATTEMPTS && isSafeShoplingStockRetry(result)
+            && !job.retransmissionRequestId?.startsWith("unified-command:picking-");
           const evidence = { ...object(result.evidence), attempt, dispatchJobId: result.jobId, autoRetry };
           await recordSync(
             job,
@@ -1092,6 +1104,52 @@ function InventoryStockoutGenericPanel() {
     stopDirectRunProgress,
     upsertDirectRunResultDetail,
   ]);
+
+  useEffect(() => {
+    if (!extensionReady || new URLSearchParams(window.location.search).get("pickingDispatch") !== "1") return;
+    let disposed = false;
+    let timer: number;
+    const poll = async () => {
+      try {
+        if (activeBatch.current || launchingNext.current || submittingInput.current ||
+            directQueue.current.length || directRunProgressRef.current?.status === "RUNNING") return;
+        submittingInput.current = true;
+        try {
+          const response = await fetch("/api/inventory-stock-control/picking-dispatch", {method:"POST",cache:"no-store"});
+          if (!response.ok) throw new Error(response.status === 401 ? "PC 업무센터 운영자 로그인이 필요합니다." : "피킹 품절 지시를 확인하지 못했습니다.");
+          const {ticket} = await response.json();
+          if (!ticket || disposed || !mounted.current) return;
+          const batchId = "picking-" + ticket.snapshotId;
+          const sold = ticket.selections.filter((row: {soldOut:boolean}) => row.soldOut).map((row: {barcode:string}) => row.barcode);
+          const jobs = verifyDirectStockCommand<DirectInventoryJob>(batchId, sold, [], {
+            batchId, commandRequestId: ticket.jobs?.[0]?.retransmissionRequestId, jobs:ticket.jobs,
+          });
+          if (!jobs.length || jobs.some(job => !job.stockBatchPlan)) throw new Error("피킹 품절 전송계획을 확인해 주세요.");
+          submittedOnThisPage.current = true;
+          acceptedPlanBarcodes.current.clear();
+          attemptsByJob.current.clear();
+          safeRetryWaiting.current.clear();
+          handledResults.current.clear();
+          rememberDirectJobs(jobs,true);
+          directQueue.current = jobs;
+          setDirectRunResultDetails([]);
+          setHasResumableStoppedJobs(false);
+          publishDirectRunProgress(startShoplingDirectRun(jobs.length));
+          setSyncing(true);
+          setNotice("모바일 피킹 품절 " + jobs.length + "건을 접수했습니다.");
+          await launchNextRef.current();
+        } finally {
+          submittingInput.current = false;
+        }
+      } catch (error) {
+        if (!disposed) setSyncNotice(error instanceof Error ? error.message : "피킹 품절 전송을 확인해 주세요.");
+      } finally {
+        if (!disposed) timer = window.setTimeout(() => void poll(), 8000);
+      }
+    };
+    void poll();
+    return () => { disposed=true; window.clearTimeout(timer); };
+  }, [extensionReady, publishDirectRunProgress, rememberDirectJobs]);
 
   const save = async () => {
     if (submittingInput.current || activeBatch.current || launchingNext.current || syncing) return;

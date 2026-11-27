@@ -167,3 +167,14 @@ test("picking snapshot migration keeps public roles out and service role in", as
   assert.match(client, /item\.optionNames/);
   assert.equal(tokenHash.length, 64);
 });
+
+test("a finished or replaced snapshot cannot accept another check", async () => {
+  const stored = row();
+  for (const [snapshot, expected, code] of [
+    [{...stored.payload,inventoryFinished:true},stored.payload.snapshotId,"PICKING_FINISHED"],
+    [stored.payload,"a-different-list","PICKING_SNAPSHOT_CHANGED"],
+  ]) {
+    const picking = loadPickingShare(async () => ({from:() => readQuery({data:{...stored,payload:snapshot},error:null})}));
+    assert.equal((await picking.updatePickingShareCompletion(token,"BAB2-3",true,expected)).code,code);
+  }
+});
