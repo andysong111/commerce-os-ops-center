@@ -10,6 +10,7 @@ const DOMEGGOOK_PATHS = Object.freeze({
 });
 const STANDARD_TIMEOUT = 15_000;
 const JOB_TIMEOUT = 45 * 60_000;
+const LOGIN_TIMEOUT = 4 * 60 * 60_000;
 const result = (status, code) => ({ status, code });
 const LOCAL_PREFLIGHT_REJECTIONS = new Set([
   "LOCAL_WRITE_FORBIDDEN", "LOCAL_ACTION_NOT_ALLOWED", "LOCAL_ACTION_INTERACTIVE_ONLY",
@@ -70,12 +71,51 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     };
   }
 
-  async function runLocal(command, action, center) {
+  async function awaitShoplingLogin(command, token, onProgress) {
+    const deadline = now() + LOGIN_TIMEOUT;
+    onProgress("LOGIN_CHECKING");
+    while (now() < deadline) {
+      // This endpoint can advance a human-assisted login, but cannot enqueue
+      // or execute a business action. Never reset the PC's retry/lockout state.
+      const step = await request(`${LOCAL_ORIGIN}/api/shopling/mobile-login`, {
+        method: "POST",
+        headers: { Origin: LOCAL_ORIGIN, "Content-Type": "application/json", "x-commerce-os-token": token },
+        body: JSON.stringify({ requestId: command.id }),
+      }, 120_000).catch(() => null);
+      if (!step?.ok || step.body.requestId !== command.id) return result("needs_pc", "LOGIN_REQUIRED");
+      if (now() >= deadline || step.body.phase === "expired") break;
+      if (step.body.phase === "ready") {
+        const latest = await getCenter().catch(() => null);
+        if (!latest?.shoplingSession?.ready || !latest.shoplingSession.matchedAccount) return result("needs_pc", "LOGIN_REQUIRED");
+        if (centerBusy(latest)) return result("needs_pc", "AGENT_BUSY");
+        if (now() >= deadline) break;
+        onProgress(null);
+        return { account: latest.shoplingSession.matchedAccount };
+      }
+      if (step.body.phase === "busy") return result("needs_pc", "AGENT_BUSY");
+      if (!["checking", "captcha"].includes(step.body.phase)) return result("needs_pc", "LOGIN_REQUIRED");
+      onProgress(step.body.phase === "captcha" ? "KAKAO_CAPTCHA" : "LOGIN_CHECKING");
+      await wait(10_000);
+    }
+    return result("needs_pc", "LOGIN_EXPIRED");
+  }
+
+  async function runLocal(command, action, center, onProgress) {
     const local = center.actions.find(({ id }) => id === action.id);
     if (!local || local.interactiveOnly || local.mutates === action.readOnly) return result("needs_pc", "CHECK_PC");
-    if (local.requiresShoplingLogin !== false && center.shoplingSession?.ready !== true) return result("needs_pc", "LOGIN_REQUIRED");
+    const shopling = local.requiresShoplingLogin !== false;
+    const needsLogin = shopling && center.shoplingSession?.ready !== true;
+    if (needsLogin && !(center.settings?.shoplingAutoLoginEnabled && center.shoplingAutoLogin?.credentialConfigured)) return result("needs_pc", "LOGIN_REQUIRED");
     const token = await getCenterToken();
+    let account = center.shoplingSession?.matchedAccount;
+    if (needsLogin) {
+      const login = await awaitShoplingLogin(command, token, onProgress);
+      if (!login.account) return login;
+      account = login.account;
+    }
+    if (shopling && !account) return result("needs_pc", "LOGIN_REQUIRED");
     const data = {
+      ...(shopling ? { verifiedShoplingAccount: account } : {}),
       execute: command.execute,
       draftId: command.draftId,
       confirmed: command.confirmed,
@@ -91,6 +131,7 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
       body: JSON.stringify(data),
     }, 120_000);
     if (!response.ok) {
+      if (response.body.code === "SHOPLING_MOBILE_SESSION_CHANGED") return result("needs_pc", "LOGIN_REQUIRED");
       if (response.status === 409) return result("needs_pc", "AGENT_BUSY");
       if (LOCAL_PREFLIGHT_REJECTIONS.has(response.body.code)) return result("needs_pc", "REJECTED_BY_PC");
       return result("ambiguous", "RESULT_UNCERTAIN");
@@ -128,7 +169,7 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     return result("completed", "DONE");
   }
 
-  async function execute(raw) {
+  async function execute(raw, onProgress = () => {}) {
     const command = normalizeWorkRequest(raw);
     if (!command || now() - command.issuedAt >= REQUEST_MAX_AGE_MS || command.issuedAt > now() + 30_000) return result("failed", "REJECTED_BY_PC");
     const action = mobileAction(command.actionId);
@@ -139,7 +180,7 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     try {
       if (action.kind === "domeggook") return await runDomeggook(command);
       if (action.kind === "extension") return ondolpass ? await ondolpass.run(command) : result("needs_pc", "EXTENSION_UNAVAILABLE");
-      return await runLocal(command, action, center);
+      return await runLocal(command, action, center, onProgress);
     } catch {
       return result("ambiguous", "RESULT_UNCERTAIN");
     }
@@ -176,10 +217,12 @@ export function createMobileWorkWorker({ endpoint, agentToken, adapter, fetchImp
         active = null;
       }
       const agent = await adapter.status();
-      const data = await post({ type: "poll", agent, canClaim: !active });
+      const data = await post({ type: "poll", agent, canClaim: !active,
+        ...(active ? { progress: { id: active.id, code: active.progress } } : {}),
+      });
       if (active || !data.command) return;
-      active = { id: data.command.id, receipt: null };
-      void Promise.resolve(adapter.execute(data.command)).then(
+      active = { id: data.command.id, receipt: null, progress: null };
+      void Promise.resolve(adapter.execute(data.command, (code) => { active.progress = code; })).then(
         (receipt) => { active.receipt = receipt; },
         () => { active.receipt = result("ambiguous", "RESULT_UNCERTAIN"); },
       );

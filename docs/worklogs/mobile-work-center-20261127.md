@@ -17,6 +17,9 @@
 
 ## 검증
 
+- 샵플링 로그인이 만료되면 Windows 수신기가 같은 요청 번호로 PC의 인증 결과를 기다린다. 카카오톡 확인 링크 발송과 사람의 답변 처리는 기존 전용 Chrome 로그인 기능을 사용한다. 인증 대기 중에는 로컬 업무를 예약하지 않는다. 인증 성공 후 원래 요청을 1회만 전달하고, 인증 만료 또는 실패 시 실행을 종료한다.
+- 독립 배포되는 Windows 로컬 업무센터에는 `local-agent/mobile-work-center/shopling-login.patch`를 해당 체크아웃에서 `git apply --check` 후 적용한다. 보호된 POST 경로는 업무 실행 입력을 받지 않으며, 유효하지 않은 요청 번호에 `MOBILE_LOGIN_ID_INVALID`를 반환한다. PC의 기존 자동 로그인과 카카오 발송 승인 설정을 사용한다.
+
 - `node --test tests/mobileWorkCenter.test.mjs`로 확인 문구, 목록 외 작업 차단, 입력 고정, 재전송 방지, 정상/불명확 완료, 대상 Chrome 탭 선택을 검사한다. GitHub Actions CI의 `Test mobile Work Center request safety` 단계에 포함했다.
 - `node tests/fixtures/mobileWorkCenterBrowserFixture.mjs`는 Supabase 세션·대기열만 로컬 격리 환경에 대체한다. 실제 Windows 업무센터에는 연결 시험용 읽기 요청만 보내고 거래 버튼은 실행 전에 차단한다.
 - 테스트 브라우저에서 미로그인 화면, 합성 계정 로그인, Windows 연결 시험 완료, 출금 확인 체크 전 실행 잠금, 390px 너비 레이아웃을 확인했다. 운영 배포, 실제 휴대폰 홈 화면 추가와 실제 거래는 검증에 포함하지 않았다.

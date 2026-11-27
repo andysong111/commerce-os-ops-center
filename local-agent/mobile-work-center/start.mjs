@@ -28,9 +28,9 @@ const adapter = {
     const snapshot = await pc.status();
     return config.allowBusiness === true ? snapshot : { ...snapshot, actions: snapshot.actions.filter((id) => id === "connection-check") };
   },
-  execute(command) {
+  execute(command, onProgress) {
     if (config.allowBusiness !== true && command.actionId !== "connection-check") return { status: "failed", code: "REJECTED_BY_PC" };
-    return pc.execute(command);
+    return pc.execute(command, onProgress);
   },
 };
 let lastError = "";

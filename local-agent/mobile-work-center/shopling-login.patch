@@ -1,0 +1,84 @@
+diff --git a/local-agent/src/local-control-center.mjs b/local-agent/src/local-control-center.mjs
+--- a/local-agent/src/local-control-center.mjs
++++ b/local-agent/src/local-control-center.mjs
+@@ -3998,6 +3998,12 @@
+     let account = String(options.account || "").trim();
+     if (action.requiresShoplingLogin !== false && !account) {
+       const session = await refreshShoplingSession(true);
++      if (options.verifiedShoplingAccount !== undefined
++        && (!session.ready || !session.matchedAccount || session.matchedAccount !== options.verifiedShoplingAccount)) {
++        const error = new Error("모바일 요청에서 확인한 샵플링 로그인 계정이 변경됐습니다.");
++        error.code = "SHOPLING_MOBILE_SESSION_CHANGED";
++        throw error;
++      }
+       account = String(session.matchedAccount || config.shoplingAccount || "andy801").trim();
+     }
+     const source = options.source === "schedule" ? "schedule" : "operator";
+@@ -4572,6 +4578,34 @@
+     return result;
+   }
+
++  // A mobile poll advances only authentication. The original mobile command is
++  // held by its worker, so an interrupted login cannot launch a local job later.
++  async function advanceMobileShoplingLogin() {
++    if (closing || mainBusy() || activeRuns().length || loginResumeInProgress || state.pendingLoginAction) return "busy";
++    loginQueueStarting = true;
++    try {
++      let auth = await attemptShoplingAutoLogin();
++      if (auth.reason === "CHROME_CDP_UNAVAILABLE" && !auth.attempted) {
++        const listing = await (dependencies.listChromeTargets || listChromeTargets)(config).catch(() => null);
++        if (!listing?.available) {
++          await ensureDedicatedChrome();
++          auth = await attemptShoplingAutoLogin();
++        }
++      }
++      if (auth.ready && auth.session?.ready && auth.session.matchedAccount) return "ready";
++      if (auth.reason === "CAPTCHA_EXPIRED") return "expired";
++      if (auth.reason === "COOLDOWN") return "checking";
++      if (state.shoplingAutoLogin.status === "MANUAL_REQUIRED"
++        && ["WAITING", "REFRESHING"].includes(state.shoplingCaptcha.status) && state.shoplingCaptcha.lastNotifiedAt
++        && ["CAPTCHA_REQUIRED", "CAPTCHA_WAITING", "CAPTCHA_REFRESHED", "CAPTCHA_STALE_REPLACED", "CAPTCHA_RETRY_REQUIRED"].includes(auth.reason)) {
++        return "captcha";
++      }
++      return "manual";
++    } finally {
++      loginQueueStarting = false;
++    }
++  }
++
+   async function retryShoplingAutoLogin() {
+     if (!state.settings.shoplingAutoLoginEnabled) {
+       const error = new Error("샵플링 자동 로그인을 먼저 켜 주세요.");
+@@ -4786,6 +4820,7 @@
+     stopActiveRun,
+     updateSettings,
+     configureShoplingCredential,
++    advanceMobileShoplingLogin,
+     retryShoplingAutoLogin,
+     configurePopbillCredential,
+     openBarobillBrowsers,
+diff --git a/local-agent/src/local-control-server.mjs b/local-agent/src/local-control-server.mjs
+--- a/local-agent/src/local-control-server.mjs
++++ b/local-agent/src/local-control-server.mjs
+@@ -219,6 +219,7 @@
+           const run = await runtime.startAction(actionId, {
+             execute: body.execute === true,
+             source: "operator",
++            ...(typeof body.verifiedShoplingAccount === "string" ? { verifiedShoplingAccount: body.verifiedShoplingAccount } : {}),
+             ...(body.confirmed === true ? { confirmed: true } : {}),
+             ...(body.confirmation ? { confirmation: String(body.confirmation) } : {}),
+             ...(body.draftId ? { draftId: body.draftId } : {}),
+@@ -244,6 +245,13 @@
+             password: body.password,
+           });
+           return sendJson(response, 200, { ok: true, result });
++        }
++        if (url.pathname === "/api/shopling/mobile-login") {
++          if (typeof body.requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId)) {
++            return sendJson(response, 400, { ok: false, code: "MOBILE_LOGIN_ID_INVALID" });
++          }
++          const phase = await runtime.advanceMobileShoplingLogin();
++          return sendJson(response, 200, { ok: true, requestId: body.requestId, phase });
+         }
+         if (url.pathname === "/api/shopling/auto-login/retry") {
+           return sendJson(response, 200, { ok: true, result: await runtime.retryShoplingAutoLogin() });
