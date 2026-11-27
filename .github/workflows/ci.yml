@@ -203,4 +203,4 @@ jobs:
           psql -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
           sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/picking-ledger.sql
           echo 'commit;' >> /tmp/picking-ledger.sql
-          psql -v ON_ERROR_STOP=1 -f /tmp/picking-ledger.sql -f supabase/migrations/202610130001_commerce_os_picking_snapshots.sql -f supabase/migrations/20261127082719_picking_inventory_finish.sql -f tests/pickingInventoryFinish.sql
+          psql -v ON_ERROR_STOP=1 -f /tmp/picking-ledger.sql -f supabase/migrations/202610130001_commerce_os_picking_snapshots.sql -f supabase/migrations/20261127085814_picking_inventory_finish.sql -f tests/pickingInventoryFinish.sql
