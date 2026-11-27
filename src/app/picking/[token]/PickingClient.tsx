@@ -1,6 +1,7 @@
 "use client";
 
 import { isPickingBcode, type PickingObservation } from "@/lib/pickingInventoryInput";
+import { invoiceGroups, type InvoiceGroups } from "../../../../shared/mobile-work-center.mjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type ItemDetails = {
@@ -21,7 +22,14 @@ type DeltaItem = ItemDetails & {
   quantityToPick: number;
 };
 
-type Receipt = {finishedAt:string; selections:PickingObservation[]; stockouts:{barcode:string; state:string}[]};
+type Receipt = {finishedAt:string; selections:PickingObservation[]; stockouts:{barcode:string; state:string}[];
+  invoiceTask?: (InvoiceGroups & {status:string; code:string|null}) | null};
+const invoiceStates: Record<string,string> = {
+  waiting:"PC 실행 대기", running:"PC에서 실행 중", completed:"처리 완료", needs_pc:"PC 확인 필요",
+  failed:"시작 실패", ambiguous:"처리 결과 확인 필요", acknowledged:"결과 확인 처리됨", expired:"당일 실행 시간 만료",
+};
+const splitInvoices = (text:string) => text.trim().split(/[\s,]+/).filter(Boolean);
+const invoiceDraftKey = (id:string) => "commerce-os:picking-invoices:" + id;
 type Draft = Record<string,{soldOut:boolean; count:string}>;
 const dispatchLabels:Record<string,string> = {QUEUED:"PC 전송 대기", CHECK_PC:"PC 접수 확인 중", STARTED:"전송 중", SUCCEEDED:"접수 완료", FAILED:"전송 실패", UNCERTAIN:"접수 확인 필요"};
 type Picking = {
@@ -67,6 +75,7 @@ export default function PickingClient({ token }: { token: string }) {
   const [busy, setBusy] = useState("");
 
   const [draft, setDraft] = useState<Draft>({});
+  const [invoices, setInvoices] = useState({soldOut:"",shortage:""});
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const actionLock = useRef(false);
@@ -81,6 +90,12 @@ export default function PickingClient({ token }: { token: string }) {
         let saved:Draft = {};
         try { saved = JSON.parse(localStorage.getItem(draftKey(body.picking.snapshotId)) || "{}") || {}; } catch {}
         setDraft(saved);
+        let invoiceDraft = {soldOut:"",shortage:""};
+        try {
+          const stored = JSON.parse(sessionStorage.getItem(invoiceDraftKey(body.picking.snapshotId)) || "null");
+          if (typeof stored?.soldOut === "string" && typeof stored?.shortage === "string") invoiceDraft = stored;
+        } catch {}
+        setInvoices(invoiceDraft);
         setPicking(body.picking);
       })
       .catch((reason) => {
@@ -105,7 +120,8 @@ export default function PickingClient({ token }: { token: string }) {
         if (!response.ok || !body.receipt) throw new Error(body.message || "품절 접수 결과를 조회하지 못했습니다.");
         if (controller.signal.aborted) return;
         setReceipt(body.receipt);
-        if (body.receipt.stockouts.every((item:{state:string}) => ["SUCCEEDED","FAILED"].includes(item.state))) return;
+        if (!["waiting","running","ambiguous"].includes(body.receipt.invoiceTask?.status) &&
+          body.receipt.stockouts.every((item:{state:string}) => ["SUCCEEDED","FAILED"].includes(item.state))) return;
       } catch {
         if (controller.signal.aborted) return;
       }
@@ -126,23 +142,33 @@ export default function PickingClient({ token }: { token: string }) {
     catch {setError("휴대폰 임시저장이 꺼져 있습니다. 완료 전까지 이 화면을 열어 두세요.");}
   }
 
+  function editInvoices(field:"soldOut"|"shortage", value:string) {
+    if (!picking || frozen || actionLock.current) return;
+    const next = {...invoices,[field]:value};
+    setInvoices(next);
+    setError("");
+    try { sessionStorage.setItem(invoiceDraftKey(picking.snapshotId),JSON.stringify(next)); } catch {}
+  }
+
   async function finish() {
     if (!picking || frozen || actionLock.current) return;
     actionLock.current=true;
     setBusy("finish");
     setError("");
     try {
+      const groups = invoiceGroups(splitInvoices(invoices.soldOut),splitInvoices(invoices.shortage));
       const observations = Object.entries(draft).map(([barcode,row]) => {
         if (!row.soldOut && !/^\d+$/.test(row.count)) throw new Error(barcode + "의 남은 수량을 정수로 입력해 주세요.");
         return {barcode,soldOut:row.soldOut,quantity:row.soldOut ? null : Number(row.count)};
       });
       const response=await fetch("/api/picking/" + encodeURIComponent(token) + "/finish",{
-        method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({snapshotId:picking.snapshotId,observations}),
+        method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({snapshotId:picking.snapshotId,observations,...groups}),
       });
       const body=await response.json();
       if (response.status === 401 || response.status === 403) setNeedsLogin(true);
       if (!response.ok || !body.receipt) throw new Error(body.message || "피킹 완료 결과를 확인하지 못했습니다.");
       setReceipt(body.receipt);
+      try {sessionStorage.removeItem(invoiceDraftKey(picking.snapshotId));} catch {}
       try {localStorage.removeItem(draftKey(picking.snapshotId));} catch {}
     } catch(reason) {
       setError(reason instanceof Error ? reason.message : "연결을 확인하고 다시 눌러 주세요.");
@@ -253,9 +279,27 @@ export default function PickingClient({ token }: { token: string }) {
         {frozen ? <div role="status"><strong>피킹 완료</strong>
           {picking.unresolved.length > 0 && <p className="text-sm">확인 필요 {picking.unresolved.length}건은 별도로 확인해 주세요.</p>}
           {receipt && <><p className="my-2 text-sm">실사 재고 {receipt.selections.filter(row => !row.soldOut).length}건 반영 · 품절 {receipt.stockouts.length}건</p>
+            {receipt.invoiceTask && <div className="my-3 rounded border p-3 text-sm">
+              <strong>4번 미발송 송장 처리 · {receipt.invoiceTask.code === "KAKAO_CAPTCHA" ? "카카오톡 인증 대기" : invoiceStates[receipt.invoiceTask.status] || "확인 필요"}</strong>
+              <p className="mt-1 break-words">품절 처리 · {receipt.invoiceTask.invoiceNumbers.join(", ") || "없음"}</p>
+              <p className="break-words">재고부족(품절 제외) · {receipt.invoiceTask.inventoryShortageInvoiceNumbers.join(", ") || "없음"}</p>
+              {["ambiguous","needs_pc","failed","expired"].includes(receipt.invoiceTask.status) && <a className="mt-2 inline-block underline" href="/mobile-work-center">업무센터에서 결과 확인</a>}
+            </div>}
             <ul className="text-sm">{receipt.stockouts.map(item => <li key={item.barcode}>{item.barcode} · {dispatchLabels[item.state] || "확인 필요"}</li>)}
               {receipt.selections.filter(row => !row.soldOut).map(row => <li key={row.barcode}>{row.barcode} · 남은 재고 {row.quantity}개</li>)}</ul></>}
-        </div> : <><p className="text-sm">완료 시 재고없음 {unavailable}건을 품절 전송하고 실사 재고 {counts}건을 반영합니다.</p>
+        </div> : <><fieldset disabled={!!busy} className="space-y-3">
+          <legend className="font-bold">4번 미발송 송장 처리</legend>
+          <p className="text-sm">12자리 송장번호를 줄바꿈 또는 쉼표로 구분하세요. 두 칸 합계 최대 50개입니다.</p>
+          <label className="block text-sm font-semibold">품절 처리할 미발송 송장번호
+            <textarea className="mt-1 block w-full rounded border p-2 text-base font-normal" rows={2} value={invoices.soldOut}
+              onChange={e=>editInvoices("soldOut",e.target.value)} /></label>
+          <label className="block text-sm font-semibold">재고부족 미발송 송장번호 (품절 제외)
+            <textarea className="mt-1 block w-full rounded border p-2 text-base font-normal" rows={2} value={invoices.shortage}
+              onChange={e=>editInvoices("shortage",e.target.value)} /></label>
+          <p className="text-sm">{invoices.soldOut.trim() || invoices.shortage.trim()
+            ? "피킹 완료를 누르면 입력한 송장으로 4번 업무를 실제 실행합니다."
+            : "입력한 송장이 없으면 피킹만 완료합니다."}</p>
+        </fieldset><p className="text-sm">완료 시 재고없음 {unavailable}건을 품절 전송하고 실사 재고 {counts}건을 반영합니다.</p>
           <button type="button" disabled={!!busy} onClick={() => void finish()} className="w-full rounded bg-emerald-900 p-3 font-bold text-white disabled:opacity-50">
             {busy === "finish" ? "반영 중…" : "피킹 완료"}</button></>}
       </section>

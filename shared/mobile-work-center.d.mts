@@ -27,5 +27,7 @@ export function isMobileRequestId(value: unknown): boolean;
 export function mobileAction(id: unknown): MobileAction | null;
 export function canChooseDryRun(action: MobileAction): boolean;
 export function normalizeWorkRequest(body: unknown): MobileWorkRequest | null;
+export type InvoiceGroups = { invoiceNumbers: string[]; inventoryShortageInvoiceNumbers: string[] };
+export function invoiceGroups(invoiceNumbers: unknown, inventoryShortageInvoiceNumbers: unknown): InvoiceGroups;
 export function isAgentOnline(agent: MobileAgentStatus | null, now: number): boolean;
 export function normalizeAgentStatus(body: unknown, now: number): MobileAgentStatus;

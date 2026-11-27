@@ -45,6 +45,15 @@ export function canChooseDryRun(action) {
   return action.kind === "local" && !action.readOnly && action.input !== "order";
 }
 
+export function invoiceGroups(invoiceNumbers, inventoryShortageInvoiceNumbers) {
+  if (!Array.isArray(invoiceNumbers) || !Array.isArray(inventoryShortageInvoiceNumbers)) throw new Error("두 종류의 송장 목록을 확인해 주세요.");
+  const all = [...invoiceNumbers, ...inventoryShortageInvoiceNumbers];
+  if (all.length > 50) throw new Error("송장번호는 두 칸을 합쳐 최대 50개입니다.");
+  if (all.some((number) => typeof number !== "string" || !/^\d{12}$/.test(number))) throw new Error("송장번호는 하이픈 없이 12자리 숫자로 입력해 주세요.");
+  if (new Set(all).size !== all.length) throw new Error("중복된 송장번호가 있습니다. 각 송장은 한 분류에 한 번만 입력해 주세요.");
+  return { invoiceNumbers, inventoryShortageInvoiceNumbers };
+}
+
 export function normalizeWorkRequest(body) {
   const action = mobileAction(body?.actionId);
   if (!action || !isMobileRequestId(body.id) || !Number.isSafeInteger(body.issuedAt) || typeof body.execute !== "boolean") return null;
@@ -61,11 +70,11 @@ export function normalizeWorkRequest(body) {
     command.confirmation = UNPAID_ORDER_PHRASE;
   }
   if (action.input === "invoices") {
-    const lists = [body.invoiceNumbers, body.inventoryShortageInvoiceNumbers];
-    if (lists.some((list) => !Array.isArray(list))) return null;
-    const all = lists.flat();
-    if (all.length === 0 || all.length > 50 || all.some((number) => typeof number !== "string" || !/^\d{12}$/.test(number)) || new Set(all).size !== all.length) return null;
-    [command.invoiceNumbers, command.inventoryShortageInvoiceNumbers] = lists;
+    try {
+      const groups = invoiceGroups(body.invoiceNumbers, body.inventoryShortageInvoiceNumbers);
+      if (!groups.invoiceNumbers.length && !groups.inventoryShortageInvoiceNumbers.length) return null;
+      Object.assign(command, groups);
+    } catch { return null; }
   }
   return command;
 }
