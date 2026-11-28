@@ -14,7 +14,7 @@ import {
 } from "@/lib/aiSaurusBulkDetailStore";
 import {
   confirmSaurusApprovalReadback, newSaurusBatch, object, parseSaurusSelection, planSaurusApproval,
-  refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusSelectionHash, updateSaurusPreparation,
+  refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusBatchRevisionMode, saurusSelectionHash, updateSaurusPreparation,
 } from "@/lib/aiSaurusBulkDetailCore";
 import { AI_SAURUS_CONNECTION } from "@/lib/aiSaurusBulkDetailTypes";
 import { opsDetailSecret } from "@/lib/opsDetailDispatch";
@@ -125,7 +125,8 @@ export async function POST(request: NextRequest) {
     }
     const batch = await findSaurusBatch(config.value, owner, { id: input.batchId });
     if (!batch) return result({ ok: false, message: "작업 묶음을 찾지 못했습니다." }, 404);
-    if (input.revision !== batch.revision) {
+    const revision = saurusBatchRevisionMode(input.action, Number(input.revision), batch.revision);
+    if (revision === "conflict") {
       return result({ ok: false, message: "다른 곳에서 작업을 수정했습니다. 새로고침 후 다시 저장해 주세요." }, 409);
     }
     if (live) {
@@ -141,6 +142,8 @@ export async function POST(request: NextRequest) {
       if (input.action === "start" || input.action === "resume" || input.action === "refresh") {
         if (ids.length !== 1) return result({ ok: false, message: "제작 작업은 상품별로 실행됩니다." }, 400);
         const product = selected[0]!;
+        // A second tab can finish the same poll first. Return its saved snapshot.
+        if (revision === "read-latest") return result({ ok: true, batch });
         if (input.action === "start") {
           const queuedIds = input.queueIds === undefined ? batch.queuedIds ?? [] : parseSaurusSelection(input.queueIds);
           if ((batch.queuedIds?.length && input.queueIds !== undefined) ||

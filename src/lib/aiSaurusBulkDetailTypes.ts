@@ -1,4 +1,5 @@
 import type { OpsDetailOptionHint } from "./opsDetailDispatch";
+import type { AiSaurusReviewAssets } from "./aiSaurusReviewAssets";
 
 export const AI_SAURUS_BULK_LIMIT = 20;
 export const AI_SAURUS_ORIGIN = "https://ai-saurus.com";
@@ -36,6 +37,7 @@ export type AiSaurusHostedReceipt = {
   sessionEvidenceId: string;
   providerJobId: string;
   hostedImageUrl: string;
+  reviewAssets?: AiSaurusReviewAssets;
   sha256: string;
   qa: "passed";
   transferReceiptId: string;

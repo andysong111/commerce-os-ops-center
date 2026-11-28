@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { acceptSaurusHostedReceipt, object } from "./aiSaurusBulkDetailCore";
+import { readSaurusReviewAssets, saurusResultImageUrl } from "./aiSaurusReviewAssets";
 import type { AiSaurusBatchProduct, AiSaurusDetailBatch } from "./aiSaurusBulkDetailTypes";
 import {
   canonicalOpsOffer, OPS_SAURUS_CONTRACT, OPS_SAURUS_PRODUCTION, OPS_SAURUS_STATUS_PATH,
@@ -117,9 +118,10 @@ export function reconcileOpsSaurusStatus(product: AiSaurusBatchProduct, state: R
   if (state.state === "failed") return { ...next, stage: "failed", error: String(state.message ?? "AI 사우루스 제작에 실패했습니다.") };
   const { hostedUrl, qa, assetId, sha256 } = state;
   if (state.state !== "succeeded" || qa !== "passed" || typeof assetId !== "string" || !ID.test(assetId) ||
-      hostedUrl !== `${OPS_SAURUS_PRODUCTION}/api/saas/marketplace-assets/${assetId}/image.jpg` ||
+      hostedUrl !== saurusResultImageUrl(assetId) ||
       typeof sha256 !== "string" || !SHA.test(sha256)) throw new Error("AI 사우루스 최종 호스팅 결과를 확인하지 못했습니다.");
   const credits = Number(state.creditCost);
+  const reviewAssets = readSaurusReviewAssets(state.reviewAssets, assetId);
   return acceptSaurusHostedReceipt({
     ...next,
     run: {
@@ -132,5 +134,6 @@ export function reconcileOpsSaurusStatus(product: AiSaurusBatchProduct, state: R
     attemptKey: dispatch.attempt, inputHash: product.inputHash, itemId: product.id, deploymentId: dispatch.deployment,
     sessionEvidenceId: state.providerJobId, providerJobId: state.providerJobId, hostedImageUrl: hostedUrl,
     sha256, qa, transferReceiptId: assetId, costReceiptId: state.costReceiptId, costMinor: credits, currency: "CRD",
+    ...(reviewAssets ? { reviewAssets } : {}),
   });
 }

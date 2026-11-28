@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newSaurusBatch, planSaurusApproval, refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
-import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
+import { newSaurusBatch, planSaurusApproval, refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
+import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
+import { readSaurusReviewAssets, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
 import { showSaurusPopupMessage } from "../src/lib/aiSaurusBulkDetailPopup.ts";
 import { applyProductLaunchTrackerMutation } from "../src/lib/productLaunchTrackerOptimized.ts";
 
@@ -48,6 +49,67 @@ test("prevents duplicate starts and saves only the QA-verified final URL after e
     operation: "bulk_patch_items", patches: [{ itemId: "p1", patch: { detailPageAsset: { detailImageUrl: hostedUrl } } }],
   });
   assert.deepEqual(saved.state.items[0], planned);
+});
+
+test("each finished product keeps its own review images and approval still saves only the detail URL", () => {
+  const second = { ...product, id: "p2", productName: "다음 상품" };
+  const batch = newSaurusBatch("batch", ["p1", "p2"], [product, second], date);
+  const prepared = updateSaurusPreparation(batch, [
+    { id: "p1", options: ["단품"] }, { id: "p2", options: ["단품"] },
+  ], true, date);
+  const latest = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
+  const firstRun = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, latest);
+  const firstGallery = {
+    representative_main_catalog: "6592afe9-54f8-4202-af88-8d20091b7780",
+    representative_alternate_whole: "e37777e9-c36a-49f1-8a19-6c65ebda53a3",
+    representative_evidence_detail: "eb747774-2976-4982-8fa1-37288e27f6a6",
+    representative_lifestyle_usage: "03efbdd9-85fa-4e0f-810d-d0da50424355",
+    representative_adaptive_support: "3a598572-a7ee-4cab-8256-f059305ee201",
+  };
+  const succeeded = {
+    state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
+    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "201", reviewAssets: firstGallery,
+  };
+  const first = reconcileOpsSaurusStatus(firstRun.product, succeeded, 0);
+  assert.equal(first.stage, "awaiting_review");
+  assert.deepEqual(first.receipt.reviewAssets, firstGallery);
+  const secondRun = startOpsSaurusProduct(replaceProduct(firstRun.batch, first, date), "p2", "owner@example.com", date, latest);
+  const secondSourceAssets = {
+    representative_main_catalog: "fa66a622-a59b-4c6e-a6e8-76e558f97d7b",
+    representative_alternate_whole: "https://unexpected.test/offer.jpg",
+  };
+  const secondAssetId = "86c92d17-3cb7-4a91-ae5c-528f15fa7dec";
+  const secondResult = reconcileOpsSaurusStatus(secondRun.product, {
+    ...succeeded, providerJobId: "aa50faec-b9ac-48dd-86dc-5533d661275e", assetId: secondAssetId,
+    hostedUrl: saurusResultImageUrl(secondAssetId), costReceiptId: "202", reviewAssets: secondSourceAssets,
+  }, 0);
+  const persisted = JSON.parse(JSON.stringify(replaceProduct(secondRun.batch, secondResult, date)));
+  assert.deepEqual(persisted.products.map(({ stage }) => stage), ["awaiting_review", "awaiting_review"]);
+  assert.deepEqual(persisted.products[0].receipt.reviewAssets, firstGallery);
+  assert.deepEqual(persisted.products[1].receipt.reviewAssets, {
+    representative_main_catalog: secondSourceAssets.representative_main_catalog,
+  });
+  assert.deepEqual(planSaurusApproval(persisted, ["p2"], [product, second]), [
+    product, { ...second, detailPageAsset: { ...second.detailPageAsset, detailImageUrl: saurusResultImageUrl(secondAssetId) } },
+  ]);
+
+  assert.equal(readSaurusReviewAssets(undefined, assetId), undefined);
+  assert.equal(readSaurusReviewAssets({
+    representative_main_catalog: assetId,
+    representative_alternate_whole: firstGallery.representative_main_catalog,
+    representative_evidence_detail: firstGallery.representative_main_catalog,
+    checkpoint_representative_main_catalog: firstGallery.representative_alternate_whole,
+  }, assetId), undefined);
+});
+
+test("an older refresh can read the saved approval status while stale writes still conflict", () => {
+  assert.equal(saurusBatchRevisionMode("refresh", 3, 4), "read-latest");
+  assert.equal(saurusBatchRevisionMode("refresh", 4, 4), "current");
+  assert.equal(saurusBatchRevisionMode("refresh", 5, 4), "conflict");
+  assert.equal(saurusBatchRevisionMode("refresh", -1, 4), "conflict");
+  for (const action of ["approve", "start", "resume", "retry", "save", "prepare", "clear_queue"]) {
+    assert.equal(saurusBatchRevisionMode(action, 3, 4), "conflict");
+  }
 });
 
 const sourced = {

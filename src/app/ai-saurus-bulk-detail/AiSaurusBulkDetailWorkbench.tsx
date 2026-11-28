@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import AiSaurusResultReview from "./AiSaurusResultReview";
 import { useEffect, useRef, useState } from "react";
 import { showSaurusPopupMessage } from "@/lib/aiSaurusBulkDetailPopup";
 import {
@@ -60,6 +61,8 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   const [connected, setConnected] = useState(false);
   const [maxCredits, setMaxCredits] = useState<number | null>(null);
   const studio = useRef<Window | null>(null);
+  const [reviewedId, setReviewedId] = useState("");
+  const reviewTrigger = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -85,6 +88,9 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   }, [batchId]);
 
   const products = batch?.products ?? [];
+  const reviewable = products.filter((item) => item.receipt && matching.success(item.stage));
+  const reviewIndex = reviewable.findIndex((item) => item.id === reviewedId);
+  const reviewed = reviewable[reviewIndex];
   const visible = products.filter((item) => matching[view](item.stage));
   const editable = visible.filter((item) => item.reviewOptions !== undefined && !batch?.queuedIds?.includes(item.id) &&
     (item.stage === "draft" || item.stage === "waiting_connection"));
@@ -356,12 +362,29 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                     <textarea id={`saurus-options-${item.id}`} rows={2} className={`mt-1 ${textBox}`} value={currentText} disabled={busy} onChange={(event) => setItemOptions(item.id, event.target.value)} />
                   </details>}
                   {item.error && <p className="text-sm text-rose-800">{item.error}</p>}
-                  {item.receipt && <a href={item.receipt.hostedImageUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-blue-800 underline">검수용 상세페이지 이미지 열기</a>}
+                  {item.receipt && matching.success(item.stage) && (
+                    <button type="button" aria-haspopup="dialog"
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900 hover:border-blue-400 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-blue-600"
+                      onClick={(event) => { reviewTrigger.current = event.currentTarget; setReviewedId(item.id); }}>
+                      이미지 검수
+                    </button>
+                  )}
                 </li>
               );
             })}
           </ul>
         </>
+      )}
+      {reviewed?.receipt && (
+        <AiSaurusResultReview item={reviewed} receipt={reviewed.receipt} index={reviewIndex} count={reviewable.length}
+          onNavigate={(offset) => {
+            const item = reviewable[reviewIndex + offset];
+            if (item) setReviewedId(item.id);
+          }}
+          onClose={() => {
+            setReviewedId("");
+            reviewTrigger.current?.focus();
+          }} />
       )}
     </div>
   );

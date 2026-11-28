@@ -238,6 +238,12 @@ export async function planSaurusRun(
   };
 }
 
+export function saurusBatchRevisionMode(action: unknown, requested: number, current: number) {
+  if (requested === current) return "current";
+  if (action === "refresh" && requested >= 0 && requested < current) return "read-latest";
+  return "conflict";
+}
+
 export function acceptSaurusHostedReceipt(product: AiSaurusBatchProduct, receipt: AiSaurusHostedReceipt): AiSaurusBatchProduct {
   return { ...product, receipt: validateSaurusHostedReceipt(product, receipt), stage: "awaiting_review" };
 }
