@@ -14,7 +14,7 @@ import {
 } from "@/lib/aiSaurusBulkDetailStore";
 import {
   confirmSaurusApprovalReadback, newSaurusBatch, object, parseSaurusSelection, planSaurusApproval,
-  refreshSaurusPreparation, requireSaurusSourcingItems, saurusSelectionHash, updateSaurusPreparation,
+  refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusSelectionHash, updateSaurusPreparation,
 } from "@/lib/aiSaurusBulkDetailCore";
 import { AI_SAURUS_CONNECTION } from "@/lib/aiSaurusBulkDetailTypes";
 import { opsDetailSecret } from "@/lib/opsDetailDispatch";
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
           catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
           const current = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
           if (product.reviewOptions === undefined || current.sourceUrl !== product.sourceUrl || current.name !== product.name ||
-              JSON.stringify(current.reviewOptions) !== JSON.stringify(product.reviewOptions) ||
+              !sameSaurusReviewOptions(current.reviewOptions, product.reviewOptions) ||
               current.originalDetailImageUrl !== product.originalDetailImageUrl) {
             return result({ ok: false, message: "상품 정보가 변경됐습니다. 상품출시 진행관리에서 다시 선택해 주세요." }, 409);
           }
@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
           const latest = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
           if (current.reviewOptions === undefined || latest.sourceUrl !== current.sourceUrl || latest.name !== current.name ||
               latest.originalDetailImageUrl !== current.originalDetailImageUrl ||
-              JSON.stringify(latest.reviewOptions) !== JSON.stringify(current.reviewOptions)) {
+              !sameSaurusReviewOptions(latest.reviewOptions, current.reviewOptions)) {
             return result({ ok: false, message: "상품 정보나 수집 방식이 변경됐습니다. 상품출시 진행관리에서 상품을 다시 선택해 주세요." }, 409);
           }
           const release = await readOpsSaurusRelease();
