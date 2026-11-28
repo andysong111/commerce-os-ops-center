@@ -74,7 +74,7 @@ function ReviewContent({ receipt }: { receipt: AiSaurusHostedReceipt }) {
             </div>
             {chosen && selectedUrl && (
               <figure className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                <div className="flex h-[min(36dvh,420px)] items-center justify-center overflow-hidden p-2 lg:h-[min(51dvh,500px)]">
+                <div className="flex h-[min(31dvh,380px)] items-center justify-center overflow-hidden p-2 lg:h-[min(51dvh,500px)]">
                   <ReviewImage key={selectedUrl} url={selectedUrl} alt={imageLabels[chosen]} className="block max-h-full max-w-full object-contain" />
                 </div>
                 <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">{imageLabels[chosen]}</figcaption>
@@ -125,21 +125,19 @@ export default function AiSaurusResultReview({
     <dialog ref={dialog} aria-labelledby={headingId} onClose={onClose}
       className="fixed inset-0 m-auto h-[94dvh] max-h-[960px] w-[96vw] max-w-[1460px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/65">
       <div className="flex h-full min-h-0 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 px-4 py-3 lg:px-5">
-          <h2 id={headingId} className="min-w-0 flex-1 text-base font-bold leading-snug sm:text-lg">
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-slate-200 px-4 py-3 sm:flex lg:px-5">
+          <h2 id={headingId} className={`min-w-0 break-words text-base font-bold leading-snug sm:flex-1 sm:text-lg ${count > 1 ? "col-span-2" : ""}`}>
             {item.model && <span className="mr-2 inline-block rounded-md bg-blue-50 px-2 py-0.5 text-sm text-blue-900">{item.model}</span>}
             {item.name || item.id}
           </h2>
-          <div className="flex items-center gap-1.5">
-            {count > 1 && (
-              <nav className="flex items-center gap-1.5" aria-label="검수 상품 이동">
-                <button type="button" className={control} disabled={index === 0} onClick={() => onNavigate(-1)}>이전 상품</button>
-                <span className="whitespace-nowrap px-0.5 text-xs tabular-nums text-slate-600" aria-live="polite">{index + 1} / {count}</span>
-                <button type="button" className={control} disabled={index + 1 === count} onClick={() => onNavigate(1)}>다음 상품</button>
-              </nav>
-            )}
-            <button type="button" className={control} onClick={() => dialog.current?.close()}>닫기</button>
-          </div>
+          {count > 1 && (
+            <nav className="flex items-center gap-1.5" aria-label="검수 상품 이동">
+              <button type="button" className={control} disabled={index === 0} onClick={() => onNavigate(-1)}>이전 상품</button>
+              <span className="whitespace-nowrap px-0.5 text-xs tabular-nums text-slate-600" aria-live="polite">{index + 1} / {count}</span>
+              <button type="button" className={control} disabled={index + 1 === count} onClick={() => onNavigate(1)}>다음 상품</button>
+            </nav>
+          )}
+          <button type="button" className={control} onClick={() => dialog.current?.close()}>닫기</button>
         </header>
         <ReviewContent key={item.id} receipt={receipt} />
       </div>
