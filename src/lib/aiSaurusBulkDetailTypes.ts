@@ -90,6 +90,6 @@ export type AiSaurusDetailBatch = {
 };
 
 export function hasSaurusRetryAvailable(product: AiSaurusBatchProduct) {
-  return (product.stage === "awaiting_review" || product.stage === "failed") &&
+  return (product.stage === "awaiting_review" || product.stage === "approved" || product.stage === "failed") &&
     product.attempts > 0 && product.attempts < AI_SAURUS_MAX_ATTEMPTS;
 }

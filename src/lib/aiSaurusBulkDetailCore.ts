@@ -358,6 +358,7 @@ function requireSaurusApprovalItem(product: AiSaurusBatchProduct, input: Item | 
 
 export function planSaurusReviewDecision(
   batch: AiSaurusDetailBatch, ids: string[], items: Item[], decision: "retry" | "reject", now: string,
+  approvedTargets?: { launchItems: Item[]; seoItems: Item[] },
 ) {
   const chosen = new Set(ids);
   return {
@@ -368,11 +369,20 @@ export function planSaurusReviewDecision(
       const item = decision === "reject"
         ? requireSaurusProductIdentity(product, current)
         : requireSaurusReviewItem(product, current);
-      if (!["awaiting_review", "failed"].includes(product.stage) ||
-          (decision === "retry" && !hasSaurusRetryAvailable(product))) {
+      if (decision === "retry" ? !hasSaurusRetryAvailable(product) : !["awaiting_review", "failed"].includes(product.stage)) {
         throw new Error(decision === "retry"
           ? "제작 재시도는 상품당 한 번만 가능합니다."
           : "승인 대기 또는 제작 실패 상품을 거절할 수 있습니다.");
+      }
+      if (product.stage === "approved") {
+        if (!approvedTargets || !product.receipt) throw new Error("이전에 승인한 이미지 주소를 확인하지 못했습니다.");
+        // An approved product can only authorize replacing the exact gallery already signed off in both stores.
+        const [launchItem] = planSaurusApproval(batch, [product.id], approvedTargets.launchItems.filter((row) => row.id === product.id));
+        const [seoItem] = planSaurusApproval(batch, [product.id], approvedTargets.seoItems.filter((row) => row.id === product.id), "seo");
+        const ready = { ...product, bCodes: saurusProductBCodes(item) };
+        const { snapshot } = inspectSaurusExistingImages(ready, launchItem, seoItem);
+        return { ...ready, stage: "waiting_connection", originalDetailImageUrl: snapshot.launch.detailImageUrl,
+          originalImageMaterials: snapshot.launch, imageOverwrite: snapshot, error: undefined };
       }
       if (product.stage === "awaiting_review") {
         if (!product.receipt) throw new Error("검수 결과를 확인하지 못했습니다.");

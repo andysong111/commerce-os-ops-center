@@ -64,6 +64,7 @@ on:
       - 'tests/detailPageAssetStorageRetry.test.mjs'
       - 'tests/aiSaurusBulkDetailPreparation.test.mjs'
       - 'tests/aiSaurusBulkDetailLive.test.mjs'
+      - 'tests/aiSaurusCompletedProductCards.ui.mjs'
       - 'tests/aiSaurusReviewDecisions.pg.sql'
       - 'scripts/test-ai-saurus-review-decisions-db.mjs'
       - 'tests/detailPageManualDecision.test.mjs'
@@ -131,6 +132,7 @@ jobs:
           tests/detailPageAssetStorageRetry.test.mjs
           tests/aiSaurusBulkDetailPreparation.test.mjs
           tests/aiSaurusBulkDetailLive.test.mjs
+          tests/aiSaurusCompletedProductCards.ui.mjs
           tests/detailPageManualDecision.test.mjs
           tests/detailPageOpsV260807Connection.test.mjs
           tests/shoplingCategoryCatalog.test.mjs

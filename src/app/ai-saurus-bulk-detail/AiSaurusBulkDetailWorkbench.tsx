@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import AiSaurusResultReview from "./AiSaurusResultReview";
-import AiSaurusReviewDecisions, { type ReviewAction } from "./AiSaurusReviewDecisions";
+import AiSaurusReviewDecisions, { CompletedProductActions, type ReviewAction } from "./AiSaurusReviewDecisions";
 import AiSaurusManualImageForm, { type ManualImages } from "./AiSaurusManualImageForm";
 import { useEffect, useRef, useState } from "react";
 import { showSaurusPopupMessage } from "@/lib/aiSaurusBulkDetailPopup";
@@ -370,7 +370,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           <ul className="space-y-3">
             {visible.map((item) => {
               const canEdit = editable.includes(item);
-              const canSelect = canEdit || hasSaurusRetryAvailable(item) || item.stage === "awaiting_review" || item.stage === "approving";
+              const canSelect = canEdit || (item.stage === "failed" && hasSaurusRetryAvailable(item)) || item.stage === "awaiting_review" || item.stage === "approving";
               const currentText = options[item.id] ?? "";
               const picked = lines(currentText);
               return (
@@ -405,17 +405,12 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                     <textarea id={`saurus-options-${item.id}`} rows={2} className={`mt-1 ${textBox}`} value={currentText} disabled={busy} onChange={(event) => setItemOptions(item.id, event.target.value)} />
                   </details>}
                   {item.error && <p className="text-sm text-rose-800">{item.error}</p>}
-                  {item.receipt && matching.success(item.stage) && (
-                    <button type="button" aria-haspopup="dialog"
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900 hover:border-blue-400 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-blue-600"
-                      onClick={(event) => {
-                        reviewTrigger.current = event.currentTarget;
-                        setReviewError(null);
-                        setReviewedId(item.id);
-                      }}>
-                      이미지 검수
-                    </button>
-                  )}
+                  <CompletedProductActions item={item} busy={busy} error={reviewError?.id === item.id ? reviewError.message : ""}
+                    decide={(action) => void submitReview(action, [item.id])} onOpen={(trigger) => {
+                      reviewTrigger.current = trigger;
+                      setReviewError(null);
+                      setReviewedId(item.id);
+                    }} />
                   {item.stage === "failed" && (
                     <AiSaurusReviewDecisions item={item} busy={busy} error={reviewError?.id === item.id ? reviewError.message : ""}
                       decide={(action) => void submitReview(action, [item.id])} />

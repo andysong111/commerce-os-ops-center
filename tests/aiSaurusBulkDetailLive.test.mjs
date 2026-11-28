@@ -218,6 +218,55 @@ test("a reviewed result can retry once across reselection and rejection permanen
   assert.throws(() => saurusManualMaterials({ ...manual, detailImageUrl: "javascript:alert(1)" }, "테스트"), /HTTP/);
 });
 
+test("an approved product keeps its saved gallery until the single retry is approved", () => {
+  const other = { ...product, id: "p2", modelNumber: "AAA505", detailPageAsset: { mainImageUrl: "keep" } };
+  const ids = ["p1"];
+  const initial = newSaurusBatch("batch", ["p1", "p2"], [product, other], date);
+  const prepared = updateSaurusPreparation(initial, [{ id: "p1", options: ["단품"] }], true, date);
+  const release = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
+  const first = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, release);
+  const evidence = { state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
+    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "first", reviewAssets: firstGallery };
+  const review = replaceProduct(first.batch, reconcileOpsSaurusStatus(first.product, evidence, 0), date);
+  const reserved = reserveSaurusApproval(review, ids, [product], date);
+  const saved = planSaurusApproval(reserved, ids, [product, other]);
+  const approved = confirmSaurusApprovalReadback(reserved, ids, saved, date);
+  const targets = { launchItems: saved, seoItems: structuredClone(saved) };
+  const savedBeforeRetry = structuredClone(targets);
+  const retry = () => planSaurusReviewDecision(approved, ids, saved, "retry", date, targets);
+  for (const store of ["launchItems", "seoItems"]) {
+    const changed = structuredClone(targets);
+    changed[store][0].detailPageAsset.mainImageUrl = "https://cdn.example/manual.jpg";
+    assert.throws(() => planSaurusReviewDecision(approved, ids, saved, "retry", date, changed), /이미지 자료가 변경/);
+  }
+  assert.throws(() => planSaurusReviewDecision(approved, ids, saved, "reject", date), /승인 대기/);
+  const next = retry();
+  assert.equal(next.products[1], approved.products[1]);
+  assert.equal(next.products[0].stage, "waiting_connection");
+  assert.equal(next.products[0].attempts, 1);
+  const confirmation = planSaurusImageConfirmation(newSaurusBatch("batch", ids, saved, date), saved, saved, {});
+  assert.equal(next.products[0].imageOverwrite.token, confirmation.warnings[0].token);
+  assert.deepEqual(next.products[0].originalImageMaterials, saurusLaunchMaterials(saved[0]));
+  const second = startOpsSaurusProduct(next, "p1", "owner@example.com", date, release);
+  assert.equal(second.product.attempts, 2);
+  const newId = "02b75d34-5499-4fcf-ae76-97a0af86faf1";
+  const newGallery = Object.fromEntries(Object.entries(firstGallery).map(([role, id]) => [role, "f" + id.slice(1)]));
+  const again = replaceProduct(second.batch, reconcileOpsSaurusStatus(second.product, { ...evidence,
+    assetId: newId, hostedUrl: saurusResultImageUrl(newId), reviewAssets: newGallery,
+    providerJobId: "04ce59b8-0a74-4ff7-aba3-f483d20fe168", costReceiptId: "second" }, 0), date);
+  assert.deepEqual(targets, savedBeforeRetry);
+  const replacing = reserveSaurusApproval(again, ids, saved, date);
+  const launch = planSaurusApproval(replacing, ids, targets.launchItems);
+  const seo = planSaurusApproval(replacing, ids, targets.seoItems, "seo");
+  assert.deepEqual(launch, seo);
+  assert.equal(launch[1], saved[1]);
+  assert.equal(launch[0].detailPageAsset.detailImageUrl, saurusResultImageUrl(newId));
+  assert.equal(launch[0].detailPageAsset.mainImageUrl, saurusResultImageUrl(newGallery.representative_main_catalog));
+  assert.deepEqual(launch[0].detailPageAsset.additionalImageUrls, Object.values(newGallery).slice(1).map(saurusResultImageUrl));
+  const final = confirmSaurusApprovalReadback(replacing, ids, launch, date);
+  assert.throws(() => planSaurusReviewDecision(final, ids, launch, "retry", date, { launchItems: launch, seoItems: seo }), /한 번/);
+});
+
 test("an older refresh can read the saved approval status while stale writes still conflict", () => {
   assert.equal(saurusBatchRevisionMode("refresh", 3, 4), "read-latest");
   assert.equal(saurusBatchRevisionMode("refresh", 4, 4), "current");
