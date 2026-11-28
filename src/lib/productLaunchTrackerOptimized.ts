@@ -451,14 +451,22 @@ export function applyProductLaunchTrackerMutation(
         changedIds.add(itemId);
         continue;
       }
-      if (Object.keys(patch).length === 1 && isRecord(patch.detailPageAsset) &&
-          Object.keys(patch.detailPageAsset).length === 1 && typeof patch.detailPageAsset.detailImageUrl === "string") {
-        items[index] = {
-          ...items[index],
-          detailPageAsset: { ...asRecord(items[index].detailPageAsset), detailImageUrl: patch.detailPageAsset.detailImageUrl },
-        };
-        changedIds.add(itemId);
-        continue;
+      if (Object.keys(patch).length === 1 && isRecord(patch.detailPageAsset)) {
+        const asset = patch.detailPageAsset;
+        const keys = Object.keys(asset);
+        const detailOnly = keys.length === 1 && typeof asset.detailImageUrl === "string";
+        const fullImages = isProductLaunchImageMaterialsPatch(patch);
+        if (fullImages && !text(input.expectedStateUpdatedAt)) {
+          throw new Error("상품 이미지 저장에는 상태 버전 확인이 필요합니다.");
+        }
+        if (detailOnly || fullImages) {
+          items[index] = {
+            ...items[index],
+            detailPageAsset: { ...asRecord(items[index].detailPageAsset), ...asset },
+          };
+          changedIds.add(itemId);
+          continue;
+        }
       }
       items[index] = patchItem(
         items[index],
@@ -690,6 +698,17 @@ export function applyProductLaunchTrackerMutation(
 export function isChinaLinkUsageMigrationPatch(patch: unknown) {
   return isRecord(patch) && Object.keys(patch).length === 1 &&
     Object.hasOwn(patch, "chinaLinkUsage");
+}
+
+export function isProductLaunchImageMaterialsPatch(patch: unknown): patch is { detailPageAsset: {
+  detailImageUrl: string; mainImageUrl: string; additionalImageUrls: string[]; html: string;
+} } {
+  if (!isRecord(patch) || Object.keys(patch).length !== 1 || !isRecord(patch.detailPageAsset)) return false;
+  const asset = patch.detailPageAsset;
+  return Object.keys(asset).length === 4 && typeof asset.detailImageUrl === "string" &&
+    typeof asset.mainImageUrl === "string" && typeof asset.html === "string" &&
+    Array.isArray(asset.additionalImageUrls) && asset.additionalImageUrls.length <= 10 &&
+    asset.additionalImageUrls.every((url) => typeof url === "string");
 }
 
 function patchItem(item: UnknownRecord, input: UnknownRecord, now: string) {

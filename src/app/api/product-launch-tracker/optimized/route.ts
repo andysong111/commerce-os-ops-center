@@ -23,6 +23,8 @@ import {
   buildProductLaunchTrackerIndex,
   getProductLaunchTrackerItem,
   isChinaLinkUsageMigrationPatch,
+  isProductLaunchImageMaterialsPatch,
+  summarizeProductLaunchTrackerItem,
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
 import {
@@ -32,6 +34,7 @@ import {
   readProductLaunchNormalizedWorkspace,
   setProductLaunchNormalizedReadEnabled,
   syncProductLaunchNormalizedChangedItems,
+  syncProductLaunchNormalizedImageMaterials,
   syncProductLaunchNormalizedLinkMigration,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
@@ -579,9 +582,27 @@ async function mutateStateWithRetry(
     const bulkPatches = isRecord(input) && input.operation === "bulk_patch_items" &&
       Array.isArray(input.patches) ? input.patches.filter(isRecord) : [];
     const linkPatches = bulkPatches.filter((entry) => isChinaLinkUsageMigrationPatch(entry.patch));
+    const imagePatches = bulkPatches.flatMap((entry) => isProductLaunchImageMaterialsPatch(entry.patch)
+      ? [{ itemId: String(entry.itemId), asset: entry.patch.detailPageAsset }]
+      : []);
+    if (imagePatches.length && imagePatches.length !== bulkPatches.length) {
+      throw new Error("상품 이미지 주소는 다른 상품 변경과 함께 저장할 수 없습니다.");
+    }
     if (linkPatches.length && linkPatches.length !== bulkPatches.length) {
       throw new Error("중국 상품링크 이관은 다른 상품 변경과 함께 저장할 수 없습니다.");
     }
+    const seoItems = imagePatches.length
+      ? await readProductLaunchNormalizedItems(config, identity.userId, imagePatches.map(({ itemId }) => itemId))
+      : [];
+    const seoItemsById = new Map(seoItems.filter(isRecord).map((item) => [item.id, item]));
+    const imageMirror = imagePatches.map(({ itemId, asset }) => {
+      const item = seoItemsById.get(itemId);
+      if (!item) throw new Error("SEO 대량등록에서 사용할 상품을 찾지 못했습니다.");
+      const { readiness } = summarizeProductLaunchTrackerItem({
+        ...item, detailPageAsset: { ...(isRecord(item.detailPageAsset) ? item.detailPageAsset : {}), ...asset },
+      });
+      return { itemId, asset, readiness };
+    });
     const persistedItems = Array.isArray(persistedState.items) ? persistedState.items : [];
     const normalizedLinkPlan = linkPatches.length
       ? await prepareProductLaunchNormalizedLinkMigration(
@@ -619,15 +640,20 @@ async function mutateStateWithRetry(
     const schemaVersion = numberOrNull(saved.schema_version) ?? 3;
     let normalizedSynced = true;
     try {
-      const sync = normalizedLinkPlan
-        ? await syncProductLaunchNormalizedLinkMigration(config, identity.userId, normalizedLinkPlan, updatedAt)
-        : await syncProductLaunchNormalizedChangedItems(config, identity, persistedState, updatedAt, mutation.changedIds);
-      normalizedSynced = sync.synced === true;
+      if (normalizedLinkPlan) {
+        normalizedSynced = (await syncProductLaunchNormalizedLinkMigration(config, identity.userId, normalizedLinkPlan, updatedAt)).synced;
+      } else if (imageMirror.length) {
+        normalizedSynced = (await syncProductLaunchNormalizedImageMaterials(
+          config, identity.userId, nullableText(row.updated_at), updatedAt, index.counts, imageMirror,
+        )).synced;
+      } else {
+        normalizedSynced = (await syncProductLaunchNormalizedChangedItems(config, identity, persistedState, updatedAt, mutation.changedIds)).synced;
+      }
     } catch (error) {
       normalizedSynced = false;
       console.error("Product Launch normalized mirror sync failed", error);
     }
-    if (!normalizedSynced) {
+    if (!normalizedSynced && !imageMirror.length) {
       try {
         await setProductLaunchNormalizedReadEnabled(
           config,

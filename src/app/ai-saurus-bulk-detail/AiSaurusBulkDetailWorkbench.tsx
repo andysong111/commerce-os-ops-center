@@ -2,27 +2,31 @@
 
 import Link from "next/link";
 import AiSaurusResultReview from "./AiSaurusResultReview";
+import AiSaurusReviewDecisions, { type ReviewAction } from "./AiSaurusReviewDecisions";
+import AiSaurusManualImageForm, { type ManualImages } from "./AiSaurusManualImageForm";
 import { useEffect, useRef, useState } from "react";
 import { showSaurusPopupMessage } from "@/lib/aiSaurusBulkDetailPopup";
 import {
-  AI_SAURUS_BATCH_API, AI_SAURUS_BATCH_PAGE,
+  AI_SAURUS_BATCH_API, AI_SAURUS_BATCH_PAGE, hasSaurusRetryAvailable,
   type AiSaurusDetailBatch, type AiSaurusProductStage,
 } from "@/lib/aiSaurusBulkDetailTypes";
 
 type BatchLink = { id: string; updatedAt: string; count: number };
-type View = "all" | "ready" | "success" | "failed";
+type View = "all" | "ready" | "success" | "failed" | "rejected";
 const filters = [
-  ["all", "전체"], ["ready", "준비"], ["success", "성공"], ["failed", "실패"],
+  ["all", "전체"], ["ready", "준비"], ["success", "성공"], ["failed", "실패"], ["rejected", "승인 거절"],
 ] as const;
 const labels: Record<AiSaurusProductStage, string> = {
   draft: "수집 준비", waiting_connection: "수집 대기", waiting_1688_login: "1688 로그인 대기",
-  running: "제작 중", awaiting_review: "승인 대기", failed: "실패", approved: "승인 완료",
+  running: "제작 중", awaiting_review: "승인 대기", approving: "승인 저장 확인 중",
+  failed: "실패", approved: "승인 완료", rejected: "승인 거절 · 직접 제작",
 };
 const matching = {
   all: () => true,
   ready: (stage: AiSaurusProductStage) => ["draft", "waiting_connection", "waiting_1688_login"].includes(stage),
-  success: (stage: AiSaurusProductStage) => ["awaiting_review", "approved"].includes(stage),
+  success: (stage: AiSaurusProductStage) => ["awaiting_review", "approving", "approved"].includes(stage),
   failed: (stage: AiSaurusProductStage) => stage === "failed",
+  rejected: (stage: AiSaurusProductStage) => stage === "rejected",
 };
 const textBox = "w-full rounded-lg border border-slate-300 p-2.5 text-sm focus-visible:outline-2 focus-visible:outline-blue-600 disabled:bg-slate-100";
 const secondary = "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50";
@@ -63,6 +67,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   const studio = useRef<Window | null>(null);
   const [reviewedId, setReviewedId] = useState("");
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
+  const [reviewError, setReviewError] = useState<{ id: string; message: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -95,8 +100,8 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   const editable = visible.filter((item) => item.reviewOptions !== undefined && !batch?.queuedIds?.includes(item.id) &&
     (item.stage === "draft" || item.stage === "waiting_connection"));
   const chosen = editable.filter((item) => selected.includes(item.id));
-  const selectable = view === "success" ? visible.filter((item) => item.stage === "awaiting_review")
-    : view === "failed" ? visible.filter((item) => item.reviewOptions !== undefined) : editable;
+  const selectable = view === "success" ? visible.filter((item) => item.stage === "awaiting_review" || item.stage === "approving")
+    : view === "failed" ? visible.filter(hasSaurusRetryAvailable) : editable;
   const allSelected = selectable.length > 0 && selectable.every(({ id }) => selected.includes(id));
   const running = products.find((item) => item.stage === "running");
   const nextQueued = batch?.queuedIds?.[0];
@@ -182,7 +187,49 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     }
   }
 
-  async function connectAction(action: "start" | "continue" | "resume" | "retry" | "approve" | "clear_queue") {
+  async function submitReview(action: ReviewAction | "manual_save", ids: string[], images?: ManualImages) {
+    if (!batch || busy || !ids.length) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setReviewError(null);
+    try {
+      const { batch: saved } = await batchRequest({ action, batchId, revision: batch.revision, itemIds: ids, images });
+      setBatch(saved);
+      setReviewedId("");
+      if (action === "retry") {
+        setSelected(ids);
+        setView("ready");
+        setMessage("재시도할 상품을 선택했습니다. 1688 정보 수집을 눌러 다시 제작할 수 있습니다.");
+      } else if (action === "reject") {
+        setSelected((current) => current.filter((id) => !ids.includes(id)));
+        setView("rejected");
+        setMessage("승인 거절을 저장했습니다. 직접 제작한 이미지 URL을 입력할 수 있습니다.");
+      } else {
+        setSelected((current) => current.filter((id) => !ids.includes(id)));
+        setMessage(action === "approve" ? "상세페이지·대표·부가 이미지 주소를 상품출시 진행관리에 저장했습니다."
+          : "직접 제작한 이미지 주소를 상품출시 진행관리에 저장했습니다.");
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "검수 결과를 저장하지 못했습니다.";
+      if (ids.length === 1) setReviewError({ id: ids[0], message });
+      setError(message);
+      // Approval may have been reserved before a save response was lost.
+      try {
+        const response = await fetch(AI_SAURUS_BATCH_API + "?batch=" + encodeURIComponent(batch.id), {
+          cache: "no-store", signal: AbortSignal.timeout(12000),
+        });
+        if (response.ok) {
+          const current = await response.json();
+          if (current.batch) setBatch(current.batch);
+        }
+      } catch { /* Keep the original decision error visible. */ }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function connectAction(action: "start" | "continue" | "resume" | "clear_queue") {
     if (!batch || busy) return;
     setBusy(true);
     setError("");
@@ -218,10 +265,6 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           showSaurusPopupMessage(popup, "AI 사우루스 작업 상태", message);
           setMessage(message);
         }
-      } else if (action === "retry" || action === "approve") {
-        const { batch: saved } = await dispatch(action, batch, resultsSelected);
-        setBatch(saved);
-        setMessage(action === "approve" ? "승인한 상품의 상세페이지 이미지 URL을 저장했습니다." : "선택한 실패 품목을 다시 준비했습니다.");
       } else if (action === "clear_queue") {
         const { batch: saved } = await dispatch(action, batch, []);
         setBatch(saved);
@@ -309,11 +352,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           )}
           {(view === "success" || view === "failed") && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={secondary} disabled={!connected || busy || !resultsSelected.length}
-                onClick={() => void connectAction(view === "success" ? "approve" : "retry")}>
-                {view === "success" ? "선택 성공 품목 일괄 승인 · URL 저장" : "선택 실패 품목 다시 준비"}
+              <button type="button" className={secondary} disabled={busy || !resultsSelected.length}
+                onClick={() => void submitReview(view === "success" ? "approve" : "retry", resultsSelected)}>
+                {view === "success" ? "선택 상품 일괄 승인 · URL 저장" : "선택 실패 품목 다시 준비"}
               </button>
-              {!connected && <span className="self-center text-sm text-slate-600">실제 연결을 활성화한 뒤 이용할 수 있습니다.</span>}
             </div>
           )}
           {selectable.length > 0 && (
@@ -328,7 +370,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           <ul className="space-y-3">
             {visible.map((item) => {
               const canEdit = editable.includes(item);
-              const canSelect = canEdit || (item.reviewOptions !== undefined && item.stage === "failed") || item.stage === "awaiting_review";
+              const canSelect = canEdit || hasSaurusRetryAvailable(item) || item.stage === "awaiting_review" || item.stage === "approving";
               const currentText = options[item.id] ?? "";
               const picked = lines(currentText);
               return (
@@ -344,6 +386,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                       {item.stage === "running" ? item.dispatch?.providerJobId ? `제작 중 ${item.dispatch.progress ?? 0}%` : "1688 로그인·수집 대기" : labels[item.stage]}
                     </span>
                   </div>
+                  {Boolean(item.bCodes?.length) && <div className="text-xs font-semibold text-slate-600">B코드 {item.bCodes?.join(" · ")}</div>}
                   <div className="break-all text-xs text-slate-600">제작용 링크 {item.sourceUrl || "미입력"}</div>
                   {item.reviewOptions === undefined && matching.ready(item.stage) &&
                     <p className="text-xs text-slate-600">이전 준비 작업입니다. 상품출시 진행관리에서 제작 대상 상품을 다시 선택해 주세요.</p>}
@@ -365,9 +408,22 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                   {item.receipt && matching.success(item.stage) && (
                     <button type="button" aria-haspopup="dialog"
                       className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-900 hover:border-blue-400 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-blue-600"
-                      onClick={(event) => { reviewTrigger.current = event.currentTarget; setReviewedId(item.id); }}>
+                      onClick={(event) => {
+                        reviewTrigger.current = event.currentTarget;
+                        setReviewError(null);
+                        setReviewedId(item.id);
+                      }}>
                       이미지 검수
                     </button>
+                  )}
+                  {item.stage === "failed" && (
+                    <AiSaurusReviewDecisions item={item} busy={busy} error={reviewError?.id === item.id ? reviewError.message : ""}
+                      decide={(action) => void submitReview(action, [item.id])} />
+                  )}
+                  {item.stage === "rejected" && (
+                    <AiSaurusManualImageForm busy={busy} saved={Boolean(item.manualImageSavedAt)}
+                      error={reviewError?.id === item.id ? reviewError.message : ""}
+                      onSave={(images) => void submitReview("manual_save", [item.id], images)} />
                   )}
                 </li>
               );
@@ -377,6 +433,8 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
       )}
       {reviewed?.receipt && (
         <AiSaurusResultReview item={reviewed} receipt={reviewed.receipt} index={reviewIndex} count={reviewable.length}
+          busy={busy} error={reviewError?.id === reviewed.id ? reviewError.message : ""}
+          onDecision={(action) => void submitReview(action, [reviewed.id])}
           onNavigate={(offset) => {
             const item = reviewable[reviewIndex + offset];
             if (item) setReviewedId(item.id);

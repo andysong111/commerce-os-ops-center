@@ -10,13 +10,19 @@ import {
   readProductLaunchNormalizedItems, readProductLaunchNormalizedWorkspace,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import {
-  findSaurusBatch, insertSaurusBatch, listSaurusBatches, saveSaurusBatch, SaurusStoreError,
+  findSaurusBatch, findSaurusReviewConflict, insertSaurusBatch, listSaurusBatches, saveSaurusBatch,
+  saveSaurusReviewBatch, SaurusStoreError,
 } from "@/lib/aiSaurusBulkDetailStore";
 import {
   confirmSaurusApprovalReadback, newSaurusBatch, object, parseSaurusSelection, planSaurusApproval,
-  refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusBatchRevisionMode, saurusSelectionHash, updateSaurusPreparation,
+  planSaurusReviewDecision, refreshSaurusPreparation, requireSaurusProductIdentity, requireSaurusSourcingItems,
+  reserveSaurusApproval, sameSaurusReviewOptions, saurusBatchRevisionMode, saurusSelectionHash, updateSaurusPreparation,
 } from "@/lib/aiSaurusBulkDetailCore";
 import { AI_SAURUS_CONNECTION } from "@/lib/aiSaurusBulkDetailTypes";
+import {
+  sameSaurusLaunchMaterials, saurusLaunchMaterials, saurusManualMaterials, saurusProductBCodes,
+  type SaurusLaunchMaterials,
+} from "@/lib/aiSaurusLaunchMaterials";
 import { opsDetailSecret } from "@/lib/opsDetailDispatch";
 import {
   browserLaunchUrl, readOpsSaurusRelease, readOpsSaurusStatus, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct,
@@ -56,7 +62,37 @@ async function readSelectedLaunchItems(config: ProductLaunchAdminConfig, owner: 
     console.warn("[ai-saurus-bulk-detail] normalized product read", error instanceof Error ? error.name : "unknown");
   }
   const state = object((await readProductLaunchState(config, owner))?.state_payload);
-  return Array.isArray(state.items) ? state.items.map(object) : [];
+  const chosen = new Set(ids);
+  return Array.isArray(state.items) ? state.items.map(object).filter(({ id }) => typeof id === "string" && chosen.has(id)) : [];
+}
+
+function imagePatch(itemId: string, materials: SaurusLaunchMaterials) {
+  return { itemId, patch: { detailPageAsset: materials } };
+}
+
+async function readLaunchImageTargets(config: ProductLaunchAdminConfig, owner: string, ids: string[]) {
+  const [state, normalized] = await Promise.all([
+    readProductLaunchState(config, owner), readProductLaunchNormalizedItems(config, owner, ids),
+  ]);
+  const items = object(state?.state_payload).items;
+  if (!state?.updated_at || !Array.isArray(items) || normalized.length !== ids.length) {
+    throw new SaurusStoreError("진행관리와 SEO 대량등록에서 사용할 상품을 모두 확인하지 못했습니다.", 409);
+  }
+  const chosen = new Set(ids);
+  return {
+    updatedAt: state.updated_at,
+    launchItems: items.map(object).filter(({ id }) => typeof id === "string" && chosen.has(id)),
+    seoItems: normalized.map(object),
+  };
+}
+
+async function saveLaunchImagePatches(request: NextRequest, expectedStateUpdatedAt: string, patches: ReturnType<typeof imagePatch>[]) {
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  return updateLaunchTracker(new NextRequest(request.url, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ operation: "bulk_patch_items", expectedStateUpdatedAt, patches }),
+  }));
 }
 
 export async function GET(request: NextRequest) {
@@ -74,8 +110,14 @@ export async function GET(request: NextRequest) {
       connection() === "connected" ? readOpsSaurusRelease().catch(() => null) : null,
     ]);
     if (id && !batch) return result({ ok: false, message: "작업 묶음을 찾지 못했습니다." }, 404);
+    const olderResults = batch?.products.filter((item) => !item.bCodes?.length && item.stage !== "draft") ?? [];
+    const fresh = olderResults.length ? await readSelectedLaunchItems(config.value, owner, olderResults.map(({ id }) => id)) : [];
+    const displayBatch = batch && fresh.length ? { ...batch, products: batch.products.map((item) => {
+      const current = !item.bCodes?.length ? fresh.find(({ id }) => id === item.id) : undefined;
+      return current ? { ...item, bCodes: saurusProductBCodes(current) } : item;
+    }) } : batch;
     return result({ ok: true, connection: release?.sourceReview ? connection() : AI_SAURUS_CONNECTION,
-      batches, batch, maxCredits: release?.maxCredits ?? null });
+      batches, batch: displayBatch, maxCredits: release?.maxCredits ?? null });
   } catch (error) {
     return handleError(error);
   }
@@ -89,12 +131,13 @@ export async function POST(request: NextRequest) {
   const owner = auth.value.userId;
   const input = object(await request.json().catch(() => null));
   const now = new Date().toISOString();
-  const live = ["start", "resume", "refresh", "approve", "retry", "clear_queue"].includes(String(input.action));
-  if (live && connection() !== "connected") {
+  const live = ["start", "resume", "refresh", "approve", "retry", "reject", "manual_save", "clear_queue"].includes(String(input.action));
+  if (["start", "resume", "refresh"].includes(String(input.action)) && connection() !== "connected") {
     return result({ ok: false, code: "AI_SAURUS_CONNECTION_LOCKED", message: "AI 사우루스 실제 연결은 준비 단계에서 잠겨 있습니다." }, 409);
   }
-  const email = connection() === "connected" ? await requireOperatorEmail(owner) : "";
-  if (connection() === "connected" && !email) {
+  const needsOperator = live || connection() === "connected";
+  const email = needsOperator ? await requireOperatorEmail(owner) : "";
+  if (needsOperator && !email) {
     return result({ ok: false, message: "제작 작업을 사용하려면 OPS에 로그인해 주세요." }, 401);
   }
   try {
@@ -110,6 +153,13 @@ export async function POST(request: NextRequest) {
         batch = newSaurusBatch(previous?.id ?? randomUUID(), ids, items, now);
       } catch (error) {
         return result({ ok: false, message: (error as Error).message }, 409);
+      }
+      const conflict = await findSaurusReviewConflict(config.value, owner, batch);
+      if (conflict) {
+        const note = conflict.stage === "rejected"
+          ? "승인 거절된 상품은 기존 작업에서 직접 제작 URL을 입력할 수 있습니다."
+          : "이미 제작을 시작한 상품은 기존 작업에서 결과를 확인해 주세요.";
+        return result({ ok: false, message: `${conflict.model} · ${note}`, batchId: conflict.batch_id }, 409);
       }
       if (previous) {
         const refreshed = refreshSaurusPreparation(previous, batch);
@@ -164,14 +214,21 @@ export async function POST(request: NextRequest) {
           try { requireSaurusSourcingItems(currentItems, selectedIds); }
           catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
           const current = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
-          if (product.reviewOptions === undefined || current.sourceUrl !== product.sourceUrl || current.name !== product.name ||
+          if (!current || product.reviewOptions === undefined || current.sourceUrl !== product.sourceUrl ||
+              current.name !== product.name || current.model !== product.model ||
               !sameSaurusReviewOptions(current.reviewOptions, product.reviewOptions) ||
-              current.originalDetailImageUrl !== product.originalDetailImageUrl) {
+              (product.originalImageMaterials
+                ? !sameSaurusLaunchMaterials(current.originalImageMaterials!, product.originalImageMaterials)
+                : current.originalDetailImageUrl !== product.originalDetailImageUrl) ||
+              product.bCodes?.some((code) => !current.bCodes?.includes(code))) {
             return result({ ok: false, message: "상품 정보가 변경됐습니다. 상품출시 진행관리에서 다시 선택해 주세요." }, 409);
           }
-          const start = startOpsSaurusProduct(batch, ids[0], email, now, release);
+          const withIdentity = { ...batch, products: batch.products.map((row) => row.id === product.id
+            ? { ...row, bCodes: current.bCodes, originalImageMaterials: current.originalImageMaterials }
+            : row) };
+          const start = startOpsSaurusProduct(withIdentity, ids[0], email, now, release);
           const launchUrl = browserLaunchUrl(start.product);
-          const saved = await saveSaurusBatch(config.value, owner, { ...start.batch, queuedIds: queuedIds.slice(1) });
+          const saved = await saveSaurusReviewBatch(config.value, owner, { ...start.batch, queuedIds: queuedIds.slice(1) }, ids);
           return result({ ok: true, batch: saved, launchUrl });
         }
         if (product.stage !== "running") return result({ ok: true, batch });
@@ -182,8 +239,12 @@ export async function POST(request: NextRequest) {
           try { requireSaurusSourcingItems(currentItems, ids); }
           catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
           const latest = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
-          if (current.reviewOptions === undefined || latest.sourceUrl !== current.sourceUrl || latest.name !== current.name ||
-              latest.originalDetailImageUrl !== current.originalDetailImageUrl ||
+          if (!latest || current.reviewOptions === undefined || latest.sourceUrl !== current.sourceUrl ||
+              latest.name !== current.name || latest.model !== current.model ||
+              (current.originalImageMaterials
+                ? !sameSaurusLaunchMaterials(latest.originalImageMaterials!, current.originalImageMaterials)
+                : latest.originalDetailImageUrl !== current.originalDetailImageUrl) ||
+              current.bCodes?.some((code) => !latest.bCodes?.includes(code)) ||
               !sameSaurusReviewOptions(latest.reviewOptions, current.reviewOptions)) {
             return result({ ok: false, message: "상품 정보나 수집 방식이 변경됐습니다. 상품출시 진행관리에서 상품을 다시 선택해 주세요." }, 409);
           }
@@ -198,50 +259,97 @@ export async function POST(request: NextRequest) {
             ...current, dispatch: { ...current.dispatch, importer: release.importer, deployment: release.deployment, startedAt: now },
           };
           const launchUrl = browserLaunchUrl(resumed);
-          const saved = resumed === product ? batch : await saveSaurusBatch(config.value, owner, replaceProduct(batch, resumed, now));
+          const resumedBatch = replaceProduct(batch, { ...resumed, bCodes: latest.bCodes,
+            originalImageMaterials: current.originalImageMaterials ?? latest.originalImageMaterials }, now);
+          const saved = await saveSaurusReviewBatch(config.value, owner, resumedBatch, ids);
           return result({ ok: true, batch: saved, launchUrl });
         }
         const saved = current === product ? batch : await saveSaurusBatch(config.value, owner, replaceProduct(batch, current, now));
         return result({ ok: true, batch: saved });
       }
-      if (input.action === "retry") {
+      if (input.action === "retry" || input.action === "reject") {
         const items = await readSelectedLaunchItems(config.value, owner, ids);
-        try { requireSaurusSourcingItems(items, ids); }
-        catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
-        if (selected.some((product) => product?.stage !== "failed" || product.attempts >= 2 || !product.dispatch)) {
-          return result({ ok: false, message: "비용 처리가 확인된 실패 상품만 한 번 더 준비할 수 있습니다." }, 409);
+        let next;
+        try {
+          if (input.action === "retry") requireSaurusSourcingItems(items, ids);
+          next = planSaurusReviewDecision(batch, ids, items, input.action, now);
+        } catch (error) {
+          return result({ ok: false, message: (error as Error).message }, 409);
         }
-        for (const product of selected) {
-          const current = await readOpsSaurusStatus(product!);
-          if (current.state !== "failed" && (current.state !== "collecting" || product?.dispatch?.providerJobId)) {
-            return result({ ok: false, message: "이전 제작의 최종 상태가 아직 확인되지 않았습니다." }, 409);
+        // A successful review candidate already has a persisted final receipt.
+        // Check the provider for failed attempts before allowing another start.
+        if (input.action === "retry") {
+          for (const product of selected) {
+            if (product?.stage !== "failed") continue;
+            if (!product.dispatch) return result({ ok: false, message: "이전 제작 이력을 확인하지 못했습니다." }, 409);
+            const current = await readOpsSaurusStatus(product);
+            if (current.state !== "failed" && (current.state !== "collecting" || product.dispatch.providerJobId)) {
+              return result({ ok: false, message: "이전 제작의 최종 상태가 아직 확인되지 않았습니다." }, 409);
+            }
           }
         }
-        const next = { ...batch, updatedAt: now, revision: batch.revision + 1,
-          products: batch.products.map((product) => ids.includes(product.id) ? { ...product, stage: "waiting_connection" as const, error: undefined } : product) };
+        return result({ ok: true, batch: await saveSaurusReviewBatch(config.value, owner, next, ids) });
+      }
+
+      const targets = await readLaunchImageTargets(config.value, owner, ids);
+
+      if (input.action === "manual_save") {
+        const product = selected[0]!;
+        if (ids.length !== 1 || product.stage !== "rejected") {
+          return result({ ok: false, message: "승인 거절된 상품 한 건의 직접 제작 URL을 입력해 주세요." }, 409);
+        }
+        let materials;
+        try {
+          const item = requireSaurusProductIdentity(product, targets.seoItems[0]);
+          requireSaurusProductIdentity(product, targets.launchItems[0]);
+          materials = saurusManualMaterials(input.images, String(item.productName || product.name));
+        } catch (error) {
+          return result({ ok: false, message: (error as Error).message }, 409);
+        }
+        const write = await saveLaunchImagePatches(request, targets.updatedAt, [imagePatch(product.id, materials)]);
+        if (!write.ok) return result(await write.json(), write.status);
+        const readback = await readLaunchImageTargets(config.value, owner, ids);
+        try {
+          for (const item of [readback.launchItems[0], readback.seoItems[0]]) {
+            const saved = requireSaurusProductIdentity(product, item);
+            if (!sameSaurusLaunchMaterials(saurusLaunchMaterials(saved), materials)) {
+              throw new Error("직접 제작 이미지 주소의 저장 결과를 확인하지 못했습니다.");
+            }
+          }
+        } catch (error) {
+          return result({ ok: false, message: (error as Error).message }, 409);
+        }
+        const next = replaceProduct(batch, { ...product, manualImageSavedAt: now }, now);
         return result({ ok: true, batch: await saveSaurusBatch(config.value, owner, next) });
       }
-      const launchRow = await readProductLaunchState(config.value, owner);
-      const items = object(launchRow?.state_payload).items;
-      if (!launchRow?.updated_at || !Array.isArray(items)) return result({ ok: false, message: "진행관리 상품을 확인하지 못했습니다." }, 409);
-      const launchItems = items.map(object);
-      const normalized = await readSelectedLaunchItems(config.value, owner, ids);
-      planSaurusApproval(batch, ids, normalized);
-      const planned = planSaurusApproval(batch, ids, launchItems);
-      const patches = planned.flatMap((item, index) => item === launchItems[index] ? [] : [{
-        itemId: item.id, patch: { detailPageAsset: { detailImageUrl: object(item.detailPageAsset).detailImageUrl } },
-      }]);
-      if (patches.length) {
-        const headers = new Headers(request.headers);
-        headers.delete("content-length");
-        const write = await updateLaunchTracker(new NextRequest(request.url, {
-          method: "PATCH", headers,
-          body: JSON.stringify({ operation: "bulk_patch_items", expectedStateUpdatedAt: launchRow.updated_at, patches }),
-        }));
-        if (!write.ok) return result(await write.json(), write.status);
+
+      let reserved;
+      let patches;
+      try {
+        reserved = reserveSaurusApproval(batch, ids, targets.seoItems, now);
+        const plan = planSaurusApproval(reserved, ids, targets.launchItems);
+        const seoPlan = planSaurusApproval(reserved, ids, targets.seoItems);
+        const changedSeo = new Set(seoPlan.filter((row, index) => row !== targets.seoItems[index]).map(({ id }) => id));
+        patches = plan.flatMap((row, index) => row === targets.launchItems[index] && !changedSeo.has(row.id) ? []
+          : [imagePatch(String(row.id), saurusLaunchMaterials(row))]);
+      } catch (error) {
+        return result({ ok: false, message: (error as Error).message }, 409);
       }
-      const readback = await readSelectedLaunchItems(config.value, owner, ids);
-      const next = confirmSaurusApprovalReadback(batch, ids, readback, now);
+      // Persist the decision before updating the tracker so a late reject or retry
+      // cannot race a successful image save. Reopening approval resumes the write.
+      const approval = reserved === batch ? batch : await saveSaurusReviewBatch(config.value, owner, reserved, ids);
+      if (patches.length) {
+        const write = await saveLaunchImagePatches(request, targets.updatedAt, patches);
+        if (!write.ok) return result({ ...(await write.json()), batch: approval }, write.status);
+      }
+      const readback = await readLaunchImageTargets(config.value, owner, ids);
+      let next;
+      try {
+        confirmSaurusApprovalReadback(approval, ids, readback.launchItems, now);
+        next = confirmSaurusApprovalReadback(approval, ids, readback.seoItems, now);
+      } catch (error) {
+        return result({ ok: false, message: (error as Error).message, batch: approval }, 409);
+      }
       return result({ ok: true, batch: await saveSaurusBatch(config.value, owner, next) });
     }
     let next;

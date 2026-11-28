@@ -81,6 +81,47 @@ export async function insertSaurusBatch(config: ProductLaunchAdminConfig, owner:
   return current;
 }
 
+async function rpc<T>(config: ProductLaunchAdminConfig, functionName: string, args: object): Promise<T[]> {
+  const response = await fetch(`${config.supabaseUrl}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
+    headers: createSupabaseAdminHeaders(config.secretKey),
+    body: JSON.stringify(args),
+    cache: "no-store",
+    signal: AbortSignal.timeout(8000),
+  });
+  const body = await response.json().catch(() => null);
+  if (response.status === 409 && body?.code === "PT409" && typeof body.message === "string") {
+    throw new SaurusStoreError(body.message, 409);
+  }
+  if (!response.ok || !Array.isArray(body)) {
+    throw new SaurusStoreError("AI 사우루스 상품별 제작 이력을 확인하지 못했습니다.", 503);
+  }
+  return body;
+}
+
+export async function findSaurusReviewConflict(config: ProductLaunchAdminConfig, owner: string, batch: AiSaurusDetailBatch) {
+  const records = await rpc<{ batch_id: string; model: string; stage: string }>(config, "find_ai_saurus_review_conflict", {
+    p_owner: owner,
+    p_batch_id: batch.id,
+    p_products: batch.products.map(({ id, bCodes }) => ({ id, bCodes: bCodes ?? [] })),
+  });
+  return records[0] ?? null;
+}
+
+export async function saveSaurusReviewBatch(
+  config: ProductLaunchAdminConfig, owner: string, batch: AiSaurusDetailBatch, itemIds: string[],
+) {
+  const rows = await rpc<StoredBatch>(config, "commit_ai_saurus_review_batch", {
+    p_owner: owner, p_batch_id: batch.id, p_expected_revision: batch.revision - 1,
+    p_payload: batch, p_item_ids: itemIds,
+  });
+  const saved = readPayload(rows[0]);
+  if (rows.length !== 1 || saved?.revision !== batch.revision) {
+    throw new SaurusStoreError("다른 곳에서 작업을 수정했습니다. 새로고침 후 다시 저장해 주세요.", 409);
+  }
+  return saved;
+}
+
 export async function saveSaurusBatch(config: ProductLaunchAdminConfig, owner: string, batch: AiSaurusDetailBatch) {
   const params = ownerQuery(owner);
   params.set("id", `eq.${batch.id}`);

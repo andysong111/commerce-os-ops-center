@@ -1,7 +1,9 @@
 import type { OpsDetailOptionHint } from "./opsDetailDispatch";
 import type { AiSaurusReviewAssets } from "./aiSaurusReviewAssets";
+import type { SaurusLaunchMaterials } from "./aiSaurusLaunchMaterials";
 
 export const AI_SAURUS_BULK_LIMIT = 20;
+export const AI_SAURUS_MAX_ATTEMPTS = 2;
 export const AI_SAURUS_ORIGIN = "https://ai-saurus.com";
 export const AI_SAURUS_BATCH_API = "/api/ai-saurus-bulk-detail";
 export const AI_SAURUS_BATCH_PAGE = "/ai-saurus-bulk-detail";
@@ -9,7 +11,7 @@ export const AI_SAURUS_CONNECTION = "preparation_only" as const;
 
 export type AiSaurusProductStage =
   | "draft" | "waiting_connection" | "waiting_1688_login" | "running"
-  | "awaiting_review" | "failed" | "approved";
+  | "awaiting_review" | "approving" | "failed" | "approved" | "rejected";
 
 export type AiSaurusRelease = {
   origin: string;
@@ -52,6 +54,9 @@ export type AiSaurusBatchProduct = {
   name: string;
   sourceUrl: string;
   originalDetailImageUrl: string;
+  originalImageMaterials?: SaurusLaunchMaterials;
+  bCodes?: string[];
+  manualImageSavedAt?: string;
   catalogOptions: string[];
   reviewOptions?: OpsDetailOptionHint[];
   options: string[];
@@ -82,3 +87,8 @@ export type AiSaurusDetailBatch = {
   queuedIds?: string[];
   products: AiSaurusBatchProduct[];
 };
+
+export function hasSaurusRetryAvailable(product: AiSaurusBatchProduct) {
+  return (product.stage === "awaiting_review" || product.stage === "failed") &&
+    product.attempts > 0 && product.attempts < AI_SAURUS_MAX_ATTEMPTS;
+}

@@ -4,6 +4,7 @@ import {
   acceptSaurusHostedReceipt, confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, planSaurusRetry, planSaurusRun,
   refreshSaurusPreparation, saurusSelectionHash, updateSaurusPreparation,
 } from "../src/lib/aiSaurusBulkDetailCore.ts";
+import { AI_SAURUS_REVIEW_ROLES, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
 
 const date = "2026-11-26T04:00:00.000Z";
 const source = "https://detail.1688.com/offer/123456.html";
@@ -13,16 +14,20 @@ const budget = { approvedBudgetMinor: 1000, currency: "KRW" };
 const item = {
   id: "p1", productName: "정리함",
   chinaLinkUsage: { commonUrl: purchase, purchaseUrl: purchase, detailPageUrl: source },
-  orderOptions: [{ saleOption: " 빨강 " }, { value: "파랑" }, { saleOption: "빨강" }],
+  orderOptions: [
+    { saleOption: " 빨강 ", barcode: "BDG6-2" },
+    { value: "파랑", barcode: "BDG6-3" },
+    { saleOption: "빨강", barcode: "BDG6-2" },
+  ],
   detailPageAsset: { detailImageUrl: `${hosting}/old.jpg`, htmlUrl: `${hosting}/p1.html`, galleryUrls: ["gallery"] },
 };
-const second = { id: "p2", productName: "파우치", chinaProductLinks: [source, purchase] };
+const second = { id: "p2", productName: "파우치", barcode: "BDG6-4", chinaProductLinks: [source, purchase] };
 const third = { id: "p3", productName: "가방" };
 const items = [item, second, third];
 
 const release = (id, importerVersion) => ({
   origin: "https://ai-saurus.com", deploymentId: id, engineVersion: `engine-${id}`, importerVersion,
-  contractVersion: "detail-hosting-v1", hostingOrigins: [hosting],
+  contractVersion: "detail-hosting-v1", hostingOrigins: [hosting, "https://ai-saurus.com"],
 });
 const session = (importerVersion, loggedIn = true) => ({
   loggedIn, evidenceId: "chrome-1688-proof", importerVersion, sourceOrigin: "https://detail.1688.com",
@@ -35,12 +40,16 @@ function prepared() {
     { id: "p1", options: ["커스텀"] }, { id: "p2", options: ["기본"] },
   ], true, date);
 }
+function fixtureAssetId(product, index) {
+  return "a0c50129-d3d0-4efe-b4bf-" + String((product.id === "p1" ? 100 : 200) + index).padStart(12, "0");
+}
 function receiptFor(product) {
   return {
     attemptKey: product.run.attemptKey, inputHash: product.inputHash, itemId: product.id,
     deploymentId: product.run.release.deploymentId, sessionEvidenceId: product.run.sessionEvidenceId,
-    providerJobId: `job-${product.id}`, hostedImageUrl: `${hosting}/${product.id}.jpg`,
-    sha256: "a".repeat(64), qa: "passed", transferReceiptId: `file-${product.id}`,
+    providerJobId: `job-${product.id}`, hostedImageUrl: saurusResultImageUrl(fixtureAssetId(product, 0)),
+    reviewAssets: Object.fromEntries(AI_SAURUS_REVIEW_ROLES.map((role, index) => [role, fixtureAssetId(product, index + 1)])),
+    sha256: "a".repeat(64), qa: "passed", transferReceiptId: fixtureAssetId(product, 0),
     costReceiptId: `cost-${product.id}`, costMinor: 800, currency: "KRW",
   };
 }
@@ -125,20 +134,26 @@ test("resolves the production release each attempt and requires evidence from th
   for (const change of [
     { itemId: "p2" }, { inputHash: "b".repeat(64) }, { deploymentId: "first" },
     { sessionEvidenceId: "other-chrome" }, { qa: "failed" }, { costMinor: 1001 },
-    { hostedImageUrl: "https://ai-saurus.com/account" }, { hostedImageUrl: `${hosting}/temp.jpg?token=1` },
+    { hostedImageUrl: "https://unexpected.example.org/account" }, { hostedImageUrl: `${hosting}/temp.jpg?token=1` },
     { hostedImageUrl: "" },
   ]) assert.throws(() => acceptSaurusHostedReceipt(secondRun, { ...receiptFor(secondRun), ...change }), /영수증/);
 });
 
-test("batch approval verifies every selected success before changing only its hosted image URL", async () => {
+test("batch approval independently read-verifies the complete image set for each selected product", async () => {
   const ready = prepared();
   const review = { ...ready, products: await reviewProducts(ready) };
   const single = planSaurusApproval(review, ["p1"], items);
-  assert.deepEqual(single, [{
-    ...item, detailPageAsset: { ...item.detailPageAsset, detailImageUrl: `${hosting}/p1.jpg` },
-  }, second, third]);
+  const firstAsset = single[0].detailPageAsset;
+  assert.equal(firstAsset.detailImageUrl, review.products[0].receipt.hostedImageUrl);
+  assert.equal(firstAsset.mainImageUrl, saurusResultImageUrl(fixtureAssetId(review.products[0], 1)));
+  assert.equal(firstAsset.additionalImageUrls.length, 4);
+  assert.ok(firstAsset.html.includes(firstAsset.detailImageUrl));
+  assert.equal(firstAsset.htmlUrl, item.detailPageAsset.htmlUrl);
+  assert.deepEqual(firstAsset.galleryUrls, item.detailPageAsset.galleryUrls);
+  assert.equal(single[1], second);
   const both = planSaurusApproval(review, ["p1", "p2"], items);
-  assert.deepEqual(both[1], { ...second, detailPageAsset: { detailImageUrl: `${hosting}/p2.jpg` } });
+  assert.equal(both[1].detailPageAsset.detailImageUrl, review.products[1].receipt.hostedImageUrl);
+  assert.equal(both[1].detailPageAsset.mainImageUrl, saurusResultImageUrl(fixtureAssetId(review.products[1], 1)));
   assert.equal(both[2], third);
   assert.deepEqual(planSaurusApproval(review, ["p1", "p2"], both), both);
   assert.throws(() => confirmSaurusApprovalReadback(review, ["p1", "p2"], single, date), /다시 확인/);
@@ -149,7 +164,7 @@ test("batch approval verifies every selected success before changing only its ho
   }, ["p1", "p2"], items), /검수 통과/);
   assert.throws(() => planSaurusApproval(review, ["p1", "p2"], [item, {
     ...second, detailPageAsset: { detailImageUrl: `${hosting}/manual.jpg` },
-  }, third]), /기존 상세페이지/);
+  }, third]), /이미지 자료가 변경/);
   assert.equal(items[0].detailPageAsset.detailImageUrl, `${hosting}/old.jpg`);
 });
 

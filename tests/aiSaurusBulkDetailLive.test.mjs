@@ -1,19 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newSaurusBatch, planSaurusApproval, refreshSaurusPreparation, requireSaurusSourcingItems, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
+import { confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, planSaurusReviewDecision, refreshSaurusPreparation, requireSaurusSourcingItems, reserveSaurusApproval, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
 import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
 import { readSaurusReviewAssets, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
 import { showSaurusPopupMessage } from "../src/lib/aiSaurusBulkDetailPopup.ts";
 import { applyProductLaunchTrackerMutation } from "../src/lib/productLaunchTrackerOptimized.ts";
+import { saurusLaunchMaterials, saurusManualMaterials, saurusProductBCodes } from "../src/lib/aiSaurusLaunchMaterials.ts";
+import { productLaunchSeoMaterialReadiness } from "../src/lib/productLaunchSeoMaterialReadiness.ts";
+import { buildProductLaunchShoplingPayload } from "../src/lib/productLaunchTrackerShopling.ts";
 
 const source = "https://detail.1688.com/offer/123.html";
 const product = { id: "p1", productName: "테스트", chinaLinkUsage: { commonUrl: source },
-  detailPageAsset: { detailImageUrl: "", mainImageUrl: "keep", resultId: "keep" } };
+  modelNumber: "AAA496", barcode: "BDG6-2", shoplingCategory: "생활용품>세탁용품", selfCodeBase: "AAA496",
+  orderOptions: [{ optionName: "종류", saleOption: "단품", barcode: "BDG6-2", optionBarcodeNo: "123456789012", baseSalePriceKrw: 10000, unitCostKrw: 4000 }],
+  detailPageAsset: { detailImageUrl: "", mainImageUrl: "", resultId: "keep" } };
 const date = "2026-11-27T01:00:00Z";
 const deployment = "a".repeat(40);
 const jobId = "7abc9460-f304-4c3c-bdb8-81342e8be910";
 const assetId = "d6c0ea7c-e3ef-480e-990f-ffe615c33d03";
 const hostedUrl = `https://ai-saurus.com/api/saas/marketplace-assets/${assetId}/image.jpg`;
+
+const firstGallery = {
+  representative_main_catalog: "6592afe9-54f8-4202-af88-8d20091b7780",
+  representative_alternate_whole: "e37777e9-c36a-49f1-8a19-6c65ebda53a3",
+  representative_evidence_detail: "eb747774-2976-4982-8fa1-37288e27f6a6",
+  representative_lifestyle_usage: "03efbdd9-85fa-4e0f-810d-d0da50424355",
+  representative_adaptive_support: "3a598572-a7ee-4cab-8256-f059305ee201",
+};
 
 test("loads the current production release on demand and rejects manifest drift", async (t) => {
   let version = "0.4.62";
@@ -28,7 +41,7 @@ test("loads the current production release on demand and rejects manifest drift"
   await assert.rejects(readOpsSaurusRelease, /버전/);
 });
 
-test("prevents duplicate starts and saves only the QA-verified final URL after exact asset and credit evidence", () => {
+test("B-code approval saves six QA-verified URLs and the HTML consumed by SEO registration", () => {
   const batch = newSaurusBatch("batch", ["p1"], [product], date);
   const prepared = updateSaurusPreparation(batch, [{ id: "p1", options: ["단품"] }], true, date);
   assert.throws(() => updateSaurusPreparation({ ...prepared, queuedIds: ["p1"] }, [
@@ -38,34 +51,59 @@ test("prevents duplicate starts and saves only the QA-verified final URL after e
   const running = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, latest);
   assert.throws(() => startOpsSaurusProduct(running.batch, "p1", "owner@example.com", date, latest), /제작 중/);
   const evidence = { state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
-    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "credit-debit" };
+    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "credit-debit", reviewAssets: firstGallery };
   assert.throws(() => reconcileOpsSaurusStatus(running.product, { ...evidence, creditCost: 14 }, 0), /비용/);
   assert.throws(() => reconcileOpsSaurusStatus(running.product, { ...evidence, hostedUrl: hostedUrl + "?tmp=1" }, 0), /호스팅/);
   const complete = reconcileOpsSaurusStatus(running.product, evidence, 0);
   assert.equal(complete.stage, "awaiting_review");
-  const planned = planSaurusApproval({ ...running.batch, products: [complete] }, ["p1"], [product])[0];
-  assert.deepEqual(planned, { ...product, detailPageAsset: { ...product.detailPageAsset, detailImageUrl: hostedUrl } });
+  const ready = replaceProduct(running.batch, complete, date);
+  const reserved = reserveSaurusApproval(ready, ["p1"], [product], date);
+  assert.equal(reserved.products[0].stage, "approving");
+  assert.throws(() => planSaurusReviewDecision(reserved, ["p1"], [product], "reject", date), /승인 대기/);
+  assert.throws(() => planSaurusApproval(ready, ["p1"], [{ ...product, orderOptions: [
+    { ...product.orderOptions[0], barcode: "BDG6-3" },
+  ] }]), /B코드가 변경/);
+  assert.throws(() => planSaurusApproval(ready, ["p1"], [{ ...product, orderOptions: [
+    ...product.orderOptions, { ...product.orderOptions[0], barcode: "BDG6-3" },
+  ] }]), /B코드가 변경/);
+  const legacy = { ...ready, products: [{ ...ready.products[0], originalImageMaterials: undefined, bCodes: undefined }] };
+  const changedAfterReview = { ...product, detailPageAsset: { detailImageUrl: "https://cdn.example.com/manual.jpg" } };
+  assert.throws(() => reserveSaurusApproval(legacy, ["p1"], [changedAfterReview], date), /이미지 자료가 변경/);
+  assert.throws(() => reserveSaurusApproval(legacy, ["p1"], [{ ...product, barcode: "", orderOptions: [] }], date), /B코드를 확인/);
+  assert.deepEqual(reserveSaurusApproval(legacy, ["p1"], [product], date).products[0].bCodes, ["BDG6-2"]);
+  const planned = planSaurusApproval(reserved, ["p1"], [product])[0];
+  const materials = saurusLaunchMaterials(planned);
+  assert.equal(materials.detailImageUrl, hostedUrl);
+  assert.equal(materials.mainImageUrl, saurusResultImageUrl(firstGallery.representative_main_catalog));
+  assert.deepEqual(materials.additionalImageUrls, Object.values(firstGallery).slice(1).map(saurusResultImageUrl));
+  assert.match(materials.html, /<img src="https:\/\/ai-saurus.com\/api\/saas\/marketplace-assets\//);
   const saved = applyProductLaunchTrackerMutation({ items: [product] }, {
-    operation: "bulk_patch_items", patches: [{ itemId: "p1", patch: { detailPageAsset: { detailImageUrl: hostedUrl } } }],
+    operation: "bulk_patch_items", expectedStateUpdatedAt: date, patches: [{ itemId: "p1", patch: { detailPageAsset: materials } }],
   });
   assert.deepEqual(saved.state.items[0], planned);
+  assert.equal(saved.state.items[0].detailPageAsset.resultId, "keep");
+  assert.deepEqual(saved.state.items[0].orderOptions, product.orderOptions);
+  assert.equal(productLaunchSeoMaterialReadiness(product).ready, false);
+  assert.equal(productLaunchSeoMaterialReadiness(saved.state.items[0]).ready, true);
+  const shopling = buildProductLaunchShoplingPayload(saved.state.items[0], {}, "fixture-only");
+  assert.ok(shopling.detailHtml.includes(hostedUrl));
+  assert.equal(shopling.images.main, materials.mainImageUrl);
+  assert.deepEqual(shopling.images.additional, materials.additionalImageUrls);
+  assert.throws(() => confirmSaurusApprovalReadback(reserved, ["p1"], [product], date), /다시 확인/);
+  const resolved = confirmSaurusApprovalReadback(reserved, ["p1"], saved.state.items, date);
+  assert.equal(resolved.products[0].stage, "approved");
+  assert.equal(planSaurusApproval(resolved, ["p1"], saved.state.items)[0], saved.state.items[0]);
 });
 
-test("each finished product keeps its own review images and approval still saves only the detail URL", () => {
-  const second = { ...product, id: "p2", productName: "다음 상품" };
+test("each finished product keeps its own gallery and incomplete results cannot be approved", () => {
+  const second = { ...product, id: "p2", modelNumber: "AAA505", productName: "다음 상품", barcode: "BDG6-3",
+    orderOptions: [{ ...product.orderOptions[0], barcode: "BDG6-3" }] };
   const batch = newSaurusBatch("batch", ["p1", "p2"], [product, second], date);
   const prepared = updateSaurusPreparation(batch, [
     { id: "p1", options: ["단품"] }, { id: "p2", options: ["단품"] },
   ], true, date);
   const latest = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
   const firstRun = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, latest);
-  const firstGallery = {
-    representative_main_catalog: "6592afe9-54f8-4202-af88-8d20091b7780",
-    representative_alternate_whole: "e37777e9-c36a-49f1-8a19-6c65ebda53a3",
-    representative_evidence_detail: "eb747774-2976-4982-8fa1-37288e27f6a6",
-    representative_lifestyle_usage: "03efbdd9-85fa-4e0f-810d-d0da50424355",
-    representative_adaptive_support: "3a598572-a7ee-4cab-8256-f059305ee201",
-  };
   const succeeded = {
     state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
     hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "201", reviewAssets: firstGallery,
@@ -89,9 +127,8 @@ test("each finished product keeps its own review images and approval still saves
   assert.deepEqual(persisted.products[1].receipt.reviewAssets, {
     representative_main_catalog: secondSourceAssets.representative_main_catalog,
   });
-  assert.deepEqual(planSaurusApproval(persisted, ["p2"], [product, second]), [
-    product, { ...second, detailPageAsset: { ...second.detailPageAsset, detailImageUrl: saurusResultImageUrl(secondAssetId) } },
-  ]);
+  assert.throws(() => planSaurusApproval(persisted, ["p2"], [product, second]), /대표 이미지 1장/);
+  assert.equal(planSaurusApproval(persisted, ["p1"], [product, second])[1], second);
 
   assert.equal(readSaurusReviewAssets(undefined, assetId), undefined);
   assert.equal(readSaurusReviewAssets({
@@ -100,6 +137,46 @@ test("each finished product keeps its own review images and approval still saves
     representative_evidence_detail: firstGallery.representative_main_catalog,
     checkpoint_representative_main_catalog: firstGallery.representative_alternate_whole,
   }, assetId), undefined);
+});
+
+test("a reviewed result can retry once across reselection and rejection permanently locks AI preparation", () => {
+  const initial = newSaurusBatch("batch", ["p1"], [product], date);
+  assert.deepEqual(saurusProductBCodes(product), ["BDG6-2"]);
+  const prepared = updateSaurusPreparation(initial, [{ id: "p1", options: ["단품"] }], true, date);
+  const latest = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
+  const started = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, latest);
+  const evidence = { state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
+    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "201", reviewAssets: firstGallery };
+  const review = replaceProduct(started.batch, reconcileOpsSaurusStatus(started.product, evidence, 0), date);
+  const retry = planSaurusReviewDecision(review, ["p1"], [product], "retry", date);
+  assert.throws(() => planSaurusReviewDecision(retry, ["p1"], [product], "retry", date), /한 번/);
+  const freshProduct = { ...product, productName: "이름 편집" };
+  const refreshed = refreshSaurusPreparation(retry, newSaurusBatch("batch", ["p1"], [freshProduct], date));
+  assert.equal(refreshed.products[0].attempts, 1);
+  assert.equal(refreshed.products[0].stage, "waiting_connection");
+  const second = startOpsSaurusProduct(refreshed, "p1", "owner@example.com", date, latest);
+  assert.equal(second.product.attempts, 2);
+  assert.notEqual(second.product.dispatch.attempt, started.product.dispatch.attempt);
+  const final = replaceProduct(second.batch, reconcileOpsSaurusStatus(second.product, {
+    ...evidence, providerJobId: "04ce59b8-0a74-4ff7-aba3-f483d20fe168", costReceiptId: "202",
+  }, 0), date);
+  assert.throws(() => planSaurusReviewDecision(final, ["p1"], [freshProduct], "retry", date), /한 번/);
+  const rejected = planSaurusReviewDecision(final, ["p1"], [freshProduct], "reject", date);
+  assert.equal(rejected.products[0].stage, "rejected");
+  assert.deepEqual(rejected.products[0].bCodes, ["BDG6-2"]);
+  assert.throws(() => planSaurusApproval(rejected, ["p1"], [freshProduct]), /검수 통과/);
+  assert.throws(() => planSaurusReviewDecision(rejected, ["p1"], [freshProduct], "retry", date), /한 번/);
+  assert.throws(() => updateSaurusPreparation(rejected, [{ id: "p1", options: [] }], true, date), /준비 중인/);
+  assert.throws(() => startOpsSaurusProduct(rejected, "p1", "owner@example.com", date, latest), /제작 중/);
+
+  const manual = saurusManualMaterials({
+    detailImageUrl: "https://manual.example/detail.jpg?a=1&b=2",
+    mainImageUrl: "https://manual.example/main.jpg",
+    additionalImageUrls: ["https://manual.example/side.jpg"],
+  }, '직접 "제작"');
+  assert.match(manual.html, /a=1&amp;b=2/);
+  assert.match(manual.html, /직접 &quot;제작&quot;/);
+  assert.throws(() => saurusManualMaterials({ ...manual, detailImageUrl: "javascript:alert(1)" }, "테스트"), /HTTP/);
 });
 
 test("an older refresh can read the saved approval status while stale writes still conflict", () => {
