@@ -71,17 +71,30 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     };
   }
 
+  async function advanceShoplingLogin(requestId, token) {
+    return request(LOCAL_ORIGIN + "/api/shopling/mobile-login", {
+      method: "POST",
+      headers: { Origin: LOCAL_ORIGIN, "Content-Type": "application/json", "x-commerce-os-token": token },
+      body: JSON.stringify({ requestId }),
+    }, 120_000);
+  }
+
+  async function requestShoplingSession(requestId) {
+    const center = await getCenter();
+    if (centerBusy(center) || (center.shoplingSession?.ready && center.shoplingSession.matchedAccount)) return;
+    if (!center.settings?.shoplingAutoLoginEnabled || !center.shoplingAutoLogin?.credentialConfigured) return;
+    const challenge = center.shoplingCaptcha;
+    if (["WAITING", "REFRESHING"].includes(challenge?.status) && Date.parse(challenge?.expiresAt) > now()) return;
+    await advanceShoplingLogin(requestId, await getCenterToken());
+  }
+
   async function awaitShoplingLogin(command, token, onProgress) {
     const deadline = now() + LOGIN_TIMEOUT;
     onProgress("LOGIN_CHECKING");
     while (now() < deadline) {
       // This endpoint can advance a human-assisted login, but cannot enqueue
       // or execute a business action. Never reset the PC's retry/lockout state.
-      const step = await request(`${LOCAL_ORIGIN}/api/shopling/mobile-login`, {
-        method: "POST",
-        headers: { Origin: LOCAL_ORIGIN, "Content-Type": "application/json", "x-commerce-os-token": token },
-        body: JSON.stringify({ requestId: command.id }),
-      }, 120_000).catch(() => null);
+      const step = await advanceShoplingLogin(command.id, token).catch(() => null);
       if (!step?.ok || step.body.requestId !== command.id) return result("needs_pc", "LOGIN_REQUIRED");
       if (now() >= deadline || step.body.phase === "expired") break;
       if (step.body.phase === "ready") {
@@ -186,7 +199,7 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     }
   }
 
-  return { execute, status };
+  return { execute, status, requestShoplingSession };
 }
 
 export function createMobileWorkWorker({ endpoint, agentToken, adapter, fetchImpl = fetch, onError = () => {} }) {

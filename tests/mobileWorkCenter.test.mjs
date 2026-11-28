@@ -185,6 +185,17 @@ function mobileLoginFixture(phases, { disable = false, occupied = false, advance
   return { adapter, input, loginRequests, businessRequests, phasesSeen, run: () => adapter.execute(input, (phase) => phasesSeen.push(phase)) };
 }
 
+test("a restock SMS with an expired Shopling session requests only existing login recovery", async () => {
+  const flow = mobileLoginFixture(["ready"]);
+  await flow.adapter.requestShoplingSession(flow.input.id);
+  await flow.adapter.requestShoplingSession(flow.input.id);
+  assert.deepEqual(flow.loginRequests, [{ requestId: flow.input.id }]);
+  assert.deepEqual(flow.businessRequests, []);
+  const disabled = mobileLoginFixture([], { disable: true });
+  await disabled.adapter.requestShoplingSession(disabled.input.id);
+  assert.deepEqual(disabled.loginRequests, []);
+});
+
 test("a picking handoff reaches the existing task 4 PC endpoint once and records its original receipt", async () => {
   const flow = mobileLoginFixture(["captcha", "ready"]);
   const ticket = {

@@ -5,6 +5,10 @@ import {
   storefrontProbe,
   smsForm,
 } from "../local-agent/mobile-work-center/restock-browser.mjs";
+import {
+  searchSmsHistory,
+  historyRows,
+} from "../local-agent/mobile-work-center/restock-sms.mjs";
 const requireTools = createRequire(
   path.join(
     process.env.MONTHLY_PRICE_BROWSER_TOOLS || "/tmp/monthly-price-browser",
@@ -39,6 +43,8 @@ const context = await browser.newContext({
 });
 let posted,
   mode = "off",
+  selectedTest = null,
+  requestedTest = null,
   submits = 0;
 try {
   await context.route("**/*", async (route) => {
@@ -53,13 +59,31 @@ try {
         if (route.request().method() === "POST") {
           posted = route.request().postDataJSON();
           if (posted.action === "settings") mode = posted.mode;
+          if (posted.action === "send-test") requestedTest = posted.id;
+          if (posted.action === "activate-after-test") selectedTest = posted.id;
           return route.fulfill({ json: { ok: true } });
         }
         return route.fulfill({
           json: {
-            items: [],
-            total: 0,
-            settings: { mode, sender: "01000000000", opt_out: "" },
+            items: requestedTest
+              ? [
+                  {
+                    id: requestedTest,
+                    operatorTest: true,
+                    barcode: "운영자 시험 문자",
+                    phone: "010-****-5555",
+                    status: "READY",
+                    created: "2026-11-28T01:00:00Z",
+                  },
+                ]
+              : [],
+            total: requestedTest ? 1 : 0,
+            settings: {
+              mode,
+              sender: "01000000000",
+              opt_out: "",
+              activate_after_test: selectedTest,
+            },
           },
         });
       }
@@ -72,6 +96,14 @@ try {
       return route.fulfill({
         contentType: "text/html; charset=utf-8",
         body: '<h1>컨트롤러</h1><select id="product_option_id1" onchange="document.querySelector(\'tr span\').textContent=\'- \'+this.value;document.querySelector(\'tr\').hidden=false"><option value="*">옵션 선택</option><option value="ps4" disabled>ps4 [품절]</option><option value="ps5">ps5</option></select><div class="action_button"><a class="btnSubmit">BUY IT NOW</a></div><table><tr class="option_product" hidden><td class="product"><span></span><input type="hidden" class="option_box_id" value="P0001"><input class="quantity_opt" value="1"></td></tr></table>',
+      });
+    if (
+      u.hostname === "kt.shopling.co.kr" &&
+      u.pathname === "/cmpy/sms_list.phtml"
+    )
+      return route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: '<select><option>2026</option></select><select><option>01</option><option selected>11</option><option>12</option></select><select name="srch_tp"><option>검색항목</option><option value="rnum">수신번호</option></select><input name="srch_txt"><input type="button" value="검색"><table><tr><th>NO.</th><th>발송일자</th><th>발신번호</th><th>수신번호</th><th>SMS내용</th><th>구분</th><th>전송상태</th><th>발송자ID</th></tr><tr id="initial"><td>검색 버튼을 누르세요</td></tr></table>',
       });
     if (u.hostname === "kt.shopling.co.kr")
       return route.fulfill({
@@ -124,6 +156,14 @@ try {
       .getByRole("button", { name: "시험 문자 1건 보내기" })
       .isDisabled(),
   );
+  const testId = posted.id;
+  await page
+    .getByRole("button", { name: "이 시험 성공 후 고객 자동 발송 켜기" })
+    .click();
+  await page
+    .getByText("이 시험의 발송 성공 후 고객 자동 발송을 켭니다.")
+    .waitFor();
+  assert.deepEqual(posted, { action: "activate-after-test", id: testId });
   const product = { number: "705", options: ["ps5"] };
   await page.goto(
     "https://dosomesaurus.com/product/detail.html?product_no=705",
@@ -171,6 +211,42 @@ try {
   await page.locator('input[name="rcv_num[]"]').nth(1).fill("");
   assert.equal((await form("submit")).ok, true);
   assert.equal(submits, 1);
+  await page.goto("https://kt.shopling.co.kr/cmpy/sms_list.phtml");
+  const ledger = () =>
+    page.evaluate(
+      ({ fn, sender, phone }) =>
+        Function("return (" + fn + ")")()(sender, phone),
+      { fn: String(historyRows), sender: job.sender, phone: job.phone },
+    );
+  assert.equal(await ledger(), null);
+  await page.evaluate(() => {
+    document.querySelector('input[value="검색"]').onclick = () => {
+      if (
+        document.querySelector("[name=srch_tp]").value === "rnum" &&
+        document.querySelector("[name=srch_txt]").value === "01000001234"
+      )
+        document.querySelector("#initial").innerHTML = [
+          "1",
+          "2026-11-28 09:30:00",
+          "010-0000-0000",
+          "010-0000-1234",
+          "시험",
+          "단문",
+          "성공",
+          "운영자",
+        ]
+          .map((s) => "<td>" + s + "</td>")
+          .join("");
+    };
+  });
+  assert.equal(
+    await page.evaluate(
+      ({ fn, phone }) => Function("return (" + fn + ")")()("2026-11", phone),
+      { fn: String(searchSmsHistory), phone: job.phone },
+    ),
+    true,
+  );
+  assert.equal((await ledger())?.[0]?.[6], "성공");
   console.log(
     "PASS mobile request, optional original marketplace, PS4 sold out / PS5 purchasable, isolated G6 single-recipient submit",
   );
