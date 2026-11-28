@@ -8,6 +8,7 @@ import { createSupabaseAdminClient } from "./supabase/admin";
 import {
   composeRestock,
   estimatedSmsBytes,
+  operatorTestMessage,
   parseRestock,
   RestockInputError,
   restockPhone,
@@ -21,7 +22,7 @@ const table = "receipt_restock_alerts",
 type Alert = {
   id: string;
   owner_id: string;
-  barcode: string;
+  barcode: string | null;
   phone: string;
   last_four: string;
   details: RestockDetails;
@@ -109,11 +110,15 @@ export async function restockList(
     : { items: rows<Alert>(result), total: result.count };
   const items = page.items.map((a) => ({
     id: a.id,
-    barcode: a.barcode,
+    barcode: a.barcode ?? "운영자 시험 문자",
+    operatorTest: a.barcode === null,
     phone: "010-****-" + a.last_four,
     market: a.details.marketName,
     marketItem: a.details.marketItem,
-    details: ["WAITING", "READY"].includes(a.status) ? a.details : undefined,
+    details:
+      a.barcode && ["WAITING", "READY"].includes(a.status)
+        ? a.details
+        : undefined,
     status: a.status,
     created: a.created_at,
     note: restockNotes[a.note || ""] || "",
@@ -178,6 +183,30 @@ export async function manageRestock(
   }
   if (!uuid(input.id))
     throw new RestockInputError("신청 식별값을 확인해 주세요.");
+  if (input.action === "send-test") {
+    const phone = restockPhone(input.phone);
+    const cfg = await getSettings(owner);
+    if (cfg.mode !== "pilot")
+      throw new RestockInputError("운영자 시험 모드를 먼저 저장해 주세요.");
+    const secret = mobileWorkCenterConfig()?.agentToken;
+    if (!secret) throw new Error("CONFIG");
+    const res = await db.rpc("request_receipt_restock_test", {
+      p_owner: owner,
+      p_id: input.id,
+      p_sender: cfg.sender,
+      p_phone: phone,
+      p_hash: seal(
+        secret,
+        JSON.stringify(["operator-test", owner, input.id, cfg.sender, phone]),
+      ),
+    });
+    if (res.error) throw new Error("DATABASE");
+    if (!res.data)
+      throw new RestockInputError(
+        "발송 설정과 진행 중인 시험 문자 내역을 확인해 주세요.",
+      );
+    return;
+  }
   if (input.action === "cancel") {
     const result = await db
       .from(table)
@@ -207,7 +236,7 @@ export async function manageRestock(
         .in("status", ["WAITING", "READY"])
         .limit(1),
     )[0];
-    if (!existing)
+    if (!existing?.barcode)
       throw new RestockInputError(
         "발송 전 대기 중인 신청만 수정할 수 있습니다.",
       );
@@ -277,17 +306,15 @@ export async function manageRestock(
       { ...details, comparedAt: "" },
     ]),
   );
-  const result = await db
-    .from(table)
-    .insert({
-      id: input.id,
-      owner_id: owner,
-      barcode,
-      phone,
-      last_four: phone.slice(-4),
-      details,
-      registration_hash: fingerprint,
-    });
+  const result = await db.from(table).insert({
+    id: input.id,
+    owner_id: owner,
+    barcode,
+    phone,
+    last_four: phone.slice(-4),
+    details,
+    registration_hash: fingerprint,
+  });
   if (result.error?.code === "23505") {
     const existing = rows<{ registration_hash: string }>(
       await db
@@ -315,22 +342,24 @@ function hash(body: string) {
   return createHash("sha256").update(body).digest("hex");
 }
 function proofFor(
-  id: string,
+  alert: Alert,
   mode: string,
   sender: string,
   expires: number,
-  product: RestockProduct,
+  product: RestockProduct | null,
   body: string,
 ) {
   return JSON.stringify([
-    id,
+    alert.id,
+    alert.phone,
+    alert.barcode,
+    hash(JSON.stringify(alert.details)),
     mode,
     sender,
     expires,
-    product.number,
-    product.url,
-    product.name,
-    product.options,
+    product
+      ? [product.number, product.url, product.name, product.options]
+      : null,
     hash(body),
   ]);
 }
@@ -365,59 +394,63 @@ export async function restockWorker(
           at: alert.attempted_at,
         },
       };
-    let product: RestockProduct;
-    try {
-      const starts = rows<{
-        input_snapshot: { evidence?: { expected?: string[] } };
-      }>(
-        await db
-          .from("commerce_operation_runs")
-          .select("input_snapshot")
-          .eq("status", "SUCCEEDED")
-          .eq("source", "COMMERCE_OS_INVENTORY_STOCK_CONTROL")
-          .eq("operation_type", "SHOPLING_STOCK_STATUS_SYNC_EVENT")
-          .eq("correlation_id", "receipt-onsale:" + alert.draft_id)
-          .eq("input_snapshot->>jobId", alert.job_id)
-          .eq("input_snapshot->>barcode", alert.barcode)
-          .eq("input_snapshot->>outcome", "STARTED")
-          .limit(2),
-      );
-      const expected =
-        starts.length === 1 && starts[0].input_snapshot.evidence?.expected;
-      if (
-        !Array.isArray(expected) ||
-        !expected.every((id) => /^[A-Z_]+:\d+$/.test(id))
-      )
-        throw new Error("CATALOG");
-      const goodsKeys = [...new Set(expected.map((id) => id.split(":")[1]))];
-      product = await restockCatalog(
-        alert.barcode,
-        alert.details.storeUrl,
-        goodsKeys,
-      );
-    } catch {
-      rows(
-        await db
-          .from(table)
-          .update({ note: "CATALOG", next_check_at: deferTime(10) })
-          .eq("id", alert.id)
-          .eq("owner_id", owner)
-          .eq("status", "READY"),
-      );
-      return { job: null };
+    let product: RestockProduct | null = null;
+    if (alert.barcode !== null) {
+      try {
+        const starts = rows<{
+          input_snapshot: { evidence?: { expected?: string[] } };
+        }>(
+          await db
+            .from("commerce_operation_runs")
+            .select("input_snapshot")
+            .eq("status", "SUCCEEDED")
+            .eq("source", "COMMERCE_OS_INVENTORY_STOCK_CONTROL")
+            .eq("operation_type", "SHOPLING_STOCK_STATUS_SYNC_EVENT")
+            .eq("correlation_id", "receipt-onsale:" + alert.draft_id)
+            .eq("input_snapshot->>jobId", alert.job_id)
+            .eq("input_snapshot->>barcode", alert.barcode)
+            .eq("input_snapshot->>outcome", "STARTED")
+            .limit(2),
+        );
+        const expected =
+          starts.length === 1 && starts[0].input_snapshot.evidence?.expected;
+        if (
+          !Array.isArray(expected) ||
+          !expected.every((id) => /^[A-Z_]+:\d+$/.test(id))
+        )
+          throw new Error("CATALOG");
+        const goodsKeys = [...new Set(expected.map((id) => id.split(":")[1]))];
+        product = await restockCatalog(
+          alert.barcode,
+          alert.details.storeUrl,
+          goodsKeys,
+        );
+      } catch {
+        rows(
+          await db
+            .from(table)
+            .update({ note: "CATALOG", next_check_at: deferTime(10) })
+            .eq("id", alert.id)
+            .eq("owner_id", owner)
+            .eq("status", "READY"),
+        );
+        return { job: null };
+      }
     }
-    const body = composeRestock(
-      alert.details,
-      product.name,
-      product.url,
-      new Date(),
-      cfg.opt_out,
-    );
+    const body = product
+      ? composeRestock(
+          alert.details,
+          product.name,
+          product.url,
+          new Date(),
+          cfg.opt_out,
+        )
+      : operatorTestMessage;
     const expires = Date.now() + 110000;
     return {
       job: {
         ...key,
-        kind: "prepare",
+        kind: product ? "prepare" : "operator_test",
         sender: cfg.sender,
         body,
         product,
@@ -425,8 +458,7 @@ export async function restockWorker(
         expires,
         ticket: seal(
           secret,
-          proofFor(alert.id, cfg.mode, cfg.sender, expires, product, body) +
-            hash(JSON.stringify(alert.details)),
+          proofFor(alert, cfg.mode, cfg.sender, expires, product, body),
         ),
       },
     };
@@ -456,16 +488,40 @@ export async function restockWorker(
     return {};
   }
   if (raw.action === "claim") {
-    const p = raw.product as RestockProduct | undefined,
+    const p = raw.product as RestockProduct | null,
       body = String(raw.body),
       expires = Number(raw.expires),
       bytes = Number(raw.bytes);
+    const operatorTest = alert.barcode === null;
+    if (operatorTest) {
+      if (
+        cfg.mode !== "pilot" ||
+        alert.sender !== cfg.sender ||
+        p !== null ||
+        raw.purchasable !== false ||
+        body !== operatorTestMessage ||
+        bytes > 90
+      )
+        return { claimed: false };
+    } else if (
+      !p ||
+      !Array.isArray(p.options) ||
+      raw.purchasable !== true ||
+      (cfg.mode === "pilot" && alert.phone !== cfg.sender) ||
+      (body.startsWith("(광고)") &&
+        composeRestock(
+          alert.details,
+          p.name,
+          p.url,
+          new Date(),
+          cfg.opt_out,
+        ) !== body)
+    ) {
+      return { claimed: false };
+    }
     if (
       alert.status !== "READY" ||
       cfg.mode === "off" ||
-      (cfg.mode === "pilot" && alert.phone !== cfg.sender) ||
-      !p ||
-      !Array.isArray(p.options) ||
       !Number.isFinite(expires) ||
       expires < Date.now() ||
       expires > Date.now() + 115000 ||
@@ -474,22 +530,9 @@ export async function restockWorker(
       bytes > 2000 ||
       !Number.isSafeInteger(raw.credits) ||
       Number(raw.credits) < (bytes > 90 ? 3 : 1) ||
-      raw.purchasable !== true ||
-      (body.startsWith("(광고)") &&
-        composeRestock(
-          alert.details,
-          p.name,
-          p.url,
-          new Date(),
-          cfg.opt_out,
-        ) !== body) ||
       !safeEqual(
         String(raw.ticket),
-        seal(
-          secret,
-          proofFor(alert.id, cfg.mode, cfg.sender, expires, p, body) +
-            hash(JSON.stringify(alert.details)),
-        ),
+        seal(secret, proofFor(alert, cfg.mode, cfg.sender, expires, p, body)),
       )
     )
       return { claimed: false };
@@ -504,7 +547,8 @@ export async function restockWorker(
       p_details: alert.details,
       p_evidence: {
         pilot: cfg.mode === "pilot",
-        product: p.number,
+        operatorTest,
+        product: p?.number ?? null,
         bodyHash: hash(body),
         bytes,
         creditsBefore: raw.credits,

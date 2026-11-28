@@ -38,6 +38,7 @@ const context = await browser.newContext({
   serviceWorkers: "block",
 });
 let posted,
+  mode = "off",
   submits = 0;
 try {
   await context.route("**/*", async (route) => {
@@ -51,13 +52,14 @@ try {
       if (u.pathname === "/api/restock-alerts") {
         if (route.request().method() === "POST") {
           posted = route.request().postDataJSON();
+          if (posted.action === "settings") mode = posted.mode;
           return route.fulfill({ json: { ok: true } });
         }
         return route.fulfill({
           json: {
             items: [],
             total: 0,
-            settings: { mode: "off", sender: "", opt_out: "" },
+            settings: { mode, sender: "01000000000", opt_out: "" },
           },
         });
       }
@@ -104,6 +106,24 @@ try {
   assert.equal(posted.marketItem, "M-01234");
   assert.equal(posted.marketName, "도매꾹");
   assert.ok(posted.id);
+  await page.getByText("샵플링 문자 설정", { exact: false }).click();
+  assert.equal(await page.getByLabel("운영자 시험 수신번호").count(), 0);
+  await page.getByLabel("발송 모드").selectOption("pilot");
+  await page.getByRole("button", { name: "발송 설정 저장" }).click();
+  await page.getByLabel("운영자 시험 수신번호").fill("01000005555");
+  await page.getByRole("button", { name: "시험 문자 1건 보내기" }).click();
+  await page
+    .getByText("시험 문자 1건을 요청했습니다.", { exact: false })
+    .waitFor();
+  assert.equal(posted.action, "send-test");
+  assert.equal(posted.phone, "01000005555");
+  assert.ok(posted.id);
+  assert.equal(posted.barcode, undefined);
+  assert.ok(
+    await page
+      .getByRole("button", { name: "시험 문자 1건 보내기" })
+      .isDisabled(),
+  );
   const product = { number: "705", options: ["ps5"] };
   await page.goto(
     "https://dosomesaurus.com/product/detail.html?product_no=705",

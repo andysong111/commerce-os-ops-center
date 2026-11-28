@@ -2,6 +2,8 @@ import { normalizeShoplingBcode } from "./shopling/shoplingBcodeIndexCore.ts";
 
 export const restockTemplate =
   "요청하신 상품이 입고되었습니다.\n{상품}\n도소매사우루스에서 주문하실 수 있습니다.";
+export const operatorTestMessage =
+  "[도소매사우루스] 입고알림 시험 문자입니다. 정상 수신을 확인해 주세요.";
 export const statusLabels: Record<string, string> = {
   WAITING: "입고·판매중 전환 대기",
   READY: "구매 가능 확인 대기",

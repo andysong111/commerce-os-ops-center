@@ -253,14 +253,25 @@ export async function dispatchRestockJob(
     await history(job, call);
     return;
   }
-  if (job.kind !== "prepare") return;
+  const operatorTest =
+    job.kind === "operator_test" &&
+    job.mode === "pilot" &&
+    job.product === null;
+  if (job.kind !== "prepare" && !operatorTest) return;
   let claimed = false,
     claimStarted = false;
   let reason = "STORE";
   try {
-    if (await storeReady(job.product)) {
+    if (operatorTest || (await storeReady(job.product))) {
       reason = "SHOPLING";
       const handled = await openG6(job, async (bytes, submit, credits) => {
+        if (
+          operatorTest &&
+          (!Number.isInteger(bytes) || bytes <= 0 || bytes > 90)
+        ) {
+          reason = "LENGTH";
+          return false;
+        }
         claimStarted = true;
         const r = await call({
           action: "claim",
@@ -271,7 +282,7 @@ export async function dispatchRestockJob(
           ticket: job.ticket,
           bytes,
           credits,
-          purchasable: true,
+          purchasable: !operatorTest,
         });
         if (!r.claimed) return true;
         claimed = true;

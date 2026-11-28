@@ -11,6 +11,7 @@ import {
   blankRestock,
   composeRestock,
   estimatedSmsBytes,
+  operatorTestMessage,
   statusLabels,
   type RestockDetails,
 } from "@/lib/restockAlertCore";
@@ -18,6 +19,7 @@ import {
 type Settings = { sender: string; mode: string; opt_out: string };
 type Entry = {
   id: string;
+  operatorTest: boolean;
   barcode: string;
   phone: string;
   market: string;
@@ -62,6 +64,8 @@ export function RestockAlerts({ draft }: { draft: string }) {
     [version, reload] = useState(0),
     [offset, page] = useState(0);
   const [editing, setEditing] = useState("");
+  const [testPhone, setTestPhone] = useState("");
+  const testKey = useRef("");
   const [rechecked, setRechecked] = useState(false);
   const [lookup, setLookup] = useState<{
     key: string;
@@ -127,8 +131,10 @@ export function RestockAlerts({ draft }: { draft: string }) {
         page(0);
       }
       reload((v) => v + 1);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -158,6 +164,19 @@ export function RestockAlerts({ draft }: { draft: string }) {
       editing ? "신청 내용을 수정했습니다." : "입고알림 신청을 등록했습니다.",
       true,
     );
+  }
+  async function sendTest(e: FormEvent) {
+    e.preventDefault();
+    if (!testKey.current) testKey.current = crypto.randomUUID();
+    const ok = await save(
+      { action: "send-test", id: testKey.current, phone: testPhone },
+      "시험 문자 1건을 요청했습니다. 신청·발송 내역에서 결과를 확인하세요.",
+    );
+    if (ok) {
+      setTestPhone("");
+      testKey.current = "";
+      page(0);
+    }
   }
   return (
     <>
@@ -387,7 +406,9 @@ export function RestockAlerts({ draft }: { draft: string }) {
                   </p>
                 </div>
                 <div>
-                  {statusLabels[row.status]}{" "}
+                  {row.operatorTest && row.status === "READY"
+                    ? "시험 발송 대기"
+                    : statusLabels[row.status]}{" "}
                   {row.details && (
                     <button
                       type="button"
@@ -497,13 +518,38 @@ export function RestockAlerts({ draft }: { draft: string }) {
               />
             </Field>
             <p className="text-xs text-slate-600">
-              시험 모드에서 운영자 번호로 신청하고 휴대폰 수신과 상품 링크를
-              확인한 뒤 고객 자동 발송을 켜세요.
+              운영자 시험 모드를 저장하면 지정한 휴대폰으로 시험 문자를 보낼 수
+              있습니다. 샵플링에서 발송 성공을 확인하면 고객 자동 발송을 켤 수
+              있습니다.
             </p>
             <button className={button} disabled={busy}>
               발송 설정 저장
             </button>
           </form>
+          {data.settings.mode === "pilot" && (
+            <form
+              onSubmit={sendTest}
+              className="mt-5 grid max-w-lg gap-3 border-t pt-4"
+            >
+              <Field title="운영자 시험 수신번호">
+                <input
+                  required
+                  type="tel"
+                  autoComplete="off"
+                  className={inputClass}
+                  value={testPhone}
+                  onChange={(e) => {
+                    setTestPhone(e.target.value);
+                    testKey.current = "";
+                  }}
+                />
+              </Field>
+              <p className="text-sm text-slate-700">{operatorTestMessage}</p>
+              <button className={button} disabled={busy || !testPhone.trim()}>
+                시험 문자 1건 보내기
+              </button>
+            </form>
+          )}
         </details>
       )}
     </>
