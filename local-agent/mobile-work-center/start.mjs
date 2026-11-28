@@ -1,4 +1,5 @@
 import { wakePickingDispatch } from "./picking-dispatch.mjs";
+import { pollRestockSms } from "./restock-sms.mjs";
 import { createServer } from "node:net";
 import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -35,6 +36,7 @@ const adapter = {
   },
 };
 let lastError = "";
+let restockTask;
 const worker = createMobileWorkWorker({
   ...config, adapter,
   onError(code) {
@@ -48,5 +50,10 @@ for (;;) {
   if (!worker.isActive()) await wakePickingDispatch(config).catch(() => {
     // No stock request was submitted here. A later tick can reopen the PC page.
   });
+  if (!worker.isActive() && !restockTask) {
+    restockTask = pollRestockSms(config).catch(() => {
+      // Accepted SMS attempts are reconciled from G6 on subsequent ticks.
+    }).finally(() => { restockTask = undefined; });
+  }
   await delay(worker.isActive() ? 6_000 : 30_000);
 }
