@@ -70,6 +70,22 @@ function imagePatch(itemId: string, materials: SaurusLaunchMaterials) {
   return { itemId, patch: { detailPageAsset: materials } };
 }
 
+async function readLaunchImageTargets(config: ProductLaunchAdminConfig, owner: string, ids: string[]) {
+  const [state, normalized] = await Promise.all([
+    readProductLaunchState(config, owner), readProductLaunchNormalizedItems(config, owner, ids),
+  ]);
+  const items = object(state?.state_payload).items;
+  if (!state?.updated_at || !Array.isArray(items) || normalized.length !== ids.length) {
+    throw new SaurusStoreError("진행관리와 SEO 대량등록에서 사용할 상품을 모두 확인하지 못했습니다.", 409);
+  }
+  const chosen = new Set(ids);
+  return {
+    updatedAt: state.updated_at,
+    launchItems: items.map(object).filter(({ id }) => typeof id === "string" && chosen.has(id)),
+    seoItems: normalized.map(object),
+  };
+}
+
 async function saveLaunchImagePatches(request: NextRequest, expectedStateUpdatedAt: string, patches: ReturnType<typeof imagePatch>[]) {
   const headers = new Headers(request.headers);
   headers.delete("content-length");
@@ -275,12 +291,7 @@ export async function POST(request: NextRequest) {
         return result({ ok: true, batch: await saveSaurusReviewBatch(config.value, owner, next, ids) });
       }
 
-      const [launchRow, currentItems] = await Promise.all([
-        readProductLaunchState(config.value, owner), readSelectedLaunchItems(config.value, owner, ids),
-      ]);
-      const items = object(launchRow?.state_payload).items;
-      if (!launchRow?.updated_at || !Array.isArray(items)) return result({ ok: false, message: "진행관리 상품을 확인하지 못했습니다." }, 409);
-      const launchItems = items.map(object);
+      const targets = await readLaunchImageTargets(config.value, owner, ids);
 
       if (input.action === "manual_save") {
         const product = selected[0]!;
@@ -289,18 +300,24 @@ export async function POST(request: NextRequest) {
         }
         let materials;
         try {
-          const item = requireSaurusProductIdentity(product, currentItems.find(({ id }) => id === product.id));
-          requireSaurusProductIdentity(product, launchItems.find(({ id }) => id === product.id));
+          const item = requireSaurusProductIdentity(product, targets.seoItems[0]);
+          requireSaurusProductIdentity(product, targets.launchItems[0]);
           materials = saurusManualMaterials(input.images, String(item.productName || product.name));
         } catch (error) {
           return result({ ok: false, message: (error as Error).message }, 409);
         }
-        const write = await saveLaunchImagePatches(request, launchRow.updated_at, [imagePatch(product.id, materials)]);
+        const write = await saveLaunchImagePatches(request, targets.updatedAt, [imagePatch(product.id, materials)]);
         if (!write.ok) return result(await write.json(), write.status);
-        const readback = await readSelectedLaunchItems(config.value, owner, ids);
-        const savedItem = readback.find(({ id }) => id === product.id);
-        if (!savedItem || !sameSaurusLaunchMaterials(saurusLaunchMaterials(savedItem), materials)) {
-          return result({ ok: false, message: "직접 제작 이미지 주소의 저장 결과를 확인하지 못했습니다." }, 409);
+        const readback = await readLaunchImageTargets(config.value, owner, ids);
+        try {
+          for (const item of [readback.launchItems[0], readback.seoItems[0]]) {
+            const saved = requireSaurusProductIdentity(product, item);
+            if (!sameSaurusLaunchMaterials(saurusLaunchMaterials(saved), materials)) {
+              throw new Error("직접 제작 이미지 주소의 저장 결과를 확인하지 못했습니다.");
+            }
+          }
+        } catch (error) {
+          return result({ ok: false, message: (error as Error).message }, 409);
         }
         const next = replaceProduct(batch, { ...product, manualImageSavedAt: now }, now);
         return result({ ok: true, batch: await saveSaurusBatch(config.value, owner, next) });
@@ -309,11 +326,11 @@ export async function POST(request: NextRequest) {
       let reserved;
       let patches;
       try {
-        reserved = reserveSaurusApproval(batch, ids, currentItems, now);
-        const plan = planSaurusApproval(reserved, ids, launchItems);
-        const normalizedPlan = planSaurusApproval(reserved, ids, currentItems);
-        const changedNormalized = new Set(normalizedPlan.filter((row, index) => row !== currentItems[index]).map(({ id }) => id));
-        patches = plan.flatMap((row, index) => row === launchItems[index] && !changedNormalized.has(row.id) ? []
+        reserved = reserveSaurusApproval(batch, ids, targets.seoItems, now);
+        const plan = planSaurusApproval(reserved, ids, targets.launchItems);
+        const seoPlan = planSaurusApproval(reserved, ids, targets.seoItems);
+        const changedSeo = new Set(seoPlan.filter((row, index) => row !== targets.seoItems[index]).map(({ id }) => id));
+        patches = plan.flatMap((row, index) => row === targets.launchItems[index] && !changedSeo.has(row.id) ? []
           : [imagePatch(String(row.id), saurusLaunchMaterials(row))]);
       } catch (error) {
         return result({ ok: false, message: (error as Error).message }, 409);
@@ -322,13 +339,14 @@ export async function POST(request: NextRequest) {
       // cannot race a successful image save. Reopening approval resumes the write.
       const approval = reserved === batch ? batch : await saveSaurusReviewBatch(config.value, owner, reserved, ids);
       if (patches.length) {
-        const write = await saveLaunchImagePatches(request, launchRow.updated_at, patches);
+        const write = await saveLaunchImagePatches(request, targets.updatedAt, patches);
         if (!write.ok) return result({ ...(await write.json()), batch: approval }, write.status);
       }
-      const readback = await readSelectedLaunchItems(config.value, owner, ids);
+      const readback = await readLaunchImageTargets(config.value, owner, ids);
       let next;
       try {
-        next = confirmSaurusApprovalReadback(approval, ids, readback, now);
+        confirmSaurusApprovalReadback(approval, ids, readback.launchItems, now);
+        next = confirmSaurusApprovalReadback(approval, ids, readback.seoItems, now);
       } catch (error) {
         return result({ ok: false, message: (error as Error).message, batch: approval }, 409);
       }

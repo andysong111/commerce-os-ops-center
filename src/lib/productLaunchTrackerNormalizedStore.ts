@@ -640,7 +640,6 @@ export async function syncProductLaunchNormalizedImageMaterials(
   items: Array<{
     itemId: string;
     asset: UnknownRecord;
-    summaryAsset: UnknownRecord;
     readiness: ProductLaunchTrackerSummary["readiness"];
   }>,
 ) {

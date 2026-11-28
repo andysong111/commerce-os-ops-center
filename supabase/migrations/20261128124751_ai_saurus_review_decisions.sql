@@ -133,7 +133,6 @@ begin
   select w.source_state_updated_at into workspace_revision
   from public.product_launch_workspaces w where w.owner_id = p_owner
   for update;
-  if workspace_revision is distinct from p_previous_updated_at then return false; end if;
 
   update public.product_launch_items stored
   set item_payload = jsonb_set(stored.item_payload, '{detailPageAsset}',
@@ -142,7 +141,7 @@ begin
       summary_payload = jsonb_set(
         jsonb_set(stored.summary_payload, '{detailPageAsset}',
           (case when jsonb_typeof(stored.summary_payload->'detailPageAsset') = 'object'
-           then stored.summary_payload->'detailPageAsset' else '{}'::jsonb end) || (wanted.item->'summaryAsset')),
+           then stored.summary_payload->'detailPageAsset' else '{}'::jsonb end) || ((wanted.item->'asset') - 'html')),
         '{readiness}', wanted.item->'readiness'),
       readiness_ready = (wanted.item#>>'{readiness,ready}')::boolean,
       readiness_error_count = (wanted.item#>>'{readiness,errorCount}')::integer,
@@ -156,9 +155,13 @@ begin
     raise exception '정규화 상품의 이미지 저장 대상을 확인하지 못했습니다.' using errcode = 'PT409';
   end if;
 
-  update public.product_launch_workspaces
-  set source_state_updated_at = p_updated_at, counts = p_counts, updated_at = p_updated_at
-  where owner_id = p_owner;
+  -- SEO reads these product rows even when the workspace is behind. In that
+  -- case leave the workspace revision alone because other rows are still stale.
+  if workspace_revision = p_previous_updated_at then
+    update public.product_launch_workspaces
+    set source_state_updated_at = p_updated_at, counts = p_counts, updated_at = p_updated_at
+    where owner_id = p_owner;
+  end if;
   return true;
 end;
 $function$;

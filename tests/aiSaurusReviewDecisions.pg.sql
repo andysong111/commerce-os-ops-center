@@ -93,19 +93,20 @@ select 'PASS B-code conflicts, permanent rejection, one retry, stale revision, o
 
 do $test$
 declare
-  owner_id uuid := '10000000-0000-4000-8000-000000000000';
+  owner_uuid uuid := '10000000-0000-4000-8000-000000000000';
   old_revision timestamptz := '2026-11-28T12:00:00Z';
   current_revision timestamptz := '2026-11-28T12:05:00Z';
-  fixture jsonb := '{"itemId":"primary-item","asset":{"mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"],"html":"<img>"},"summaryAsset":{"mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"]},"readiness":{"ready":true,"errorCount":0,"warningCount":0}}';
+  stale_revision timestamptz := '2026-11-26T06:20:17Z';
+  fixture jsonb := '{"itemId":"primary-item","asset":{"mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"],"html":"<img>"},"readiness":{"ready":true,"errorCount":0,"warningCount":0}}';
 begin
   if has_function_privilege('authenticated', 'public.sync_product_launch_image_materials(uuid,timestamptz,timestamptz,jsonb,jsonb)', 'execute') then
     raise exception 'The image mirror escaped the service role';
   end if;
-  if public.sync_product_launch_image_materials(owner_id, old_revision, old_revision, '{}', jsonb_build_array(fixture)) then
+  if public.sync_product_launch_image_materials(owner_uuid, old_revision, old_revision, '{}', jsonb_build_array(fixture)) then
     raise exception 'A stale image mirror advanced the workspace';
   end if;
   begin
-    perform public.sync_product_launch_image_materials(owner_id, old_revision, current_revision, '{}',
+    perform public.sync_product_launch_image_materials(owner_uuid, old_revision, current_revision, '{}',
       jsonb_build_array(fixture, fixture || '{"itemId":"missing"}'));
     raise exception 'A missing product failed to roll back a partial mirror';
   exception when sqlstate 'PT409' then null;
@@ -113,7 +114,7 @@ begin
   if exists (select 1 from public.product_launch_items where (item_payload->'detailPageAsset') ? 'html') then
     raise exception 'A partial image mirror altered an item';
   end if;
-  if not public.sync_product_launch_image_materials(owner_id, old_revision, current_revision,
+  if not public.sync_product_launch_image_materials(owner_uuid, old_revision, current_revision,
     '{"등록 준비":1}', jsonb_build_array(fixture)) then
     raise exception 'The valid B-code image mirror did not sync';
   end if;
@@ -121,6 +122,7 @@ begin
       and i.item_payload = '{"warehouseLocation":"BDG6-2","salePrice":15000,"detailPageAsset":{"resultId":"keep","mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"],"html":"<img>"}}'
       and i.summary_payload->>'existingSummary' = 'keep'
       and i.summary_payload#>>'{detailPageAsset,mainImageUrl}' = 'main'
+      and not ((i.summary_payload->'detailPageAsset') ? 'html')
       and i.readiness_ready and i.readiness_error_count = 0
       and i.updated_at = current_revision)
     or not exists (select 1 from public.product_launch_items i where i.item_id = 'alias-item'
@@ -130,9 +132,21 @@ begin
       and w.counts = '{"등록 준비":1}') then
     raise exception 'An image mirror altered non-image data or missed saved SEO materials';
   end if;
+
+  update public.product_launch_workspaces w set source_state_updated_at = stale_revision where w.owner_id = owner_uuid;
+  if not public.sync_product_launch_image_materials(owner_uuid, old_revision, current_revision,
+    '{"등록 준비":2}', jsonb_build_array(fixture || '{"itemId":"alias-item"}')) then
+    raise exception 'The stale workspace prevented the selected SEO image write';
+  end if;
+  if not exists (select 1 from public.product_launch_items i where i.item_id = 'alias-item'
+      and i.item_payload#>>'{detailPageAsset,html}' = '<img>')
+    or not exists (select 1 from public.product_launch_workspaces w where w.source_state_updated_at = stale_revision
+      and w.counts = '{"등록 준비":1}') then
+    raise exception 'SEO images did not sync independently of the stale workspace';
+  end if;
 end;
 $test$;
 
 rollback;
 
-select 'PASS image-only normalized mirror preserves B-code options, unrelated products and metadata, and rolls back stale writes' as proof;
+select 'PASS image-only mirror preserves B-code options and updates SEO while leaving stale workspace data and unrelated products intact' as proof;
