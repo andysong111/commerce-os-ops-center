@@ -53,11 +53,23 @@ function currentImage(item: Item) {
   return text(object(item.detailPageAsset).detailImageUrl, 4000);
 }
 
+function canonicalReviewOptions(options: AiSaurusBatchProduct["reviewOptions"]) {
+  return options?.map(({ sourceName, saleName }) => ({ sourceName, saleName }));
+}
+
+export function sameSaurusReviewOptions(
+  left: AiSaurusBatchProduct["reviewOptions"],
+  right: AiSaurusBatchProduct["reviewOptions"],
+) {
+  return JSON.stringify(canonicalReviewOptions(left)) === JSON.stringify(canonicalReviewOptions(right));
+}
+
 function productInputHash(product: AiSaurusBatchProduct) {
   if (product.reviewOptions === undefined) {
     return digest(["ai-saurus-detail", 1, product.id, product.sourceUrl, product.name, product.options]);
   }
-  return digest(["ai-saurus-detail", 2, product.id, product.sourceUrl, product.name, product.options, product.reviewOptions]);
+  return digest(["ai-saurus-detail", 2, product.id, product.sourceUrl, product.name, product.options,
+    canonicalReviewOptions(product.reviewOptions)]);
 }
 
 function isEligibleSourcingItem(item: Item) {
@@ -167,7 +179,7 @@ export function refreshSaurusPreparation(batch: AiSaurusDetailBatch, fresh: AiSa
         (current.sourceUrl === product.sourceUrl && current.name === product.name && current.model === product.model &&
         current.originalDetailImageUrl === product.originalDetailImageUrl &&
         JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions) &&
-        JSON.stringify(current.reviewOptions) === JSON.stringify(product.reviewOptions))) return product;
+        sameSaurusReviewOptions(current.reviewOptions, product.reviewOptions))) return product;
     const options = JSON.stringify(product.options) === JSON.stringify(product.catalogOptions)
       ? current.options : product.options;
     const next = { ...current, options };

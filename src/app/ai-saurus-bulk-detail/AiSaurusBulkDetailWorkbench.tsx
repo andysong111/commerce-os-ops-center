@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { showSaurusPopupMessage } from "@/lib/aiSaurusBulkDetailPopup";
 import {
   AI_SAURUS_BATCH_API, AI_SAURUS_BATCH_PAGE,
   type AiSaurusDetailBatch, type AiSaurusProductStage,
@@ -26,12 +27,19 @@ const textBox = "w-full rounded-lg border border-slate-300 p-2.5 text-sm focus-v
 const secondary = "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50";
 
 async function batchRequest(payload: Record<string, unknown>) {
-  const response = await fetch(AI_SAURUS_BATCH_API, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.message || "AI 사우루스 작업을 처리하지 못했습니다.");
-  return body as { batch: AiSaurusDetailBatch; launchUrl?: string };
+  const signal = AbortSignal.timeout(45_000);
+  try {
+    const response = await fetch(AI_SAURUS_BATCH_API, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload), signal,
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.message || "AI 사우루스 작업을 처리하지 못했습니다.");
+    return body as { batch: AiSaurusDetailBatch; launchUrl?: string };
+  } catch (error) {
+    if (signal.aborted) throw new Error("응답이 지연됐습니다. OPS 작업판을 새로고침해 작업 상태를 확인해 주세요.");
+    throw error;
+  }
 }
 
 function lines(value: string) {
@@ -106,9 +114,9 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
       if (!studio.current) throw new Error("AI 사우루스 제작 창을 열 수 없습니다. 이 사이트의 팝업을 허용해 주세요.");
       // The fixed AI Saurus production window remains related to the workbench
       // so Chrome lets the workbench navigate it to the next queued offer.
-      studio.current.document.title = "AI 사우루스 준비";
-      studio.current.document.body.textContent = "AI 사우루스 1688 수집 창을 여는 중입니다.";
     }
+    showSaurusPopupMessage(studio.current, "AI 사우루스 준비", "AI 사우루스 1688 수집 창을 여는 중입니다.");
+    return studio.current;
   }
 
   useEffect(() => {
@@ -173,11 +181,12 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     setBusy(true);
     setError("");
     setMessage("");
+    let popup: Window | null = null;
     try {
       if (action === "start") {
         const ids = chosen.map(({ id }) => id);
         if (!ids.length) return;
-        openStudio();
+        popup = openStudio();
         const prepared = await batchRequest({
           action: "prepare", batchId, revision: batch.revision,
           edits: ids.map((id) => ({ id, options: lines(options[id] ?? "") })),
@@ -189,16 +198,20 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         setBatch(saved);
         navigateStudio(launchUrl);
       } else if (action === "continue" && nextQueued) {
-        openStudio();
+        popup = openStudio();
         const { batch: saved, launchUrl } = await dispatch("start", batch, [nextQueued]);
         setBatch(saved);
         navigateStudio(launchUrl);
       } else if (action === "resume" && running) {
-        openStudio();
+        popup = openStudio();
         const { batch: saved, launchUrl } = await dispatch("resume", batch, [running.id]);
         setBatch(saved);
         if (launchUrl) navigateStudio(launchUrl);
-        else setMessage("제작 결과를 작업판에서 확인할 수 있습니다.");
+        else {
+          const message = "제작 결과를 OPS 작업판에서 확인할 수 있습니다.";
+          showSaurusPopupMessage(popup, "AI 사우루스 작업 상태", message);
+          setMessage(message);
+        }
       } else if (action === "retry" || action === "approve") {
         const { batch: saved } = await dispatch(action, batch, resultsSelected);
         setBatch(saved);
@@ -209,7 +222,9 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         setMessage("대기 목록을 비웠습니다.");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "작업을 진행하지 못했습니다.");
+      const message = cause instanceof Error ? cause.message : "작업을 진행하지 못했습니다.";
+      showSaurusPopupMessage(popup, "AI 사우루스 수집 오류", message);
+      setError(message);
     } finally {
       setBusy(false);
     }
