@@ -64,8 +64,8 @@ function ReviewContent({ receipt }: { receipt: AiSaurusHostedReceipt }) {
                     className={`min-w-0 rounded-lg border p-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 disabled:opacity-50 ${role === chosen
                       ? "border-blue-500 bg-blue-50 text-blue-900 ring-1 ring-blue-500"
                       : "border-slate-200 bg-white text-slate-700 hover:border-blue-300"}`}>
-                    <span className="grid aspect-square place-items-center overflow-hidden rounded-md bg-slate-100">
-                      {id ? <ReviewImage key={id} url={saurusResultImageUrl(id)} alt="" className="h-full w-full object-contain" /> : "—"}
+                    <span className="flex aspect-square items-center justify-center overflow-hidden rounded-md bg-slate-100">
+                      {id ? <ReviewImage key={id} url={saurusResultImageUrl(id)} alt="" className="block max-h-full max-w-full object-contain" /> : "—"}
                     </span>
                     <span className="mt-1 block">{role === "representative_main_catalog" ? "대표" : label}</span>
                   </button>
@@ -74,8 +74,8 @@ function ReviewContent({ receipt }: { receipt: AiSaurusHostedReceipt }) {
             </div>
             {chosen && selectedUrl && (
               <figure className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                <div className="grid h-[min(36dvh,420px)] place-items-center p-2 lg:h-[min(51dvh,500px)]">
-                  <ReviewImage key={selectedUrl} url={selectedUrl} alt={imageLabels[chosen]} className="h-full w-full object-contain" />
+                <div className="flex h-[min(36dvh,420px)] items-center justify-center overflow-hidden p-2 lg:h-[min(51dvh,500px)]">
+                  <ReviewImage key={selectedUrl} url={selectedUrl} alt={imageLabels[chosen]} className="block max-h-full max-w-full object-contain" />
                 </div>
                 <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">{imageLabels[chosen]}</figcaption>
               </figure>
