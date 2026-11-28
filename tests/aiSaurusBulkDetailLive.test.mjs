@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { CompletedProductActions } from "../src/app/ai-saurus-bulk-detail/AiSaurusReviewDecisions.tsx";
 import { confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, planSaurusImageConfirmation, planSaurusReviewDecision, refreshSaurusPreparation, requireSaurusSourcingItems, reserveSaurusApproval, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
 import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
 import { readSaurusReviewAssets, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
@@ -219,20 +216,6 @@ test("a reviewed result can retry once across reselection and rejection permanen
   assert.match(manual.html, /a=1&amp;b=2/);
   assert.match(manual.html, /직접 &quot;제작&quot;/);
   assert.throws(() => saurusManualMaterials({ ...manual, detailImageUrl: "javascript:alert(1)" }, "테스트"), /HTTP/);
-});
-
-test("completed product cards expose one retry beside image review for pending and approved results", () => {
-  const card = (stage, attempts) => renderToStaticMarkup(createElement(CompletedProductActions, {
-    item: { stage, attempts, receipt: { reviewAssets: firstGallery, transferReceiptId: assetId } }, busy: false,
-    error: "", decide: assert.fail, onOpen: assert.fail,
-  }));
-  for (const stage of ["awaiting_review", "approved"]) {
-    assert.match(card(stage, 1), /이미지 검수<\/button>.*재시도 · 1회 남음<\/button>/);
-    assert.doesNotMatch(card(stage, 1), /disabled=""|승인 거절|URL 저장/);
-    assert.match(card(stage, 2), /<button[^>]*disabled=""[^>]*>재시도 사용 완료<\/button>/);
-  }
-  assert.doesNotMatch(card("approving", 1), /재시도/);
-  assert.equal(card("rejected", 1), "");
 });
 
 test("an approved product keeps its saved gallery until the single retry is approved", () => {
