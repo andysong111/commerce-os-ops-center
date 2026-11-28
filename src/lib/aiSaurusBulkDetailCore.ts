@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-import { readChinaDetailPageLink } from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
+import { readChinaDetailPageLink, readChinaLinkUsage, readChinaPurchaseLink } from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 import {
   AI_SAURUS_BULK_LIMIT, AI_SAURUS_ORIGIN,
   type AiSaurusBatchProduct, type AiSaurusDetailBatch, type AiSaurusHostedReceipt,
   type AiSaurusRelease,
 } from "./aiSaurusBulkDetailTypes.ts";
 
+import { canonicalOpsOffer, type OpsDetailOptionHint } from "./opsDetailDispatch.ts";
+
 type Item = Record<string, unknown>;
+const SAURUS_SOURCING_CUTOFF = Date.parse("2026-11-01T00:00:00+09:00");
 const HASH = /^[a-f0-9]{64}$/i;
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const MAX_ATTEMPTS = 2;
@@ -51,7 +54,50 @@ function currentImage(item: Item) {
 }
 
 function productInputHash(product: AiSaurusBatchProduct) {
-  return digest(["ai-saurus-detail", 1, product.id, product.sourceUrl, product.name, product.options]);
+  if (product.reviewOptions === undefined) {
+    return digest(["ai-saurus-detail", 1, product.id, product.sourceUrl, product.name, product.options]);
+  }
+  return digest(["ai-saurus-detail", 2, product.id, product.sourceUrl, product.name, product.options, product.reviewOptions]);
+}
+
+function isEligibleSourcingItem(item: Item) {
+  const source = object(item.source);
+  const savedDate = text(source.sourceConfirmedAt) || text(source.materializedAt);
+  return source.system === "commerce-os-sourcing-engine" && text(source.sourcingIntakeId) !== "" &&
+    /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d\d:\d\d)$/.test(savedDate) &&
+    Date.parse(savedDate) >= SAURUS_SOURCING_CUTOFF;
+}
+
+export function requireSaurusSourcingItems(items: Item[], ids: string[]) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const rejected = ids.filter((id) => {
+    const item = byId.get(id);
+    return !item || item.archivedAt || !isEligibleSourcingItem(item);
+  });
+  if (rejected.length) {
+    const labels = rejected.map((id) => text(byId.get(id)?.modelNumber) || text(byId.get(id)?.productName) || id);
+    throw new Error("2026년 11월 1일 이후 확정 소싱한 신규상품만 제작할 수 있습니다. 대상 제외: " + labels.join(", "));
+  }
+}
+
+function sourcingOptionHints(item: Item, sourceUrl: string): OpsDetailOptionHint[] {
+  const productionOffer = canonicalOpsOffer(sourceUrl);
+  if (!productionOffer || productionOffer !== canonicalOpsOffer(readChinaPurchaseLink(item))) return [];
+  const rows = Array.isArray(item.orderOptions) ? item.orderOptions.map(object) : [];
+  const hasOtherOffer = readChinaLinkUsage(item).purchaseAlternates.some((url) => canonicalOpsOffer(url) !== productionOffer);
+  if (rows.length > 80 || rows.some((row) => {
+    const supplierLink = text(row.supplierLink, 4000);
+    return supplierLink ? canonicalOpsOffer(supplierLink) !== productionOffer : hasOtherOffer;
+  })) return [];
+  const hints = rows.map((row) => ({
+    sourceName: typeof row.chinaOption === "string" ? row.chinaOption.trim() : "",
+    saleName: typeof row.saleOption === "string" ? row.saleOption.trim() : "",
+  }));
+  if (hints.some(({ sourceName, saleName }) => !sourceName || sourceName.length > 500 || !saleName || saleName.length > 100) ||
+      new Set(hints.map(({ sourceName }) => sourceName)).size !== hints.length ||
+      new Set(hints.map(({ saleName }) => saleName)).size !== hints.length ||
+      Buffer.byteLength(JSON.stringify(hints)) > 8000) return [];
+  return hints;
 }
 
 function is1688ProductUrl(value: string) {
@@ -75,9 +121,11 @@ export function newSaurusBatch(id: string, ids: string[], sourceItems: Item[], n
         const row = object(option);
         return text(row.saleOption ?? row.value, 100);
       }).filter(Boolean))].slice(0, 80);
+    const sourceUrl = readChinaDetailPageLink(item);
     const product: AiSaurusBatchProduct = {
       id: itemId, model: text(item.modelNumber), name: text(item.productName),
-      sourceUrl: readChinaDetailPageLink(item), originalDetailImageUrl: currentImage(item),
+      sourceUrl, originalDetailImageUrl: currentImage(item),
+      ...(isEligibleSourcingItem(item) ? { reviewOptions: sourcingOptionHints(item, sourceUrl) } : {}),
       catalogOptions, options: catalogOptions, stage: "draft", attempts: 0, inputHash: "",
     };
     return { ...product, inputHash: productInputHash(product) };
@@ -95,8 +143,9 @@ export function updateSaurusPreparation(batch: AiSaurusDetailBatch, edits: unkno
     if (!row || batch.queuedIds?.includes(id) || (row.stage !== "draft" && row.stage !== "waiting_connection")) {
       throw new Error("준비 중인 상품만 편집할 수 있습니다.");
     }
-    if (prepare && (!updates.get(id)?.length || !is1688ProductUrl(row.sourceUrl))) {
-      throw new Error(`${row.model || row.name || id}의 제작용 1688 링크와 옵션명을 확인해 주세요.`);
+    if (prepare && (!is1688ProductUrl(row.sourceUrl) || (row.reviewOptions === undefined && !updates.get(id)?.length))) {
+      const problem = row.reviewOptions === undefined ? "1688 링크와 옵션명을" : "1688 링크를";
+      throw new Error(`${row.model || row.name || id}의 제작용 ${problem} 확인해 주세요.`);
     }
   }
   return {
@@ -117,7 +166,8 @@ export function refreshSaurusPreparation(batch: AiSaurusDetailBatch, fresh: AiSa
     if (!current || batch.queuedIds?.includes(product.id) || !["draft", "waiting_connection"].includes(product.stage) ||
         (current.sourceUrl === product.sourceUrl && current.name === product.name && current.model === product.model &&
         current.originalDetailImageUrl === product.originalDetailImageUrl &&
-        JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions))) return product;
+        JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions) &&
+        JSON.stringify(current.reviewOptions) === JSON.stringify(product.reviewOptions))) return product;
     const options = JSON.stringify(product.options) === JSON.stringify(product.catalogOptions)
       ? current.options : product.options;
     const next = { ...current, options };

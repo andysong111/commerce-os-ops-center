@@ -13,7 +13,7 @@ const filters = [
   ["all", "전체"], ["ready", "준비"], ["success", "성공"], ["failed", "실패"],
 ] as const;
 const labels: Record<AiSaurusProductStage, string> = {
-  draft: "옵션 준비", waiting_connection: "연결 대기", waiting_1688_login: "1688 로그인 대기",
+  draft: "수집 준비", waiting_connection: "수집 대기", waiting_1688_login: "1688 로그인 대기",
   running: "제작 중", awaiting_review: "승인 대기", failed: "실패", approved: "승인 완료",
 };
 const matching = {
@@ -78,11 +78,11 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
 
   const products = batch?.products ?? [];
   const visible = products.filter((item) => matching[view](item.stage));
-  const editable = visible.filter((item) => !batch?.queuedIds?.includes(item.id) &&
+  const editable = visible.filter((item) => item.reviewOptions !== undefined && !batch?.queuedIds?.includes(item.id) &&
     (item.stage === "draft" || item.stage === "waiting_connection"));
   const chosen = editable.filter((item) => selected.includes(item.id));
   const selectable = view === "success" ? visible.filter((item) => item.stage === "awaiting_review")
-    : view === "failed" ? visible : editable;
+    : view === "failed" ? visible.filter((item) => item.reviewOptions !== undefined) : editable;
   const allSelected = selectable.length > 0 && selectable.every(({ id }) => selected.includes(id));
   const running = products.find((item) => item.stage === "running");
   const nextQueued = batch?.queuedIds?.[0];
@@ -107,7 +107,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
       // The fixed AI Saurus production window remains related to the workbench
       // so Chrome lets the workbench navigate it to the next queued offer.
       studio.current.document.title = "AI 사우루스 준비";
-      studio.current.document.body.textContent = "AI 사우루스 운영 제작을 여는 중입니다.";
+      studio.current.document.body.textContent = "AI 사우루스 1688 수집 창을 여는 중입니다.";
     }
   }
 
@@ -137,7 +137,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [batch, batchId, busy, connected, maxCredits, running]);
 
-  async function save(action: "save" | "prepare") {
+  async function saveOptions() {
     if (!batch || !chosen.length || busy) return;
     setBusy(true);
     setError("");
@@ -147,7 +147,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action, batchId, revision: batch.revision,
+          action: "save", batchId, revision: batch.revision,
           edits: chosen.map(({ id }) => ({ id, options: lines(options[id] ?? "") })),
         }),
       });
@@ -160,7 +160,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         ...current,
         ...Object.fromEntries(saved.products.filter(({ id }) => savedIds.has(id)).map((item) => [item.id, item.options.join("\n")])),
       }));
-      setMessage(action === "prepare" ? `${chosen.length}개 상품을 연결 대기 상태로 저장했습니다.` : `${chosen.length}개 상품의 옵션을 저장했습니다.`);
+      setMessage(`${chosen.length}개 상품의 참고 판매명을 저장했습니다.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "작업 준비를 저장하지 못했습니다.");
     } finally {
@@ -220,10 +220,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
         <strong>{connected ? "AI 사우루스 운영 제작" : "준비 모드 · AI 사우루스 연결 대기"}</strong>
         <p className="mt-1">{connected
-          ? "제작은 같은 Chrome에서 진행하며 AI 사우루스 계정의 크레딧을 사용합니다. 1688 로그인이 필요하면 제작 창에서 안내합니다."
-          : "실제 제작을 켜면 같은 Chrome의 1688 로그인과 AI 사우루스 운영 릴리스·Importer를 확인한 뒤 진행합니다."}</p>
+          ? "같은 Chrome에서 1688 상품을 수집합니다. 이미지와 판매 옵션을 확인하고 제작을 시작할 때 크레딧을 사용합니다."
+          : "AI 사우루스 운영 수집 기능을 확인하는 중입니다. 잠시 후 작업판을 새로고침해 주세요."}</p>
         {running && !running.dispatch?.providerJobId &&
-          <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("resume")}>현재 상품 제작 창 다시 열기</button>}
+          <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("resume")}>현재 상품 수집·검토 창 다시 열기</button>}
         {nextQueued && <p className="mt-2">제작 대기 {batch?.queuedIds?.length}개</p>}
         {nextQueued && !running &&
           <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("continue")}>
@@ -266,22 +266,24 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           </nav>
           {(view === "all" || view === "ready") && (
             <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-              <label className="block text-sm font-semibold" htmlFor="saurus-bulk-options">선택 상품에 옵션명 일괄 입력</label>
-              <textarea id="saurus-bulk-options" rows={2} className={textBox} value={bulk} onChange={(event) => setBulk(event.target.value)} placeholder="한 줄에 옵션 하나씩 입력" />
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-slate-600">선택 {chosen.length}개</span>
-                <button type="button" className={secondary} disabled={busy || !chosen.length || !bulk.trim()} onClick={() => {
-                  setOptions((current) => ({ ...current, ...Object.fromEntries(chosen.map((item) => [item.id, lines(bulk).join("\n")])) }));
-                  setMessage("선택한 상품에 옵션명을 입력했습니다. 저장하면 준비 작업에 반영됩니다.");
-                }}>선택에 적용</button>
-                <button type="button" className={secondary} disabled={busy || !chosen.length} onClick={() => void save("save")}>옵션 저장</button>
-                <button type="button" disabled={busy || !chosen.length} onClick={() => void save("prepare")}
-                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50">
-                  선택 상품 제작 준비
-                </button>
-                <button type="button" className={secondary} disabled={!connected || busy || !chosen.length || Boolean(running || nextQueued)}
-                  onClick={() => void connectAction("start")}>선택 상품 제작 시작{maxCredits ? ` · 건당 ${maxCredits}크레딧` : ""}</button>
+                <button type="button" className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
+                  disabled={!connected || busy || !chosen.length || Boolean(running || nextQueued)}
+                  onClick={() => void connectAction("start")}>선택 상품 1688 정보 수집</button>
               </div>
+              <details className="space-y-2 text-sm text-slate-600">
+                <summary className="cursor-pointer">검토 화면에 표시할 판매명 편집 (선택)</summary>
+                <label className="block text-sm font-semibold" htmlFor="saurus-bulk-options">선택 상품에 참고 판매명 일괄 입력</label>
+                <textarea id="saurus-bulk-options" rows={2} className={textBox} value={bulk} onChange={(event) => setBulk(event.target.value)} placeholder="한 줄에 옵션 하나씩 입력" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" className={secondary} disabled={busy || !chosen.length || !bulk.trim()} onClick={() => {
+                    setOptions((current) => ({ ...current, ...Object.fromEntries(chosen.map((item) => [item.id, lines(bulk).join("\n")])) }));
+                    setMessage("선택한 상품의 검토 화면에 표시할 참고 판매명을 입력했습니다.");
+                  }}>선택에 적용</button>
+                  <button type="button" className={secondary} disabled={busy || !chosen.length} onClick={() => void saveOptions()}>참고 판매명 저장</button>
+                </div>
+              </details>
             </section>
           )}
           {(view === "success" || view === "failed") && (
@@ -304,8 +306,8 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
           {visible.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">이 상태의 상품이 없습니다.</p>}
           <ul className="space-y-3">
             {visible.map((item) => {
-              const canEdit = !batch.queuedIds?.includes(item.id) && (item.stage === "draft" || item.stage === "waiting_connection");
-              const canSelect = canEdit || item.stage === "failed" || item.stage === "awaiting_review";
+              const canEdit = editable.includes(item);
+              const canSelect = canEdit || (item.reviewOptions !== undefined && item.stage === "failed") || item.stage === "awaiting_review";
               const currentText = options[item.id] ?? "";
               const picked = lines(currentText);
               return (
@@ -322,8 +324,11 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                     </span>
                   </div>
                   <div className="break-all text-xs text-slate-600">제작용 링크 {item.sourceUrl || "미입력"}</div>
-                  {item.catalogOptions.length > 0 && canEdit && (
-                    <div className="flex flex-wrap gap-1.5" aria-label="상품 판매 옵션">
+                  {item.reviewOptions === undefined && matching.ready(item.stage) &&
+                    <p className="text-xs text-slate-600">이전 준비 작업입니다. 상품출시 진행관리에서 제작 대상 상품을 다시 선택해 주세요.</p>}
+                  {canEdit && <details className="space-y-2 text-sm">
+                    <summary className="cursor-pointer text-slate-600">검토 화면에 표시할 판매명 편집 (선택)</summary>
+                    {item.catalogOptions.length > 0 && <div className="flex flex-wrap gap-1.5" aria-label="상품 판매 옵션">
                       {item.catalogOptions.map((option) => (
                         <button key={option} type="button" disabled={busy} aria-pressed={picked.includes(option)}
                           className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(option) ? "border-blue-300 bg-blue-50 text-blue-900" : "border-slate-200 text-slate-700"}`}
@@ -331,12 +336,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                           {option}
                         </button>
                       ))}
-                    </div>
-                  )}
-                  <div>
-                    <label htmlFor={`saurus-options-${item.id}`} className="block text-sm font-medium">제작 옵션명</label>
-                    <textarea id={`saurus-options-${item.id}`} rows={2} className={`mt-1 ${textBox}`} value={currentText} disabled={!canEdit || busy} onChange={(event) => setItemOptions(item.id, event.target.value)} />
-                  </div>
+                    </div>}
+                    <label htmlFor={`saurus-options-${item.id}`} className="block text-sm font-medium">참고 판매 옵션명</label>
+                    <textarea id={`saurus-options-${item.id}`} rows={2} className={`mt-1 ${textBox}`} value={currentText} disabled={busy} onChange={(event) => setItemOptions(item.id, event.target.value)} />
+                  </details>}
                   {item.error && <p className="text-sm text-rose-800">{item.error}</p>}
                   {item.receipt && <a href={item.receipt.hostedImageUrl} target="_blank" rel="noreferrer" className="break-all text-sm text-blue-800 underline">검수용 상세페이지 이미지 열기</a>}
                 </li>

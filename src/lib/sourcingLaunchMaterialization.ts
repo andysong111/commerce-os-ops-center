@@ -22,6 +22,7 @@ export type SourcingLaunchMaterializationInput = {
   barcode: string; modelNumber: string; productName: string;
   saleOption?: string; chinaOption?: string; supplierLink?: string; unitCostKrw?: number; sourceLineId?: string;
   receivedAt?: string;
+  sourceConfirmedAt?: string;
 };
 
 export type SourcingReservedLaunchInput = Omit<
@@ -137,6 +138,7 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
     const now = new Date(Math.max(Date.now(), Date.parse(sourceUpdatedAt) + 1)).toISOString();
     const optionPayload = {
       id:"sourcing-option-"+intakeId,barcode,optionName:"옵션",saleOption,chinaOption:text(input.chinaOption),
+      ...(supplierLink ? { supplierLink } : {}),
       unitCostKrw:Math.max(0,Math.round(Number(input.unitCostKrw)||0)),baseSalePriceKrw:0,
       sourceOrderItemId:text(input.sourceLineId)||null,optionBarcodeIdentityKey:"B:"+barcode,optionBarcodeIdentityKind:"B_CODE",
       sourcingIntakeId:intakeId,outboxId:outboxId||null,receiptId:receiptId||null,lifecycleStatus,
@@ -153,6 +155,7 @@ export async function materializeSourcingLaunchItem(input: SourcingLaunchMateria
           system:"commerce-os-sourcing-engine",sourcingIntakeId:intakeId,outboxId,
           sourcingIntakeIds:[intakeId],
           receiptId:receiptId||null,sourceLineId:text(input.sourceLineId),materializedAt:now,
+          ...(input.sourceConfirmedAt ? { sourceConfirmedAt: input.sourceConfirmedAt } : {}),
           lifecycleStatus,receivedAt:lifecycleStatus==="RECEIVED"?(text(input.receivedAt)||now):null,
         },
         notes:lifecycleStatus==="RECEIVED"?RECEIVED_NOTE:RESERVED_NOTE,

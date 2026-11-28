@@ -86,12 +86,14 @@ async function launchBackend(options = {}) {
 
 test('reserved sourcing creates one inbound-pending launch item and receipt upgrades that same item',async()=>{
   const b=await launchBackend();
-  const reserved={...input(),receiptId:undefined,outboxId};
+  const reserved={...input(),receiptId:undefined,outboxId,sourceConfirmedAt:'2026-11-01T12:44:16.346Z'};
   await b.runReserved(reserved);
   const before=b.normalized.get(intakeId);
   assert.equal(b.stored.state_payload.items.length,1);
   assert.equal(before.source.lifecycleStatus,'RESERVED');
   assert.equal(before.source.outboxId,outboxId);
+  assert.equal(before.source.sourceConfirmedAt,reserved.sourceConfirmedAt);
+  assert.equal(before.orderOptions[0].supplierLink,reserved.supplierLink);
   assert.equal(before.notes,'신규소싱 확정 · 입고 대기');
   assert.equal(before.workBatch,'신규소싱확정');
 
@@ -101,6 +103,7 @@ test('reserved sourcing creates one inbound-pending launch item and receipt upgr
   assert.equal(after.id,before.id);
   assert.equal(after.source.lifecycleStatus,'RECEIVED');
   assert.equal(after.source.receiptId,receiptId);
+  assert.equal(after.source.sourceConfirmedAt,reserved.sourceConfirmedAt);
   assert.equal(after.notes,'신규소싱 입고확정 · 출시 준비');
   assert.equal(after.workBatch,'신규소싱입고');
 });

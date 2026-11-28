@@ -103,6 +103,7 @@ export function normalizeSourcingPurchaseIngress(input: SourcingPurchaseIngressI
   return {
     intakeId, outboxId, barcode, modelNumber, productName, quantity, unitPriceCny,
     saleOption, chinaOption, supplierLink, sourceConfirmedAt,
+    confirmedSourcingTimestamp: Number.isFinite(confirmed) ? sourceConfirmedAt : undefined,
   };
 }
 
@@ -122,6 +123,7 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
       saleOption: normalized.saleOption,
       chinaOption: normalized.chinaOption,
       supplierLink: normalized.supplierLink,
+      sourceConfirmedAt: normalized.confirmedSourcingTimestamp,
       sourceLineId: replay.externalLineId,
     });
     return { ...replay, launchItemId: launch.itemId, launchLifecycleStatus: launch.lifecycleStatus };
@@ -233,6 +235,7 @@ export async function ingestSourcingPurchase(input: SourcingPurchaseIngressInput
     saleOption: normalized.saleOption,
     chinaOption: normalized.chinaOption,
     supplierLink: normalized.supplierLink,
+    sourceConfirmedAt: normalized.confirmedSourcingTimestamp,
     sourceLineId,
   });
 

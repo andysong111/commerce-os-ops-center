@@ -7,6 +7,8 @@ const HEX = /^[a-f0-9]{64}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 
+export type OpsDetailOptionHint = { sourceName: string; saleName: string };
+
 export type OpsDetailDispatch = {
   attempt: string;
   inputHash: string;
@@ -14,6 +16,7 @@ export type OpsDetailDispatch = {
   source: string;
   name: string;
   options: string[];
+  reviewOptions?: OpsDetailOptionHint[];
   importer: string;
   deployment: string;
   maxCredits: number;
@@ -39,9 +42,17 @@ function validDispatch(value: unknown): value is OpsDetailDispatch {
     typeof row.email === "string" && row.email.length <= 254 && EMAIL.test(row.email) &&
     typeof row.source === "string" && canonicalOpsOffer(row.source) === row.source &&
     typeof row.name === "string" && row.name.trim() === row.name && row.name.length > 0 && row.name.length <= 250 &&
-    Array.isArray(row.options) && row.options.length > 0 && row.options.length <= 80 &&
+    Array.isArray(row.options) && (row.options.length > 0 || Array.isArray(row.reviewOptions)) && row.options.length <= 80 &&
     new Set(row.options).size === row.options.length &&
     row.options.every((name) => typeof name === "string" && name.trim() === name && name.length > 0 && name.length <= 100) &&
+    (row.reviewOptions === undefined ||
+      (Array.isArray(row.reviewOptions) && row.reviewOptions.length <= 80 &&
+        Buffer.byteLength(JSON.stringify(row.reviewOptions)) <= 8000 &&
+        row.reviewOptions.every((hint) => hint && typeof hint.sourceName === "string" && hint.sourceName.trim() === hint.sourceName &&
+          hint.sourceName.length > 0 && hint.sourceName.length <= 500 && typeof hint.saleName === "string" &&
+          hint.saleName.trim() === hint.saleName && hint.saleName.length > 0 && hint.saleName.length <= 100) &&
+        new Set(row.reviewOptions.map((hint) => hint.sourceName)).size === row.reviewOptions.length &&
+        new Set(row.reviewOptions.map((hint) => hint.saleName)).size === row.reviewOptions.length)) &&
     typeof row.importer === "string" && VERSION.test(row.importer) &&
     typeof row.deployment === "string" && /^[a-f0-9]{40}$/.test(row.deployment) &&
     Number.isSafeInteger(row.maxCredits) && row.maxCredits > 0 && row.maxCredits <= 1000 &&

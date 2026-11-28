@@ -1,3 +1,5 @@
+import type { OpsDetailOptionHint } from "./opsDetailDispatch";
+
 export const AI_SAURUS_BULK_LIMIT = 20;
 export const AI_SAURUS_ORIGIN = "https://ai-saurus.com";
 export const AI_SAURUS_BATCH_API = "/api/ai-saurus-bulk-detail";
@@ -49,6 +51,7 @@ export type AiSaurusBatchProduct = {
   sourceUrl: string;
   originalDetailImageUrl: string;
   catalogOptions: string[];
+  reviewOptions?: OpsDetailOptionHint[];
   options: string[];
   stage: AiSaurusProductStage;
   attempts: number;
