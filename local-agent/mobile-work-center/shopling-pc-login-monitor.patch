@@ -1,0 +1,51 @@
+--- a/local-agent/src/local-control-center.mjs
++++ b/local-agent/src/local-control-center.mjs
+@@ -3,6 +3,7 @@
+ import { createWriteStream } from "node:fs";
+ import { mkdir, readFile } from "node:fs/promises";
+ import { join, resolve } from "node:path";
++import { createMobileLoginMonitor } from "./shopling-mobile-login-monitor.mjs";
+ import { buildStatusSnapshot } from "./status.mjs";
+ import { localControlProgressEvent } from "./local-control-progress.mjs";
+ import {
+@@ -4785,11 +4786,18 @@
+     };
+   }
+
++  const mobileLogin = createMobileLoginMonitor(advanceMobileShoplingLogin, LOGIN_QUEUE_TTL_MS, () => now().getTime());
++
++  async function pollLoginQueue() {
++    if (state.pendingLoginAction) return resumePendingActionIfReady();
++    mobileLogin.tick();
++  }
++
+   function startLoginMonitor() {
+     if (loginTimer) return;
+-    loginTimer = setInterval(() => void resumePendingActionIfReady().catch(() => {}), LOGIN_POLL_MS);
++    loginTimer = setInterval(() => void pollLoginQueue().catch(() => {}), LOGIN_POLL_MS);
+     loginTimer.unref?.();
+-    void resumePendingActionIfReady().catch(() => {});
++    void pollLoginQueue().catch(() => {});
+   }
+
+   function startScheduler(options = {}) {
+@@ -4830,7 +4838,7 @@
+     stopActiveRun,
+     updateSettings,
+     configureShoplingCredential,
+-    advanceMobileShoplingLogin,
++    advanceMobileShoplingLogin: mobileLogin.check,
+     retryShoplingAutoLogin,
+     configurePopbillCredential,
+     openBarobillBrowsers,
+--- a/local-agent/src/local-control-server.mjs
++++ b/local-agent/src/local-control-server.mjs
+@@ -250,7 +250,7 @@
+           if (typeof body.requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId)) {
+             return sendJson(response, 400, { ok: false, code: "MOBILE_LOGIN_ID_INVALID" });
+           }
+-          const phase = await runtime.advanceMobileShoplingLogin();
++          const phase = await runtime.advanceMobileShoplingLogin(body.requestId);
+           return sendJson(response, 200, { ok: true, requestId: body.requestId, phase });
+         }
+         if (url.pathname === "/api/shopling/auto-login/retry") {
