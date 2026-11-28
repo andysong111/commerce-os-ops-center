@@ -12,6 +12,96 @@ import {
 import { dispatchRestockJob } from "../local-agent/mobile-work-center/restock-sms.mjs";
 import { matchHistory } from "../local-agent/mobile-work-center/restock-browser.mjs";
 
+import { rankRestockOffers } from "../src/lib/restockMarketOffer.ts";
+import { PRODUCT_GROUP_MARKET_REGISTRY } from "../src/lib/productGroupMarketRegistry.ts";
+
+test("lowest price follows the exact option and allowed selling accounts across all four markets", () => {
+  const row = (mallKey, code, basePrice, status = "판매중") => {
+    const a = PRODUCT_GROUP_MARKET_REGISTRY.find((a) => a.mallKey === mallKey);
+    return {
+      site: a.marketName,
+      account: a.accountIdLabel,
+      code,
+      basePrice,
+      status,
+    };
+  };
+  const rows = [
+    row("SMALL_00014", "721", 2600),
+    row("SMALL_00069", "123458", 2700),
+    row("SMALL_00107", "WABCDEF", 2800),
+    row("SMALL_00004", "2413", 2900),
+    row("SMALL_00069", "123459", 1, "삭제"),
+    row("SMALL_00003", "999", 1),
+    { ...row("SMALL_00069", "123456", 1), account: "unrelated" },
+  ];
+  for (const [i, market] of [
+    "카페24",
+    "도매꾹",
+    "오너클랜",
+    "스마트스토어",
+  ].entries()) {
+    const observations = [
+      {
+        goodsKey: "21",
+        rows: rows.map((r, j) => (j === i ? { ...r, basePrice: 2000 } : r)),
+      },
+    ];
+    const view = rankRestockOffers(
+      [{ goodsKey: "21", adjustment: 250 }],
+      observations,
+    );
+    assert.equal(view.marketCount, 4);
+    assert.equal(view.offer.market, market);
+    assert.equal(view.offer.price, 2250);
+    const d = parse({ includeLowestOffer: true }).details;
+    assert.equal(d.includeLowestOffer, true);
+    const body = composeRestock(
+      d,
+      "제품",
+      view.offer.url,
+      noon,
+      "",
+      view.offer,
+    );
+    assert.equal(body.split(view.offer.url).length, 2);
+    assert.ok(body.includes("2,250원"));
+    assert.ok(
+      !composeRestock(
+        blankRestock,
+        "제품",
+        link,
+        noon,
+        "",
+        view.offer,
+      ).includes("2,250원"),
+    );
+  }
+  const t = [
+    { goodsKey: "21", adjustment: 400 },
+    { goodsKey: "22", adjustment: 0 },
+  ];
+  const more = [
+    { goodsKey: "21", rows },
+    { goodsKey: "22", rows: [row("SMALL_00069", "91234", 2800)] },
+  ];
+  assert.equal(rankRestockOffers(t, more).offer.price, 2800);
+  assert.equal(rankRestockOffers(t, more.slice(0, 1)).offer, null);
+  assert.equal(
+    rankRestockOffers(t, [
+      more[0],
+      { ...more[1], rows: [row("SMALL_00014", "721", 500)] },
+    ]).complete,
+    false,
+  );
+  assert.equal(
+    rankRestockOffers(
+      t,
+      more.map((v) => ({ ...v, rows: [] })),
+    ).offer,
+    null,
+  );
+});
 const sample = { barcode: " bce6 ‐ 1 ", phone: "010-0000-1234" },
   noon = new Date("2026-11-28T03:00:00Z");
 const link = ownStoreLink("705"),
@@ -124,8 +214,15 @@ test("a lost submit response moves exclusively to history reconciliation", async
 
 test("a logged-out G6 tab closes and releases its SMS lease before human login recovery", async () => {
   const events = [];
-  const job = { kind: "operator_test", mode: "pilot", product: null, id: "pending-test" };
-  const call = async ({ action, note }) => { events.push([action, note]); };
+  const job = {
+    kind: "operator_test",
+    mode: "pilot",
+    product: null,
+    id: "pending-test",
+  };
+  const call = async ({ action, note }) => {
+    events.push([action, note]);
+  };
   const openG6 = async (_job, _submit, loginRequired) => {
     loginRequired();
     events.push("G6 closed");
@@ -136,8 +233,19 @@ test("a logged-out G6 tab closes and releases its SMS lease before human login r
     events.push(["recover", id]);
     return false;
   };
-  await dispatchRestockJob(job, call, () => assert.fail(), openG6, undefined, recover);
-  assert.deepEqual(events, ["G6 closed", ["defer", "SHOPLING"], ["recover", job.id]]);
+  await dispatchRestockJob(
+    job,
+    call,
+    () => assert.fail(),
+    openG6,
+    undefined,
+    recover,
+  );
+  assert.deepEqual(events, [
+    "G6 closed",
+    ["defer", "SHOPLING"],
+    ["recover", job.id],
+  ]);
 });
 
 test("an active phone challenge keeps G6 closed and preserves an existing send attempt", async () => {
@@ -149,9 +257,23 @@ test("an active phone challenge keeps G6 closed and preserves an existing send a
       events.push(["login", id]);
       return false;
     };
-    await dispatchRestockJob(job, async (e) => events.push([e.action, e.note]),
-      () => assert.fail(), () => assert.fail(), () => assert.fail(), recover);
-    assert.deepEqual(events, kind === "history" ? [["login", job.id]] : [["defer", "SHOPLING"], ["login", job.id]]);
+    await dispatchRestockJob(
+      job,
+      async (e) => events.push([e.action, e.note]),
+      () => assert.fail(),
+      () => assert.fail(),
+      () => assert.fail(),
+      recover,
+    );
+    assert.deepEqual(
+      events,
+      kind === "history"
+        ? [["login", job.id]]
+        : [
+            ["defer", "SHOPLING"],
+            ["login", job.id],
+          ],
+    );
   }
 });
 test("a sold-out option, canceled claim or lost claim response never clicks send", async () => {

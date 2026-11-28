@@ -71,6 +71,7 @@ try {
       if (u.pathname === "/api/restock-alerts") {
         if (route.request().method() === "POST") {
           posted = route.request().postDataJSON();
+          if (posted.action === "quote") return route.fulfill({json:{state:"ready",result:{complete:true,marketCount:4,offer:{market:"스마트스토어",price:4100,url:"https://smartstore.naver.com/example/products/13"}}}});
           if (posted.action === "settings") mode = posted.mode;
           if (posted.action === "send-test") requestedTest = posted.id;
           if (posted.action === "activate-after-test") selectedTest = posted.id;
@@ -137,7 +138,13 @@ try {
   await page
     .getByLabel("원구매처 상품 링크")
     .fill("https://domeggook.com/12345");
+  await page.getByLabel("최저가 구매처를 문자에 추가").check();
+  await page.getByText("판매중인 4개 마켓 중 스마트스토어 · 4,100원").waitFor();
   const preview = await page.locator("aside").innerText();
+  assert.ok(preview.includes("스마트스토어 판매가 4,100원"));
+  assert.ok(preview.includes("https://smartstore.naver.com/example/products/13"));
+  await page.getByLabel("최저가 구매처를 문자에 추가").uncheck();
+  assert.ok(!(await page.locator("aside").innerText()).includes("4,100원"));
   assert.match(preview, /문의하신 도매꾹 상품번호 M-01234/);
   assert.ok(preview.includes("https://domeggook.com/12345"));
   assert.match(preview, /자사몰 상품/);
@@ -146,8 +153,10 @@ try {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   );
+  await page.getByLabel("최저가 구매처를 문자에 추가").check();
   await page.getByRole("button", { name: "신청 등록" }).click();
   await page.getByText("입고알림 신청을 등록했습니다.").waitFor();
+  assert.equal(posted.includeLowestOffer, true);
   assert.equal(posted.marketItem, "M-01234");
   assert.equal(posted.marketName, "도매꾹");
   assert.ok(posted.id);

@@ -22,6 +22,7 @@ export type RestockProduct = {
   url: string;
   name: string;
   options: string[];
+  offer?: import("./restockMarketOffer").MarketOffer;
 };
 export async function restockCatalog(
   barcode: string,

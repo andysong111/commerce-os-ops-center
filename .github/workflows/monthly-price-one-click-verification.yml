@@ -14,6 +14,9 @@ on:
       - 'src/app/restock-alerts/**'
       - 'src/app/api/restock-alerts/**'
       - 'src/lib/restockAlert*'
+      - 'src/lib/restockMarket*'
+      - 'src/lib/shopling/shoplingOptionStatus.ts'
+      - 'supabase/migrations/*_restock_market_quotes.sql'
       - 'local-agent/mobile-work-center/restock-*.mjs'
       - 'local-agent/mobile-work-center/start.mjs'
       - 'scripts/restock-alerts-browser-check.mjs'
@@ -57,7 +60,7 @@ jobs:
       - name: Restock SMS subscription, channel references and lost-response regression
         run: node --experimental-strip-types --test tests/restock-alerts.test.mjs
       - name: Lint SMS application and dispatch
-        run: npx eslint src/app/restock-alerts src/app/api/restock-alerts src/lib/restockAlert*.ts src/components/china-order-manager/ReceiptRestockAlerts.tsx local-agent/mobile-work-center/restock-*.mjs
+        run: npx eslint src/app/restock-alerts src/app/api/restock-alerts src/lib/restockAlert*.ts src/lib/restockMarket*.ts src/components/china-order-manager/ReceiptRestockAlerts.tsx local-agent/mobile-work-center/restock-*.mjs
       - name: Lint changed application surfaces
         run: npx eslint src/lib/monthlyPrice*.ts src/lib/receiptOnSale*.ts src/lib/inboundReceiptOnSaleSync.ts src/app/api/china-order-manager/receipt-on-sale/route.ts src/components/china-order-manager/ReceiptOnSalePanel.tsx src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
       - name: Extension syntax
@@ -123,4 +126,4 @@ jobs:
         run: |
           sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/restock-ledger.sql
           echo 'commit;' >> /tmp/restock-ledger.sql
-          psql -X -v ON_ERROR_STOP=1 -f /tmp/restock-ledger.sql -f supabase/migrations/20261128010900_receipt_restock_alerts.sql -f supabase/migrations/*_operator_test_receipt_restock_alerts.sql -f supabase/migrations/*_schedule_restock_activation.sql -f tests/restock-alerts-database.sql
+          psql -X -v ON_ERROR_STOP=1 -f /tmp/restock-ledger.sql -f supabase/migrations/20261128010900_receipt_restock_alerts.sql -f supabase/migrations/*_operator_test_receipt_restock_alerts.sql -f supabase/migrations/*_schedule_restock_activation.sql -f supabase/migrations/*_restock_market_quotes.sql -f tests/restock-alerts-database.sql

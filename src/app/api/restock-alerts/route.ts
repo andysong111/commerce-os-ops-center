@@ -10,6 +10,7 @@ import {
 import { RestockInputError, storeProductNumber } from "@/lib/restockAlertCore";
 import { loadIndexedShoplingGoodsKeys } from "@/lib/shopling/shoplingBcodeIndex";
 import { restockCatalog } from "@/lib/restockAlertCatalog";
+import { restockMarketQuote } from "@/lib/restockMarketQuoteStore";
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 const json = (body: unknown, status = 200) =>
@@ -42,8 +43,29 @@ async function handle(request: Request, write: boolean) {
       }
       if (!input || typeof input !== "object" || Array.isArray(input))
         return json({ error: "입력을 확인해 주세요." }, 400);
+      if (input.action === "quote") {
+        if (
+          typeof input.barcode !== "string" ||
+          !/^B[A-Z]{1,2}\d+-\d+$/.test(input.barcode)
+        )
+          return json({ error: "B코드를 확인해 주세요." }, 400);
+        return json(
+          await restockMarketQuote(
+            cfg.ownerId,
+            input.barcode,
+            true,
+            input.retry === true,
+          ),
+        );
+      }
       await manageRestock(cfg.ownerId, input);
       return json({ ok: true });
+    }
+    if (url.searchParams.has("offer")) {
+      const barcode = url.searchParams.get("offer") || "";
+      if (!/^B[A-Z]{1,2}\d+-\d+$/.test(barcode))
+        return json({ error: "B코드를 확인해 주세요." }, 400);
+      return json(await restockMarketQuote(cfg.ownerId, barcode));
     }
     if (url.searchParams.has("lookup")) {
       const barcode = url.searchParams.get("lookup") || "",

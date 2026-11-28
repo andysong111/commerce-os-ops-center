@@ -23,6 +23,7 @@ export type ShoplingOptionVariant = {
   optionId: string;
   optionStatus: string;
   optionQuantity: string;
+  optionAdjustment?: number;
   partnerOptionCode: string;
 };
 
@@ -156,6 +157,7 @@ function parseProductVariants(body: string) {
     const optionIds = splitCsv(options.optId);
     const statuses = splitCsv(options.optStatus);
     const quantities = splitCsv(options.optQty);
+    const amounts = scalar(options.optAmt).split(",").map(v => v.trim());
     const partnerOptionCodes = splitCsv(options.optPtnOptCd);
     const optionCount = Math.max(
       selections.length,
@@ -192,6 +194,8 @@ function parseProductVariants(body: string) {
         optionId: optionIds[index] ?? "",
         optionStatus: statuses[index] ?? "",
         optionQuantity: quantities[index] ?? "",
+        ...(amounts.length === optionCount && /^-?\d+$/.test(amounts[index])
+          ? { optionAdjustment: Number(amounts[index]) } : {}),
         partnerOptionCode: normalizeBarcode(partnerOptionCodes[index] ?? ""),
       });
     }
