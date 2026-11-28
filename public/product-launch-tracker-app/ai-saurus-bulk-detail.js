@@ -16,7 +16,7 @@ function syncButton() {
   button.textContent = pending
     ? "AI 사우루스 작업 묶음 준비 중…"
     : `AI 사우루스 상세페이지 제작${count ? ` (${count}건)` : ""}`;
-  button.title = count > limit ? `한 번에 최대 ${limit}개 상품을 선택하세요.` : "선택한 상품의 일괄 제작 준비를 엽니다.";
+  button.title = count > limit ? `한 번에 최대 ${limit}개 상품을 선택하세요.` : "2026년 11월 1일 이후 확정 소싱한 신규상품의 1688 수집과 제작을 엽니다.";
 }
 
 async function openWorkbench() {

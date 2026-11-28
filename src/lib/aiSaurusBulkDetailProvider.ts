@@ -30,6 +30,7 @@ export async function readOpsSaurusRelease() {
     throw new Error("운영 엔진과 최신 1688 확장의 버전 정보를 확인해 주세요.");
   return {
     deployment: contract.deployment, engine: contract.engine, importer: manifest.version, maxCredits: Number(contract.credits),
+    ...(contract.sourceReview === true ? { sourceReview: true as const } : {}),
   };
 }
 
@@ -40,6 +41,7 @@ export function dispatchClaims(product: AiSaurusBatchProduct, expires: number): 
   return {
     attempt: product.dispatch.attempt, inputHash: product.inputHash, source,
     name: product.name, options: product.options, email: product.dispatch.email,
+    ...(product.reviewOptions === undefined ? {} : { reviewOptions: product.reviewOptions }),
     importer: product.dispatch.importer, deployment: product.dispatch.deployment, maxCredits: product.dispatch.maxCredits, expires,
   };
 }
@@ -72,6 +74,9 @@ export function startOpsSaurusProduct(
   if (!product || product.stage !== "waiting_connection" || product.attempts >= 2 ||
       batch.products.some((row) => row.stage === "running")) {
     throw new Error("현재 제작 중인 상품을 마치고 준비된 상품을 선택해 주세요.");
+  }
+  if (product.reviewOptions !== undefined && !release.sourceReview) {
+    throw new Error("AI 사우루스의 1688 수집 후 검토 기능을 확인하지 못했습니다.");
   }
   const attempt = createHash("sha256")
     .update(JSON.stringify([OPS_SAURUS_CONTRACT, batch.id, product.id, product.inputHash, product.attempts + 1]))

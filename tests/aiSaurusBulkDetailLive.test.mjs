@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newSaurusBatch, planSaurusApproval, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
-import { readOpsSaurusRelease, reconcileOpsSaurusStatus, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
+import { newSaurusBatch, planSaurusApproval, requireSaurusSourcingItems, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
+import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
 import { applyProductLaunchTrackerMutation } from "../src/lib/productLaunchTrackerOptimized.ts";
 
 const source = "https://detail.1688.com/offer/123.html";
@@ -47,4 +47,42 @@ test("prevents duplicate starts and saves only the QA-verified final URL after e
     operation: "bulk_patch_items", patches: [{ itemId: "p1", patch: { detailPageAsset: { detailImageUrl: hostedUrl } } }],
   });
   assert.deepEqual(saved.state.items[0], planned);
+});
+
+const sourced = {
+  ...product, id: "nov", modelNumber: "AAA508",
+  source: { system: "commerce-os-sourcing-engine", sourcingIntakeId: "reservation", materializedAt: "2026-10-31T15:00:00Z" },
+  orderOptions: [{ saleOption: "단품 그레이", chinaOption: "单网灰色 大包装】10个起拍" }],
+};
+
+test("requires November 1 KST confirmed sourcing evidence for the entire selection", () => {
+  const old = { ...sourced, id: "old", modelNumber: "AAA337", source: {
+    ...sourced.source, sourceConfirmedAt: "2026-10-31T14:59:59.999Z",
+  } };
+  assert.doesNotThrow(() => requireSaurusSourcingItems([old, sourced], ["nov"]));
+  assert.throws(() => requireSaurusSourcingItems([old, sourced], ["nov", "old"]), /2026년 11월 1일.*AAA337/);
+  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, source: {} }], ["nov"]), /AAA508/);
+  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, archivedAt: date }], ["nov"]), /AAA508/);
+});
+
+test("starts source review without names and only sends proven same-offer option hints", () => {
+  const current = newSaurusBatch("batch", ["nov"], [sourced], date);
+  const hints = [{ sourceName: sourced.orderOptions[0].chinaOption, saleName: sourced.orderOptions[0].saleOption }];
+  assert.deepEqual(current.products[0].reviewOptions, hints);
+  const sourceLink = "https://detail.1688.com/offer/456.html";
+  const different = newSaurusBatch("batch", ["nov"], [{ ...sourced,
+    chinaLinkUsage: { purchaseUrl: source, detailPageUrl: sourceLink },
+  }], date);
+  assert.equal(different.products[0].sourceUrl, sourceLink);
+  assert.deepEqual(different.products[0].reviewOptions, []);
+  const mixed = newSaurusBatch("batch", ["nov"], [{ ...sourced, orderOptions: [
+    { ...sourced.orderOptions[0], supplierLink: sourceLink },
+  ] }], date);
+  assert.deepEqual(mixed.products[0].reviewOptions, []);
+  const prepared = updateSaurusPreparation(current, [{ id: "nov", options: [] }], true, date);
+  const latest = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
+  assert.throws(() => startOpsSaurusProduct(prepared, "nov", "owner@example.com", date, latest), /검토 기능/);
+  const running = startOpsSaurusProduct(prepared, "nov", "owner@example.com", date, { ...latest, sourceReview: true });
+  assert.deepEqual(dispatchClaims(running.product, 1).reviewOptions, hints);
+  assert.notEqual(prepared.products[0].inputHash, current.products[0].inputHash);
 });

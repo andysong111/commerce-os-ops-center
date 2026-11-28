@@ -14,7 +14,7 @@ import {
 } from "@/lib/aiSaurusBulkDetailStore";
 import {
   confirmSaurusApprovalReadback, newSaurusBatch, object, parseSaurusSelection, planSaurusApproval,
-  refreshSaurusPreparation, saurusSelectionHash, updateSaurusPreparation,
+  refreshSaurusPreparation, requireSaurusSourcingItems, saurusSelectionHash, updateSaurusPreparation,
 } from "@/lib/aiSaurusBulkDetailCore";
 import { AI_SAURUS_CONNECTION } from "@/lib/aiSaurusBulkDetailTypes";
 import { opsDetailSecret } from "@/lib/opsDetailDispatch";
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
       connection() === "connected" ? readOpsSaurusRelease().catch(() => null) : null,
     ]);
     if (id && !batch) return result({ ok: false, message: "작업 묶음을 찾지 못했습니다." }, 404);
-    return result({ ok: true, connection: release ? connection() : AI_SAURUS_CONNECTION,
+    return result({ ok: true, connection: release?.sourceReview ? connection() : AI_SAURUS_CONNECTION,
       batches, batch, maxCredits: release?.maxCredits ?? null });
   } catch (error) {
     return handleError(error);
@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
       const items = await readSelectedLaunchItems(config.value, owner, ids);
       let batch;
       try {
+        requireSaurusSourcingItems(items, ids);
         batch = newSaurusBatch(previous?.id ?? randomUUID(), ids, items, now);
       } catch (error) {
         return result({ ok: false, message: (error as Error).message }, 409);
@@ -141,20 +142,27 @@ export async function POST(request: NextRequest) {
         if (ids.length !== 1) return result({ ok: false, message: "제작 작업은 상품별로 실행됩니다." }, 400);
         const product = selected[0]!;
         if (input.action === "start") {
-          const [release, currentItems] = await Promise.all([
-            readOpsSaurusRelease(), readSelectedLaunchItems(config.value, owner, ids),
-          ]);
-          if (input.maxCredits !== release.maxCredits) {
-            return result({ ok: false, message: "제작에 필요한 크레딧이 변경됐습니다. 작업판을 새로고침해 확인해 주세요." }, 409);
-          }
           const queuedIds = input.queueIds === undefined ? batch.queuedIds ?? [] : parseSaurusSelection(input.queueIds);
           if ((batch.queuedIds?.length && input.queueIds !== undefined) ||
               (queuedIds.length && queuedIds[0] !== ids[0]) ||
               queuedIds.some((id) => !batch.products.some((row) => row.id === id && row.stage === "waiting_connection"))) {
             return result({ ok: false, message: "저장된 제작 순서와 선택한 상품이 일치하지 않습니다." }, 409);
           }
+          const selectedIds = queuedIds.length ? queuedIds : ids;
+          const [release, currentItems] = await Promise.all([
+            readOpsSaurusRelease(), readSelectedLaunchItems(config.value, owner, selectedIds),
+          ]);
+          if (!release.sourceReview) {
+            return result({ ok: false, message: "AI 사우루스의 1688 수집 후 검토 기능을 확인하지 못했습니다." }, 409);
+          }
+          if (input.maxCredits !== release.maxCredits) {
+            return result({ ok: false, message: "제작에 필요한 크레딧이 변경됐습니다. 작업판을 새로고침해 확인해 주세요." }, 409);
+          }
+          try { requireSaurusSourcingItems(currentItems, selectedIds); }
+          catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
           const current = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
-          if (current.sourceUrl !== product.sourceUrl || current.name !== product.name ||
+          if (product.reviewOptions === undefined || current.sourceUrl !== product.sourceUrl || current.name !== product.name ||
+              JSON.stringify(current.reviewOptions) !== JSON.stringify(product.reviewOptions) ||
               current.originalDetailImageUrl !== product.originalDetailImageUrl) {
             return result({ ok: false, message: "상품 정보가 변경됐습니다. 상품출시 진행관리에서 다시 선택해 주세요." }, 409);
           }
@@ -167,7 +175,19 @@ export async function POST(request: NextRequest) {
         const providerStatus = await readOpsSaurusStatus(product);
         const current = reconcileOpsSaurusStatus(product, providerStatus, Date.now());
         if (input.action === "resume" && current.stage === "running" && current.dispatch && !current.dispatch.providerJobId) {
+          const currentItems = await readSelectedLaunchItems(config.value, owner, ids);
+          try { requireSaurusSourcingItems(currentItems, ids); }
+          catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
+          const latest = newSaurusBatch(batch.id, ids, currentItems, now).products[0];
+          if (current.reviewOptions === undefined || latest.sourceUrl !== current.sourceUrl || latest.name !== current.name ||
+              latest.originalDetailImageUrl !== current.originalDetailImageUrl ||
+              JSON.stringify(latest.reviewOptions) !== JSON.stringify(current.reviewOptions)) {
+            return result({ ok: false, message: "상품 정보나 수집 방식이 변경됐습니다. 상품출시 진행관리에서 상품을 다시 선택해 주세요." }, 409);
+          }
           const release = await readOpsSaurusRelease();
+          if (!release.sourceReview) {
+            return result({ ok: false, message: "AI 사우루스의 1688 수집 후 검토 기능을 확인하지 못했습니다." }, 409);
+          }
           if (current.dispatch.maxCredits !== release.maxCredits) {
             return result({ ok: false, message: "제작 크레딧이 바뀌었습니다. 현재 수집 요청을 만료시킨 뒤 다시 준비해 주세요." }, 409);
           }
@@ -182,6 +202,9 @@ export async function POST(request: NextRequest) {
         return result({ ok: true, batch: saved });
       }
       if (input.action === "retry") {
+        const items = await readSelectedLaunchItems(config.value, owner, ids);
+        try { requireSaurusSourcingItems(items, ids); }
+        catch (error) { return result({ ok: false, message: (error as Error).message }, 409); }
         if (selected.some((product) => product?.stage !== "failed" || product.attempts >= 2 || !product.dispatch)) {
           return result({ ok: false, message: "비용 처리가 확인된 실패 상품만 한 번 더 준비할 수 있습니다." }, 409);
         }
