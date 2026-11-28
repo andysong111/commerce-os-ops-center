@@ -66,7 +66,12 @@ begin
      then raise exception 'test registration not unique or not idempotent';end if;
   if exists(select 1 from next_receipt_restock_alert(owner,null)) or exists(select 1 from next_receipt_restock_alert(owner,phone))
     or (select id from next_receipt_restock_alert(owner,sender)) is distinct from req then raise exception 'wrong pilot recipient selection';end if;
+  if has_function_privilege('authenticated','public.schedule_restock_activation(uuid,uuid)','execute') or
+     schedule_restock_activation(gen_random_uuid(),req) or not schedule_restock_activation(owner,req)
+     then raise exception 'owner activation boundary';end if;
   update receipt_restock_settings set mode='off' where owner_id=owner;
+  if (select activate_after_test from receipt_restock_settings where owner_id=owner) is not null
+    then raise exception 'disabled test left activation armed';end if;
   if (select r.status='CANCELED' and r.phone is null from receipt_restock_alerts r where r.id=req) is not true then raise exception 'stale test retained';end if;
   update receipt_restock_settings set mode='pilot' where owner_id=owner;
   if not request_receipt_restock_test(owner,req2,sender,phone,sig) or
@@ -75,5 +80,15 @@ begin
     not claim_receipt_restock_alert(owner,req2,attempt,sender,'pilot','test',details,details) or
     claim_receipt_restock_alert(owner,req2,attempt,sender,'pilot','test',details,details) then raise exception 'operator claim failed isolation';end if;
   if exists(select 1 from receipt_restock_draft_members(owner,'any-draft')) then raise exception 'test leaked into purchase batch';end if;
+  if not schedule_restock_activation(owner,req2) then raise exception 'active test could not be selected';end if;
+  update receipt_restock_alerts set status='REVIEW' where id=req2;
+  if (select mode from receipt_restock_settings where owner_id=owner)<>'pilot' then raise exception 'ambiguous result enabled customers';end if;
+  update receipt_restock_alerts set status='SENT',phone=null,sent_body=null,
+    evidence='{"operatorTest":true,"pilot":true,"shoplingHistoryNo":"1"}' where id=req2;
+  if (select mode='live' and activate_after_test is null from receipt_restock_settings where owner_id=owner) is not true
+    then raise exception 'confirmed selected receipt did not activate';end if;
+  update receipt_restock_settings set mode='pilot' where owner_id=owner;
+  if not schedule_restock_activation(owner,req2) then raise exception 'completed receipt rejected';end if;
+  if (select mode from receipt_restock_settings where owner_id=owner)<>'live' then raise exception 'lost race with a completed receipt';end if;
 end $$;
 rollback;

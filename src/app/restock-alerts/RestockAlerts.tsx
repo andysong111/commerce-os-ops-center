@@ -16,7 +16,12 @@ import {
   type RestockDetails,
 } from "@/lib/restockAlertCore";
 
-type Settings = { sender: string; mode: string; opt_out: string };
+type Settings = {
+  sender: string;
+  mode: string;
+  opt_out: string;
+  activate_after_test: string | null;
+};
 type Entry = {
   id: string;
   operatorTest: boolean;
@@ -447,6 +452,28 @@ export function RestockAlerts({ draft }: { draft: string }) {
                   {row.note && (
                     <p className="text-xs text-slate-600">{row.note}</p>
                   )}
+                  {row.operatorTest &&
+                    data.settings.mode === "pilot" &&
+                    ["READY", "SENDING", "REVIEW"].includes(row.status) &&
+                    (data.settings.activate_after_test === row.id ? (
+                      <p className="text-xs text-blue-700">
+                        이 시험의 발송 성공 후 고객 자동 발송을 켭니다.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mt-1 text-blue-700"
+                        disabled={busy}
+                        onClick={() =>
+                          void save(
+                            { action: "activate-after-test", id: row.id },
+                            "시험 문자 성공 후 자동 발송 전환을 요청했습니다.",
+                          )
+                        }
+                      >
+                        이 시험 성공 후 고객 자동 발송 켜기
+                      </button>
+                    ))}
                 </div>
               </li>
             ))}

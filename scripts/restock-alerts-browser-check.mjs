@@ -43,6 +43,8 @@ const context = await browser.newContext({
 });
 let posted,
   mode = "off",
+  selectedTest = null,
+  requestedTest = null,
   submits = 0;
 try {
   await context.route("**/*", async (route) => {
@@ -57,13 +59,31 @@ try {
         if (route.request().method() === "POST") {
           posted = route.request().postDataJSON();
           if (posted.action === "settings") mode = posted.mode;
+          if (posted.action === "send-test") requestedTest = posted.id;
+          if (posted.action === "activate-after-test") selectedTest = posted.id;
           return route.fulfill({ json: { ok: true } });
         }
         return route.fulfill({
           json: {
-            items: [],
-            total: 0,
-            settings: { mode, sender: "01000000000", opt_out: "" },
+            items: requestedTest
+              ? [
+                  {
+                    id: requestedTest,
+                    operatorTest: true,
+                    barcode: "운영자 시험 문자",
+                    phone: "010-****-5555",
+                    status: "READY",
+                    created: "2026-11-28T01:00:00Z",
+                  },
+                ]
+              : [],
+            total: requestedTest ? 1 : 0,
+            settings: {
+              mode,
+              sender: "01000000000",
+              opt_out: "",
+              activate_after_test: selectedTest,
+            },
           },
         });
       }
@@ -136,6 +156,14 @@ try {
       .getByRole("button", { name: "시험 문자 1건 보내기" })
       .isDisabled(),
   );
+  const testId = posted.id;
+  await page
+    .getByRole("button", { name: "이 시험 성공 후 고객 자동 발송 켜기" })
+    .click();
+  await page
+    .getByText("이 시험의 발송 성공 후 고객 자동 발송을 켭니다.")
+    .waitFor();
+  assert.deepEqual(posted, { action: "activate-after-test", id: testId });
   const product = { number: "705", options: ["ps5"] };
   await page.goto(
     "https://dosomesaurus.com/product/detail.html?product_no=705",

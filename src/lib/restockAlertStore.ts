@@ -40,8 +40,14 @@ type Settings = {
   sender: string;
   mode: "off" | "pilot" | "live";
   opt_out: string;
+  activate_after_test: string | null;
 };
-const emptySettings: Settings = { sender: "", mode: "off", opt_out: "" };
+const emptySettings: Settings = {
+  sender: "",
+  mode: "off",
+  opt_out: "",
+  activate_after_test: null,
+};
 const uuid = (v: unknown) =>
   typeof v === "string" &&
   /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(v);
@@ -69,7 +75,7 @@ async function getSettings(owner: string) {
     rows<Settings>(
       await (await database())
         .from(settings)
-        .select("sender,mode,opt_out")
+        .select("sender,mode,opt_out,activate_after_test")
         .eq("owner_id", owner)
         .limit(1),
     )[0] ?? emptySettings
@@ -175,7 +181,13 @@ export async function manageRestock(
       await db
         .from(settings)
         .upsert(
-          { owner_id: owner, sender, mode, opt_out: optOut },
+          {
+            owner_id: owner,
+            sender,
+            mode,
+            opt_out: optOut,
+            activate_after_test: null,
+          },
           { onConflict: "owner_id" },
         ),
     );
@@ -183,6 +195,18 @@ export async function manageRestock(
   }
   if (!uuid(input.id))
     throw new RestockInputError("신청 식별값을 확인해 주세요.");
+  if (input.action === "activate-after-test") {
+    const res = await db.rpc("schedule_restock_activation", {
+      p_owner: owner,
+      p_test: input.id,
+    });
+    if (res.error) throw new Error("DATABASE");
+    if (!res.data)
+      throw new RestockInputError(
+        "시험 문자와 현재 발신번호·발송 모드를 다시 확인해 주세요.",
+      );
+    return;
+  }
   if (input.action === "send-test") {
     const phone = restockPhone(input.phone);
     const cfg = await getSettings(owner);
