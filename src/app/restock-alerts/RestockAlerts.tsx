@@ -16,6 +16,7 @@ import {
   type RestockDetails,
 } from "@/lib/restockAlertCore";
 
+import type { QuoteView } from "@/lib/restockMarketOffer";
 type Settings = {
   sender: string;
   mode: string;
@@ -69,6 +70,11 @@ export function RestockAlerts({ draft }: { draft: string }) {
     [version, reload] = useState(0),
     [offset, page] = useState(0);
   const [editing, setEditing] = useState("");
+  const [quote, setQuote] = useState<{ key: string; view: QuoteView } | null>(
+    null,
+  );
+  const [quoteVersion, refreshQuote] = useState(0);
+  const retryBarcode = useRef("");
   const [testPhone, setTestPhone] = useState("");
   const testKey = useRef("");
   const [rechecked, setRechecked] = useState(false);
@@ -79,6 +85,49 @@ export function RestockAlerts({ draft }: { draft: string }) {
   } | null>(null);
   const barcode = form.barcode.trim().toUpperCase(),
     lookupKey = barcode + "|" + form.storeUrl;
+  const quoteKey = barcode + "|" + quoteVersion;
+  useEffect(() => {
+    if (!form.includeLowestOffer || !/^B[A-Z]{1,2}\d+-\d+$/.test(barcode))
+      return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const started = Date.now();
+    async function read(first: boolean) {
+      try {
+        const view: QuoteView = first
+          ? await request("/api/restock-alerts", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              signal: controller.signal,
+              body: JSON.stringify({
+                action: "quote",
+                barcode,
+                retry: retryBarcode.current === barcode,
+              }),
+            })
+          : await request(
+              "/api/restock-alerts?offer=" + encodeURIComponent(barcode),
+              { signal: controller.signal },
+            );
+        if (controller.signal.aborted) return;
+        retryBarcode.current = "";
+        setQuote({ key: quoteKey, view });
+        if (view.state === "pending" && Date.now() - started < 185_000)
+          timer = setTimeout(() => void read(false), 3500);
+        else if (view.state === "pending")
+          setQuote({ key: quoteKey, view: { state: "unavailable" } });
+      } catch {
+        if (!controller.signal.aborted)
+          setQuote({ key: quoteKey, view: { state: "unavailable" } });
+      }
+    }
+    timer = setTimeout(() => void read(true), 500);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [barcode, form.includeLowestOffer, quoteKey]);
+
   useEffect(() => {
     if (!/^B[A-Z]{1,2}\d+-\d+$/.test(barcode)) return;
     const ctrl = new AbortController(),
@@ -146,6 +195,9 @@ export function RestockAlerts({ draft }: { draft: string }) {
   }
   const now = new Date(data?.asOf || 0);
   const match = lookup?.key === lookupKey ? lookup : null;
+  const quoteView =
+    form.includeLowestOffer && quote?.key === quoteKey ? quote.view : null;
+  const winner = quoteView?.state === "ready" ? quoteView.result?.offer : null;
   const preview = composeRestock(
     {
       ...form,
@@ -155,6 +207,7 @@ export function RestockAlerts({ draft }: { draft: string }) {
     form.storeUrl || match?.url || "[자사몰 상품 링크]",
     now,
     data?.settings.opt_out || "",
+    winner,
   );
   function register(e: FormEvent) {
     e.preventDefault();
@@ -235,6 +288,62 @@ export function RestockAlerts({ draft }: { draft: string }) {
                 : "신청을 저장하면 입고 시 상품 연결을 다시 조회합니다."}
             </p>
           )}
+          <div className="rounded-lg border p-3">
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <input
+                type="checkbox"
+                checked={Boolean(form.includeLowestOffer)}
+                onChange={(e) => {
+                  set("includeLowestOffer", e.target.checked);
+                  refreshQuote((v) => v + 1);
+                }}
+              />
+              최저가 구매처를 문자에 추가
+            </label>
+            {form.includeLowestOffer && (
+              <div
+                className="mt-2 space-y-1 text-xs text-slate-600"
+                aria-live="polite"
+              >
+                <p>
+                  도매꾹·오너클랜·카페24·스마트스토어의 판매중 옵션 가격을
+                  비교합니다. 배송비와 최소 주문수량은 구매처에서 확인하세요.
+                </p>
+                {!/^B[A-Z]{1,2}\d+-\d+$/.test(barcode) ? (
+                  <p>상품 B코드를 입력해 주세요.</p>
+                ) : winner ? (
+                  <p className="font-semibold text-slate-900">
+                    판매중인 {quoteView?.result?.marketCount}개 마켓 중{" "}
+                    {winner.market} · {winner.price.toLocaleString("ko-KR")}원
+                  </p>
+                ) : (
+                  <p>
+                    {quoteView?.state === "ready"
+                      ? "현재 판매중인 구매처가 없습니다."
+                      : quoteView?.state === "unavailable"
+                        ? "판매가 조회를 마치지 못했습니다. 업무센터 PC의 샵플링 로그인 상태를 확인해 주세요."
+                        : "업무센터 PC에서 판매가를 조회하고 있습니다."}
+                  </p>
+                )}
+                <p>
+                  발송 시점에도 조회합니다. 가격을 확인할 수 없으면 기본
+                  입고알림을 보냅니다.
+                </p>
+                {quoteView && quoteView.state !== "pending" && (
+                  <button
+                    type="button"
+                    className="font-semibold text-blue-700"
+                    onClick={() => {
+                      retryBarcode.current = barcode;
+                      refreshQuote((v) => v + 1);
+                    }}
+                  >
+                    다시 확인
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <details className="rounded-lg border p-3">
             <summary className="cursor-pointer text-sm font-semibold">
               원래 구매한 마켓 추가 · 선택

@@ -1,6 +1,7 @@
 import { withCdpTarget } from "../src/chrome-cdp.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
+import { readRegisteredOffers } from "./restock-market.mjs";
 import { storefrontProbe, smsForm, matchHistory } from "./restock-browser.mjs";
 
 const debug = "http://127.0.0.1:9222";
@@ -252,7 +253,8 @@ export async function dispatchRestockJob(
   if (!isHistory && job.kind !== "prepare" && !operatorTest) return;
   if (requestSession) {
     const ready = await requestSession(job.id, async () => {
-      if (!isHistory) await call({ action: "defer", id: job.id, note: "SHOPLING" });
+      if (!isHistory)
+        await call({ action: "defer", id: job.id, note: "SHOPLING" });
     });
     if (!ready) return;
   }
@@ -267,31 +269,37 @@ export async function dispatchRestockJob(
   try {
     if (operatorTest || (await storeReady(job.product))) {
       reason = "SHOPLING";
-      const handled = await openG6(job, async (bytes, submit, credits) => {
-        if (
-          operatorTest &&
-          (!Number.isInteger(bytes) || bytes <= 0 || bytes > 90)
-        ) {
-          reason = "LENGTH";
-          return false;
-        }
-        claimStarted = true;
-        const r = await call({
-          action: "claim",
-          id: job.id,
-          expires: job.expires,
-          product: job.product,
-          body: job.body,
-          ticket: job.ticket,
-          bytes,
-          credits,
-          purchasable: !operatorTest,
-        });
-        if (!r.claimed) return true;
-        claimed = true;
-        await submit();
-        return true;
-      }, () => { needsLogin = true; });
+      const handled = await openG6(
+        job,
+        async (bytes, submit, credits) => {
+          if (
+            operatorTest &&
+            (!Number.isInteger(bytes) || bytes <= 0 || bytes > 90)
+          ) {
+            reason = "LENGTH";
+            return false;
+          }
+          claimStarted = true;
+          const r = await call({
+            action: "claim",
+            id: job.id,
+            expires: job.expires,
+            product: job.product,
+            body: job.body,
+            ticket: job.ticket,
+            bytes,
+            credits,
+            purchasable: !operatorTest,
+          });
+          if (!r.claimed) return true;
+          claimed = true;
+          await submit();
+          return true;
+        },
+        () => {
+          needsLogin = true;
+        },
+      );
       if (handled) return;
     }
   } finally {
@@ -320,7 +328,8 @@ export async function pollRestockSms(config, requestSession) {
     if (!res.ok) throw new Error("RESTOCK_WORKER");
     return res.json();
   };
-  const { job } = await call({ action: "next" });
+  const { job, quote } = await call({ action: "next", includeQuoteWork: true });
+  // Give ready sends and G6 reconciliation priority. An offer request is read-only.
   if (job)
     await dispatchRestockJob(
       job,
@@ -333,4 +342,43 @@ export async function pollRestockSms(config, requestSession) {
       reconcile,
       requestSession,
     );
+  if (!quote) return;
+  const observations = [];
+  try {
+    await ownedTab(
+      "https://kt.shopling.co.kr/prod/prodLst.phtml",
+      async (session) => {
+        if (
+          !(await waitFor(() =>
+            probe(session, () =>
+              Boolean(
+                document.forms
+                  .namedItem("frm")
+                  ?.querySelector('[name="shop_YN"]'),
+              ),
+            ),
+          ))
+        )
+          return;
+        for (const goodsKey of quote.keys) {
+          const expression =
+            "(" +
+            readRegisteredOffers.toString() +
+            ")(" +
+            JSON.stringify(goodsKey) +
+            ")";
+          const response = await session.send(
+            "Runtime.evaluate",
+            { expression, awaitPromise: true, returnByValue: true },
+            7500,
+          );
+          const rows = response.result?.value;
+          if (!Array.isArray(rows)) break;
+          observations.push({ goodsKey, rows });
+        }
+      },
+    );
+  } finally {
+    await call({ action: "quote-finish", ticket: quote.ticket, observations });
+  }
 }

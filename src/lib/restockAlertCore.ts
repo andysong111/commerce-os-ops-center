@@ -13,6 +13,7 @@ export const statusLabels: Record<string, string> = {
   CANCELED: "신청 취소",
 };
 export type RestockDetails = {
+  includeLowestOffer?: true;
   body: string;
   storeUrl: string;
   marketName: string;
@@ -149,6 +150,9 @@ export function parseRestock(input: Record<string, unknown>, now = new Date()) {
     );
   const details: RestockDetails = {
     body,
+    ...(input.includeLowestOffer === true
+      ? { includeLowestOffer: true as const }
+      : {}),
     storeUrl: product ? ownStoreLink(product) : "",
     marketName,
     marketItem,
@@ -166,6 +170,7 @@ export function composeRestock(
   url: string,
   now: Date,
   optOut = "",
+  offer?: import("./restockMarketOffer.ts").MarketOffer | null,
 ) {
   const age = now.getTime() - Date.parse(d.comparedAt);
   const kst = (now.getUTCHours() + 9) % 24;
@@ -203,6 +208,19 @@ export function composeRestock(
     );
   else if (d.marketUrl || d.marketItem)
     lines.push("도소매사우루스 상품 가격도 함께 확인하실 수 있습니다.");
+  const purchase = d.includeLowestOffer && offer;
+  if (purchase) {
+    lines.push(
+      purchase.market +
+        " 판매가 " +
+        purchase.price.toLocaleString("ko-KR") +
+        (["도매꾹", "오너클랜"].includes(purchase.market)
+          ? "원 (배송비 별도 · 최소 주문수량은 상품 페이지 참고)"
+          : "원 (배송비 별도)"),
+    );
+    if (purchase.url !== d.marketUrl && purchase.url !== url)
+      lines.push(purchase.url);
+  }
   lines.push("자사몰 상품 " + url);
   if (promo) lines.push("무료수신거부 " + optOut);
   return lines.join("\n");

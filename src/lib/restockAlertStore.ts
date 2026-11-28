@@ -15,6 +15,7 @@ import {
   type RestockDetails,
 } from "./restockAlertCore";
 import { mobileWorkCenterConfig } from "./mobileWorkCenterAuth";
+import { restockMarketQuote } from "./restockMarketQuoteStore";
 import { restockCatalog, type RestockProduct } from "./restockAlertCatalog";
 
 const table = "receipt_restock_alerts",
@@ -178,18 +179,16 @@ export async function manageRestock(
         );
     }
     rows(
-      await db
-        .from(settings)
-        .upsert(
-          {
-            owner_id: owner,
-            sender,
-            mode,
-            opt_out: optOut,
-            activate_after_test: null,
-          },
-          { onConflict: "owner_id" },
-        ),
+      await db.from(settings).upsert(
+        {
+          owner_id: owner,
+          sender,
+          mode,
+          opt_out: optOut,
+          activate_after_test: null,
+        },
+        { onConflict: "owner_id" },
+      ),
     );
     return;
   }
@@ -382,7 +381,15 @@ function proofFor(
     sender,
     expires,
     product
-      ? [product.number, product.url, product.name, product.options]
+      ? [
+          product.number,
+          product.url,
+          product.name,
+          product.options,
+          ...(product.offer
+            ? [[product.offer.market, product.offer.url, product.offer.price]]
+            : []),
+        ]
       : null,
     hash(body),
   ]);
@@ -461,6 +468,37 @@ export async function restockWorker(
         return { job: null };
       }
     }
+    if (product && alert.barcode && alert.details.includeLowestOffer) {
+      const view = await restockMarketQuote(owner, alert.barcode, true).catch(
+        () => null,
+      );
+      if (view?.state === "pending") {
+        rows(
+          await db
+            .from(table)
+            .update({ next_check_at: deferTime(0.5) })
+            .eq("owner_id", owner)
+            .eq("id", alert.id)
+            .eq("status", "READY"),
+        );
+        return { job: null };
+      }
+      const offer = view?.result?.offer;
+      if (
+        offer &&
+        estimatedSmsBytes(
+          composeRestock(
+            alert.details,
+            product.name,
+            product.url,
+            new Date(),
+            cfg.opt_out,
+            offer,
+          ),
+        ) <= 2000
+      )
+        product.offer = offer;
+    }
     const body = product
       ? composeRestock(
           alert.details,
@@ -468,6 +506,7 @@ export async function restockWorker(
           product.url,
           new Date(),
           cfg.opt_out,
+          product.offer,
         )
       : operatorTestMessage;
     const expires = Date.now() + 110000;
@@ -539,6 +578,7 @@ export async function restockWorker(
           p.url,
           new Date(),
           cfg.opt_out,
+          p.offer,
         ) !== body)
     ) {
       return { claimed: false };
