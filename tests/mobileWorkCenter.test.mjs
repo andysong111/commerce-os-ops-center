@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { applyWorkQueue, emptyQueue, publicQueue } from "../shared/mobile-work-queue.mjs";
 import { mobileAction, normalizeWorkRequest, UNPAID_ORDER_PHRASE } from "../shared/mobile-work-center.mjs";
 import { createMobileWorkWorker, createWindowsWorkAdapter } from "../local-agent/mobile-work-center/worker.mjs";
+import { createMobileLoginMonitor } from "../local-agent/src/shopling-mobile-login-monitor.mjs";
 import { createOndolPassAdapter, runInWorkCenter } from "../local-agent/mobile-work-center/ondolpass.mjs";
 
 const start = Date.parse("2026-11-27T00:00:00Z");
@@ -394,4 +395,51 @@ test("a partial withdrawal receipt locks the queue without another submit", asyn
   });
   assert.deepEqual(await adapter.execute(command("domeggook-withdrawal-execute", { execute: true, confirmed: true })), { status: "ambiguous", code: "PARTIAL_RESULT" });
   assert.deepEqual(posts, ["http://127.0.0.1:43122/api/work-center/withdrawal/execute-all"]);
+});
+test("the invoice PC timer completes the same mobile login after the original HTTP request times out", async () => {
+  let calls = 0;
+  let clock = 0;
+  let finish;
+  const monitor = createMobileLoginMonitor(() => {
+    calls++;
+    return new Promise((resolve) => { finish = resolve; });
+  }, 4 * 60 * 60_000, () => clock);
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  assert.equal(monitor.check("original"), "checking");
+  await settle();
+  clock += 125_000;
+  monitor.tick();
+  assert.equal(monitor.check("original"), "checking");
+  assert.equal(monitor.check("other"), "busy");
+  assert.equal(calls, 1);
+  finish("captcha");
+  await settle();
+  monitor.tick();
+  await settle();
+  assert.equal(calls, 2);
+  finish("ready");
+  await settle();
+  monitor.tick();
+  assert.equal(monitor.check("original"), "ready");
+  assert.equal(calls, 2);
+});
+
+test("the invoice PC timer stops advancing a rejected or expired mobile login", async () => {
+  let calls = 0;
+  let clock = 0;
+  const monitor = createMobileLoginMonitor(async () => {
+    calls++;
+    return calls === 1 ? "manual" : "captcha";
+  }, 500, () => clock);
+  monitor.check("first");
+  await new Promise((resolve) => setImmediate(resolve));
+  monitor.tick();
+  assert.equal(monitor.check("first"), "manual");
+  assert.equal(calls, 1);
+  monitor.check("second");
+  await new Promise((resolve) => setImmediate(resolve));
+  clock += 500;
+  monitor.tick();
+  assert.equal(monitor.check("second"), "expired");
+  assert.equal(calls, 2);
 });
