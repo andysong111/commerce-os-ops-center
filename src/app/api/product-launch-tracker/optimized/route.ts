@@ -23,6 +23,7 @@ import {
   buildProductLaunchTrackerIndex,
   getProductLaunchTrackerItem,
   isChinaLinkUsageMigrationPatch,
+  isProductLaunchImageMaterialsPatch,
   type ProductLaunchTrackerState,
 } from "@/lib/productLaunchTrackerOptimized";
 import {
@@ -32,6 +33,7 @@ import {
   readProductLaunchNormalizedWorkspace,
   setProductLaunchNormalizedReadEnabled,
   syncProductLaunchNormalizedChangedItems,
+  syncProductLaunchNormalizedImageMaterials,
   syncProductLaunchNormalizedLinkMigration,
 } from "@/lib/productLaunchTrackerNormalizedStore";
 import { queryProductLaunchStockAwareNormalizedPage } from "@/lib/productLaunchStockAwarePage";
@@ -579,6 +581,12 @@ async function mutateStateWithRetry(
     const bulkPatches = isRecord(input) && input.operation === "bulk_patch_items" &&
       Array.isArray(input.patches) ? input.patches.filter(isRecord) : [];
     const linkPatches = bulkPatches.filter((entry) => isChinaLinkUsageMigrationPatch(entry.patch));
+    const imagePatches = bulkPatches.flatMap((entry) => isProductLaunchImageMaterialsPatch(entry.patch)
+      ? [{ itemId: String(entry.itemId), asset: entry.patch.detailPageAsset }]
+      : []);
+    if (imagePatches.length && imagePatches.length !== bulkPatches.length) {
+      throw new Error("상품 이미지 주소는 다른 상품 변경과 함께 저장할 수 없습니다.");
+    }
     if (linkPatches.length && linkPatches.length !== bulkPatches.length) {
       throw new Error("중국 상품링크 이관은 다른 상품 변경과 함께 저장할 수 없습니다.");
     }
@@ -621,7 +629,16 @@ async function mutateStateWithRetry(
     try {
       const sync = normalizedLinkPlan
         ? await syncProductLaunchNormalizedLinkMigration(config, identity.userId, normalizedLinkPlan, updatedAt)
-        : await syncProductLaunchNormalizedChangedItems(config, identity, persistedState, updatedAt, mutation.changedIds);
+        : imagePatches.length
+          ? await syncProductLaunchNormalizedImageMaterials(
+            config, identity.userId, nullableText(row.updated_at), updatedAt, index.counts,
+            imagePatches.map(({ itemId, asset }) => {
+              const summary = index.summariesById.get(itemId)!;
+              const { detailImageUrl, mainImageUrl, additionalImageUrls } = asset;
+              return { itemId, asset, summaryAsset: { detailImageUrl, mainImageUrl, additionalImageUrls }, readiness: summary.readiness };
+            }),
+          )
+          : await syncProductLaunchNormalizedChangedItems(config, identity, persistedState, updatedAt, mutation.changedIds);
       normalizedSynced = sync.synced === true;
     } catch (error) {
       normalizedSynced = false;

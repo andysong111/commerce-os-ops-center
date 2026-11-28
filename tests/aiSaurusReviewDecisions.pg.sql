@@ -13,6 +13,15 @@ values
   ('20000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000000', repeat('2',64),0,
    '{"id":"20000000-0000-4000-8000-000000000002","revision":0,"products":[{"id":"alias-item","attempts":0,"stage":"draft"}]}');
 
+insert into public.product_launch_tracker_states values ('10000000-0000-4000-8000-000000000000', '2026-11-28T12:05:00Z');
+insert into public.product_launch_workspaces values ('10000000-0000-4000-8000-000000000000', '2026-11-28T12:00:00Z', '2026-11-28T12:00:00Z', '{}');
+insert into public.product_launch_items (owner_id, item_id, item_payload, summary_payload, updated_at)
+values ('10000000-0000-4000-8000-000000000000', 'primary-item',
+        '{"warehouseLocation":"BDG6-2","salePrice":15000,"detailPageAsset":{"resultId":"keep"}}',
+        '{"detailPageAsset":null,"existingSummary":"keep"}', '2026-11-28T12:00:00Z'),
+       ('10000000-0000-4000-8000-000000000000', 'alias-item',
+        '{"detailPageAsset":{"mainImageUrl":"other"}}', '{}', '2026-11-28T12:00:00Z');
+
 set local role service_role;
 do $test$
 declare
@@ -80,6 +89,50 @@ begin
 end;
 $test$;
 
+select 'PASS B-code conflicts, permanent rejection, one retry, stale revision, owner isolation and function permissions' as proof;
+
+do $test$
+declare
+  owner_id uuid := '10000000-0000-4000-8000-000000000000';
+  old_revision timestamptz := '2026-11-28T12:00:00Z';
+  current_revision timestamptz := '2026-11-28T12:05:00Z';
+  fixture jsonb := '{"itemId":"primary-item","asset":{"mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"],"html":"<img>"},"summaryAsset":{"mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"]},"readiness":{"ready":true,"errorCount":0,"warningCount":0}}';
+begin
+  if has_function_privilege('authenticated', 'public.sync_product_launch_image_materials(uuid,timestamptz,timestamptz,jsonb,jsonb)', 'execute') then
+    raise exception 'The image mirror escaped the service role';
+  end if;
+  if public.sync_product_launch_image_materials(owner_id, old_revision, old_revision, '{}', jsonb_build_array(fixture)) then
+    raise exception 'A stale image mirror advanced the workspace';
+  end if;
+  begin
+    perform public.sync_product_launch_image_materials(owner_id, old_revision, current_revision, '{}',
+      jsonb_build_array(fixture, fixture || '{"itemId":"missing"}'));
+    raise exception 'A missing product failed to roll back a partial mirror';
+  exception when sqlstate 'PT409' then null;
+  end;
+  if exists (select 1 from public.product_launch_items where (item_payload->'detailPageAsset') ? 'html') then
+    raise exception 'A partial image mirror altered an item';
+  end if;
+  if not public.sync_product_launch_image_materials(owner_id, old_revision, current_revision,
+    '{"등록 준비":1}', jsonb_build_array(fixture)) then
+    raise exception 'The valid B-code image mirror did not sync';
+  end if;
+  if not exists (select 1 from public.product_launch_items i where i.item_id = 'primary-item'
+      and i.item_payload = '{"warehouseLocation":"BDG6-2","salePrice":15000,"detailPageAsset":{"resultId":"keep","mainImageUrl":"main","detailImageUrl":"detail","additionalImageUrls":["alt"],"html":"<img>"}}'
+      and i.summary_payload->>'existingSummary' = 'keep'
+      and i.summary_payload#>>'{detailPageAsset,mainImageUrl}' = 'main'
+      and i.readiness_ready and i.readiness_error_count = 0
+      and i.updated_at = current_revision)
+    or not exists (select 1 from public.product_launch_items i where i.item_id = 'alias-item'
+      and i.item_payload = '{"detailPageAsset":{"mainImageUrl":"other"}}')
+    or not exists (select 1 from public.product_launch_options o where o.item_id = 'primary-item' and o.barcode = 'BDG6-2')
+    or not exists (select 1 from public.product_launch_workspaces w where w.source_state_updated_at = current_revision
+      and w.counts = '{"등록 준비":1}') then
+    raise exception 'An image mirror altered non-image data or missed saved SEO materials';
+  end if;
+end;
+$test$;
+
 rollback;
 
-select 'PASS B-code conflicts, permanent rejection, one retry, stale revision, owner isolation and function permissions';
+select 'PASS image-only normalized mirror preserves B-code options, unrelated products and metadata, and rolls back stale writes' as proof;

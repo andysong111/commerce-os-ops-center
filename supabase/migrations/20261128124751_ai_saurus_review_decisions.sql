@@ -103,4 +103,67 @@ revoke all on function public.commit_ai_saurus_review_batch(uuid, uuid, integer,
 grant execute on function public.find_ai_saurus_review_conflict(uuid, uuid, jsonb) to service_role;
 grant execute on function public.commit_ai_saurus_review_batch(uuid, uuid, integer, jsonb, text[]) to service_role;
 
+-- Mirror only the approved image fields. Replacing option rows here could
+-- reissue option barcodes or disturb order/warehouse metadata.
+create function public.sync_product_launch_image_materials(
+  p_owner uuid, p_previous_updated_at timestamptz, p_updated_at timestamptz,
+  p_counts jsonb, p_items jsonb
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  state_revision timestamptz;
+  workspace_revision timestamptz;
+  matched integer;
+begin
+  if p_previous_updated_at is null or p_updated_at is null
+    or jsonb_typeof(p_items) is distinct from 'array'
+    or jsonb_array_length(p_items) not between 1 and 20 then
+    return false;
+  end if;
+
+  select s.updated_at into state_revision
+  from public.product_launch_tracker_states s where s.owner_id = p_owner
+  for share;
+  if state_revision is distinct from p_updated_at then return false; end if;
+
+  select w.source_state_updated_at into workspace_revision
+  from public.product_launch_workspaces w where w.owner_id = p_owner
+  for update;
+  if workspace_revision is distinct from p_previous_updated_at then return false; end if;
+
+  update public.product_launch_items stored
+  set item_payload = jsonb_set(stored.item_payload, '{detailPageAsset}',
+        (case when jsonb_typeof(stored.item_payload->'detailPageAsset') = 'object'
+         then stored.item_payload->'detailPageAsset' else '{}'::jsonb end) || (wanted.item->'asset')),
+      summary_payload = jsonb_set(
+        jsonb_set(stored.summary_payload, '{detailPageAsset}',
+          (case when jsonb_typeof(stored.summary_payload->'detailPageAsset') = 'object'
+           then stored.summary_payload->'detailPageAsset' else '{}'::jsonb end) || (wanted.item->'summaryAsset')),
+        '{readiness}', wanted.item->'readiness'),
+      readiness_ready = (wanted.item#>>'{readiness,ready}')::boolean,
+      readiness_error_count = (wanted.item#>>'{readiness,errorCount}')::integer,
+      readiness_warning_count = (wanted.item#>>'{readiness,warningCount}')::integer,
+      updated_at = p_updated_at
+  from jsonb_array_elements(p_items) wanted(item)
+  where stored.owner_id = p_owner and stored.item_id = wanted.item->>'itemId';
+
+  get diagnostics matched = row_count;
+  if matched <> jsonb_array_length(p_items) then
+    raise exception '정규화 상품의 이미지 저장 대상을 확인하지 못했습니다.' using errcode = 'PT409';
+  end if;
+
+  update public.product_launch_workspaces
+  set source_state_updated_at = p_updated_at, counts = p_counts, updated_at = p_updated_at
+  where owner_id = p_owner;
+  return true;
+end;
+$function$;
+
+revoke all on function public.sync_product_launch_image_materials(uuid, timestamptz, timestamptz, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.sync_product_launch_image_materials(uuid, timestamptz, timestamptz, jsonb, jsonb) to service_role;
+
 commit;

@@ -631,6 +631,34 @@ export async function syncProductLaunchNormalizedChangedItems(
   };
 }
 
+export async function syncProductLaunchNormalizedImageMaterials(
+  config: Config,
+  ownerId: string,
+  previousStateUpdatedAt: string | null,
+  stateUpdatedAt: string,
+  counts: Record<string, number>,
+  items: Array<{
+    itemId: string;
+    asset: UnknownRecord;
+    summaryAsset: UnknownRecord;
+    readiness: ProductLaunchTrackerSummary["readiness"];
+  }>,
+) {
+  const response = await fetch(`${config.supabaseUrl}/rest/v1/rpc/sync_product_launch_image_materials`, {
+    method: "POST",
+    headers: createSupabaseAdminHeaders(config.secretKey),
+    body: JSON.stringify({
+      p_owner: ownerId, p_previous_updated_at: previousStateUpdatedAt, p_updated_at: stateUpdatedAt,
+      p_counts: counts, p_items: items,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  });
+  const body = await readBody(response);
+  if (!response.ok) throw new Error(readError(body, response.status));
+  return { synced: body === true };
+}
+
 type ChinaLinkMigrationEntry = {
   itemId: string;
   expectedNormalizedUpdatedAt: string;
