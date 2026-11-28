@@ -145,8 +145,8 @@ export async function POST(request: NextRequest) {
       let ids: string[];
       try { ids = parseSaurusSelection(input.itemIds); }
       catch (error) { return result({ ok: false, message: (error as Error).message }, 400); }
-      const previous = await findSaurusBatch(config.value, owner, { selectionHash: saurusSelectionHash(ids) });
-      const [targets, workspace] = await Promise.all([
+      const [previous, targets, workspace] = await Promise.all([
+        findSaurusBatch(config.value, owner, { selectionHash: saurusSelectionHash(ids) }),
         readLaunchImageTargets(config.value, owner, ids),
         readProductLaunchNormalizedWorkspace(config.value, owner),
       ]);
@@ -215,10 +215,11 @@ export async function POST(request: NextRequest) {
             return result({ ok: false, message: "저장된 제작 순서와 선택한 상품이 일치하지 않습니다." }, 409);
           }
           const selectedIds = queuedIds.length ? queuedIds : ids;
-          const [release, currentItems, imageTargets] = await Promise.all([
-            readOpsSaurusRelease(), readSelectedLaunchItems(config.value, owner, selectedIds),
-            readLaunchImageTargets(config.value, owner, ids),
+          const [release, imageTargets, workspace] = await Promise.all([
+            readOpsSaurusRelease(), readLaunchImageTargets(config.value, owner, selectedIds),
+            readProductLaunchNormalizedWorkspace(config.value, owner),
           ]);
+          const currentItems = workspace?.normalized_read_enabled ? imageTargets.seoItems : imageTargets.launchItems;
           if (!release.sourceReview) {
             return result({ ok: false, message: "AI 사우루스의 1688 수집 후 검토 기능을 확인하지 못했습니다." }, 409);
           }
@@ -237,7 +238,8 @@ export async function POST(request: NextRequest) {
               product.bCodes?.some((code) => !current.bCodes?.includes(code))) {
             return result({ ok: false, message: "상품 정보가 변경됐습니다. 상품출시 진행관리에서 다시 선택해 주세요." }, 409);
           }
-          const { warning } = inspectSaurusExistingImages(current, imageTargets.launchItems[0], imageTargets.seoItems[0]);
+          const { warning } = inspectSaurusExistingImages(current,
+            imageTargets.launchItems.find(({ id }) => id === current.id), imageTargets.seoItems.find(({ id }) => id === current.id));
           if ((warning.fields.length || product.imageOverwrite) && product.imageOverwrite?.token !== warning.token) {
             return result({ ok: false, message: "기존 이미지가 있습니다. 상품출시 진행관리에서 다시 선택해 교체 여부를 확인해 주세요." }, 409);
           }
