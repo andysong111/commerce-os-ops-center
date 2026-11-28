@@ -144,7 +144,7 @@ export default function AiSaurusResultReview({
           <button type="button" className={control} onClick={() => dialog.current?.close()}>닫기</button>
         </header>
         <ReviewContent key={item.id} receipt={receipt} />
-        {(item.stage === "awaiting_review" || item.stage === "approving") && (
+        {(item.stage === "awaiting_review" || item.stage === "approving" || item.stage === "approved") && (
           <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 lg:px-5">
             <AiSaurusReviewDecisions key={item.id} item={item} busy={busy} error={error} decide={onDecision} />
           </footer>

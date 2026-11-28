@@ -288,11 +288,22 @@ export async function POST(request: NextRequest) {
         return result({ ok: true, batch: saved });
       }
       if (input.action === "retry" || input.action === "reject") {
-        const items = await readSelectedLaunchItems(config.value, owner, ids);
+        const approvedRetry = input.action === "retry" && selected.some((product) => product?.stage === "approved");
+        let targets;
+        let items;
+        if (approvedRetry) {
+          const [saved, workspace] = await Promise.all([
+            readLaunchImageTargets(config.value, owner, ids), readProductLaunchNormalizedWorkspace(config.value, owner),
+          ]);
+          targets = saved;
+          items = workspace?.normalized_read_enabled ? targets.seoItems : targets.launchItems;
+        } else {
+          items = await readSelectedLaunchItems(config.value, owner, ids);
+        }
         let next;
         try {
           if (input.action === "retry") requireSaurusSourcingItems(items, ids);
-          next = planSaurusReviewDecision(batch, ids, items, input.action, now);
+          next = planSaurusReviewDecision(batch, ids, items, input.action, now, targets);
         } catch (error) {
           return result({ ok: false, message: (error as Error).message }, 409);
         }
