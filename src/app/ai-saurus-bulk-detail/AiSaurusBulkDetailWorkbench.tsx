@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import AiSaurusResultReview from "./AiSaurusResultReview";
+import AiSaurusInlineReview from "./AiSaurusInlineReview";
 import AiSaurusReviewDecisions, { CompletedProductActions, type ReviewAction } from "./AiSaurusReviewDecisions";
 import AiSaurusManualImageForm, { type ManualImages } from "./AiSaurusManualImageForm";
 import { useEffect, useRef, useState } from "react";
@@ -63,6 +64,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
+  const [inlineReview, setInlineReview] = useState(false);
   const [maxCredits, setMaxCredits] = useState<number | null>(null);
   const studio = useRef<Window | null>(null);
   const [reviewedId, setReviewedId] = useState("");
@@ -79,6 +81,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         if (controller.signal.aborted) return;
         const current = body.batch as AiSaurusDetailBatch | null;
         setConnected(body.connection === "connected");
+        setInlineReview(body.inlineReview === true);
         setMaxCredits(typeof body.maxCredits === "number" ? body.maxCredits : null);
         setBatches(body.batches);
         setBatch(current);
@@ -104,6 +107,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     : view === "failed" ? visible.filter(hasSaurusRetryAvailable) : editable;
   const allSelected = selectable.length > 0 && selectable.every(({ id }) => selected.includes(id));
   const running = products.find((item) => item.stage === "running");
+  const reviewAttempt = inlineReview && !running?.dispatch?.providerJobId ? running?.dispatch?.attempt : undefined;
   const nextQueued = batch?.queuedIds?.[0];
   const resultsSelected = selectable.filter(({ id }) => selected.includes(id)).map(({ id }) => id);
   const setItemOptions = (id: string, value: string) => setOptions((current) => ({ ...current, [id]: value }));
@@ -121,7 +125,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
 
   function openStudio() {
     if (!studio.current || studio.current.closed) {
-      studio.current = window.open("about:blank", "_blank");
+      studio.current = window.open("about:blank", "_blank", inlineReview ? "popup,width=980,height=760" : undefined);
       if (!studio.current) throw new Error("AI 사우루스 제작 창을 열 수 없습니다. 이 사이트의 팝업을 허용해 주세요.");
       // The fixed AI Saurus production window remains related to the workbench
       // so Chrome lets the workbench navigate it to the next queued offer.
@@ -283,10 +287,10 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
     <div className="space-y-4">
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
         <strong>{connected ? "AI 사우루스 운영 제작" : "준비 모드 · AI 사우루스 연결 대기"}</strong>
-        <p className="mt-1">{connected
+        <p className="mt-1">{inlineReview ? "상품을 순서대로 수집합니다. 이 화면에서 판매 옵션을 검토하고 제작을 시작할 때 상품별 크레딧을 사용합니다." : connected
           ? "같은 Chrome에서 1688 상품을 수집합니다. 이미지와 판매 옵션을 확인하고 제작을 시작할 때 크레딧을 사용합니다."
           : "AI 사우루스 운영 수집 기능을 확인하는 중입니다. 잠시 후 작업판을 새로고침해 주세요."}</p>
-        {running && !running.dispatch?.providerJobId &&
+        {running && !running.dispatch?.providerJobId && !reviewAttempt &&
           <button type="button" className={`mt-2 ${secondary}`} disabled={busy || !connected} onClick={() => void connectAction("resume")}>현재 상품 수집·검토 창 다시 열기</button>}
         {nextQueued && <p className="mt-2">제작 대기 {batch?.queuedIds?.length}개</p>}
         {nextQueued && !running &&
@@ -298,6 +302,12 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
         {connected && error.includes("OPS에 로그인") &&
           <Link className="mt-2 inline-block underline" href={`/login?force=1&next=${encodeURIComponent(`${AI_SAURUS_BATCH_PAGE}?batch=${batchId}`)}`}>OPS 로그인</Link>}
       </section>
+      {running && reviewAttempt && <AiSaurusInlineReview key={reviewAttempt} attempt={reviewAttempt}
+        product={[running.model, running.name, running.bCodes?.join(", ")].filter(Boolean).join(" · ")} studio={studio}
+        openCollector={() => {
+          if (studio.current && !studio.current.closed) studio.current.focus();
+          else if (!busy) void connectAction("resume");
+        }} />}
       {loading && <p role="status" className="text-sm text-slate-600">작업을 불러오는 중입니다.</p>}
       {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
       {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{message}</p>}
@@ -383,7 +393,7 @@ export default function AiSaurusBulkDetailWorkbench({ batchId }: { batchId: stri
                       <span>{item.model ? `${item.model} · ` : ""}{item.name || item.id}</span>
                     </label>
                     <span className={`rounded-md px-2 py-1 text-xs font-bold ${item.stage === "failed" ? "bg-rose-100 text-rose-900" : matching.success(item.stage) ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-700"}`}>
-                      {item.stage === "running" ? item.dispatch?.providerJobId ? `제작 중 ${item.dispatch.progress ?? 0}%` : "1688 로그인·수집 대기" : labels[item.stage]}
+                      {item.stage === "running" ? item.dispatch?.providerJobId ? `제작 중 ${item.dispatch.progress ?? 0}%` : inlineReview ? "1688 수집·옵션 검토 중" : "1688 로그인·수집 대기" : labels[item.stage]}
                     </span>
                   </div>
                   {Boolean(item.bCodes?.length) && <div className="text-xs font-semibold text-slate-600">B코드 {item.bCodes?.join(" · ")}</div>}

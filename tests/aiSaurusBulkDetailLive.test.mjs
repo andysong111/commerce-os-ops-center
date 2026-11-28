@@ -4,6 +4,7 @@ import { confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, plan
 import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
 import { readSaurusReviewAssets, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
 import { showSaurusPopupMessage } from "../src/lib/aiSaurusBulkDetailPopup.ts";
+import { readStudioReviewSignal, OPS_OPTION_REVIEW_CHANNEL } from "../src/lib/aiSaurusBulkDetailInline.ts";
 import { applyProductLaunchTrackerMutation } from "../src/lib/productLaunchTrackerOptimized.ts";
 import { saurusLaunchMaterials, saurusManualMaterials, saurusProductBCodes } from "../src/lib/aiSaurusLaunchMaterials.ts";
 import { productLaunchSeoMaterialReadiness } from "../src/lib/productLaunchSeoMaterialReadiness.ts";
@@ -39,6 +40,32 @@ test("loads the current production release on demand and rejects manifest drift"
   assert.deepEqual(await readOpsSaurusRelease(), { deployment, importer: "0.4.62", engine: "engine", maxCredits: 13 });
   version = "0.4.63";
   await assert.rejects(readOpsSaurusRelease, /버전/);
+});
+
+test("OPS inline option review follows the capability of the currently deployed Studio", async (t) => {
+  let inlineReview = false;
+  t.mock.method(globalThis, "fetch", async (url) => Response.json(url.includes("manifest") ?
+    { version: "0.4.63" } : { enabled: true, contract: "ops-detail-v1", deployment, importer: "0.4.63",
+      engine: "engine", credits: 13, inlineReview }));
+  assert.equal((await readOpsSaurusRelease()).inlineReview, undefined);
+  inlineReview = true;
+  assert.equal((await readOpsSaurusRelease()).inlineReview, true);
+});
+
+test("inline review reconnects only the current product and its own Studio across queue changes", () => {
+  const parent = {};
+  const studio = { opener: parent, closed: false };
+  const origin = "https://ai-saurus.com";
+  const first = "a".repeat(64), next = "b".repeat(64);
+  const data = { channel: OPS_OPTION_REVIEW_CHANNEL, attempt: first, type: "ready" };
+  const event = { origin, source: studio, data };
+  assert.deepEqual(readStudioReviewSignal(event, first, parent, null), { sender: studio, attached: false });
+  assert.equal(readStudioReviewSignal(event, next, parent, studio), undefined);
+  assert.equal(readStudioReviewSignal({ ...event, origin: "https://other.example" }, first, parent, null), undefined);
+  assert.equal(readStudioReviewSignal(event, first, {}, null), undefined);
+  assert.equal(readStudioReviewSignal(event, first, parent, { opener: parent, closed: false }), undefined);
+  assert.deepEqual(readStudioReviewSignal({ ...event, data: { ...data, attempt: next, type: "attached" } },
+    next, parent, studio), { sender: studio, attached: true });
 });
 
 test("B-code approval saves six QA-verified URLs and the HTML consumed by SEO registration", () => {
