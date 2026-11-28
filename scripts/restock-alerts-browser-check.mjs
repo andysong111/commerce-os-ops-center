@@ -5,6 +5,10 @@ import {
   storefrontProbe,
   smsForm,
 } from "../local-agent/mobile-work-center/restock-browser.mjs";
+import {
+  searchSmsHistory,
+  historyRows,
+} from "../local-agent/mobile-work-center/restock-sms.mjs";
 const requireTools = createRequire(
   path.join(
     process.env.MONTHLY_PRICE_BROWSER_TOOLS || "/tmp/monthly-price-browser",
@@ -72,6 +76,14 @@ try {
       return route.fulfill({
         contentType: "text/html; charset=utf-8",
         body: '<h1>컨트롤러</h1><select id="product_option_id1" onchange="document.querySelector(\'tr span\').textContent=\'- \'+this.value;document.querySelector(\'tr\').hidden=false"><option value="*">옵션 선택</option><option value="ps4" disabled>ps4 [품절]</option><option value="ps5">ps5</option></select><div class="action_button"><a class="btnSubmit">BUY IT NOW</a></div><table><tr class="option_product" hidden><td class="product"><span></span><input type="hidden" class="option_box_id" value="P0001"><input class="quantity_opt" value="1"></td></tr></table>',
+      });
+    if (
+      u.hostname === "kt.shopling.co.kr" &&
+      u.pathname === "/cmpy/sms_list.phtml"
+    )
+      return route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: '<select><option>2026</option></select><select><option>01</option><option selected>11</option><option>12</option></select><select name="srch_tp"><option>검색항목</option><option value="rnum">수신번호</option></select><input name="srch_txt"><input type="button" value="검색"><table><tr><th>NO.</th><th>발송일자</th><th>발신번호</th><th>수신번호</th><th>SMS내용</th><th>구분</th><th>전송상태</th><th>발송자ID</th></tr><tr id="initial"><td>검색 버튼을 누르세요</td></tr></table>',
       });
     if (u.hostname === "kt.shopling.co.kr")
       return route.fulfill({
@@ -171,6 +183,42 @@ try {
   await page.locator('input[name="rcv_num[]"]').nth(1).fill("");
   assert.equal((await form("submit")).ok, true);
   assert.equal(submits, 1);
+  await page.goto("https://kt.shopling.co.kr/cmpy/sms_list.phtml");
+  const ledger = () =>
+    page.evaluate(
+      ({ fn, sender, phone }) =>
+        Function("return (" + fn + ")")()(sender, phone),
+      { fn: String(historyRows), sender: job.sender, phone: job.phone },
+    );
+  assert.equal(await ledger(), null);
+  await page.evaluate(() => {
+    document.querySelector('input[value="검색"]').onclick = () => {
+      if (
+        document.querySelector("[name=srch_tp]").value === "rnum" &&
+        document.querySelector("[name=srch_txt]").value === "01000001234"
+      )
+        document.querySelector("#initial").innerHTML = [
+          "1",
+          "2026-11-28 09:30:00",
+          "010-0000-0000",
+          "010-0000-1234",
+          "시험",
+          "단문",
+          "성공",
+          "운영자",
+        ]
+          .map((s) => "<td>" + s + "</td>")
+          .join("");
+    };
+  });
+  assert.equal(
+    await page.evaluate(
+      ({ fn, phone }) => Function("return (" + fn + ")")()("2026-11", phone),
+      { fn: String(searchSmsHistory), phone: job.phone },
+    ),
+    true,
+  );
+  assert.equal((await ledger())?.[0]?.[6], "성공");
   console.log(
     "PASS mobile request, optional original marketplace, PS4 sold out / PS5 purchasable, isolated G6 single-recipient submit",
   );

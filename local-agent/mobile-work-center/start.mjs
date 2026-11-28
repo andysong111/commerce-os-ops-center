@@ -51,7 +51,7 @@ for (;;) {
     // No stock request was submitted here. A later tick can reopen the PC page.
   });
   if (!worker.isActive() && !restockTask) {
-    restockTask = pollRestockSms(config).catch(() => {
+    restockTask = pollRestockSms(config, pc.requestShoplingSession).catch(() => {
       // Accepted SMS attempts are reconciled from G6 on subsequent ticks.
     }).finally(() => { restockTask = undefined; });
   }

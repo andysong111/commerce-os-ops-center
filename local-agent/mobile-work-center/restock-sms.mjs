@@ -57,20 +57,7 @@ async function ownedTab(url, handler) {
     await closeTab(tab.id);
   }
 }
-function listButton(click) {
-  if (
-    location.href.split("?")[0] !==
-    "https://kt.shopling.co.kr/cmpy/sms_list.phtml"
-  )
-    return false;
-  const controls = [
-    ...document.querySelectorAll('input[type="button"]'),
-  ].filter((b) => b.value.trim() === "SMS 발송" && b.getClientRects().length);
-  if (controls.length !== 1) return false;
-  if (click) controls[0].click();
-  return true;
-}
-function historyRows(month, sender, phone) {
+export function searchSmsHistory(month, phone) {
   if (
     location.origin !== "https://kt.shopling.co.kr" ||
     location.pathname !== "/cmpy/sms_list.phtml"
@@ -87,29 +74,36 @@ function historyRows(month, sender, phone) {
         [...s.options].some((o) => /^0?12$/.test(o.text.trim())) &&
         [...s.options].some((o) => /^0?1$/.test(o.text.trim())),
     );
-  if (!year || !m) return null;
+  if (!year || !m || !/^010\d{8}$/.test(phone)) return false;
+  const yOpt = [...year.options].find(
+      (o) => Number(o.text) === Number(month.slice(0, 4)),
+    ),
+    mo = [...m.options].find(
+      (o) => Number(o.text) === Number(month.slice(5, 7)),
+    );
+  const search = [
+    ...document.querySelectorAll(
+      'input[type="button"],input[type="submit"],button',
+    ),
+  ].find((b) => (b.value || b.innerText).trim() === "검색");
+  const filter = document.querySelector('select[name="srch_tp"]');
+  const text = document.querySelector('input[name="srch_txt"]');
+  const recipient =
+    filter && [...filter.options].find((o) => o.text.trim() === "수신번호");
+  if (!yOpt || !mo || !search || !recipient || !text) return false;
+  year.value = yOpt.value;
+  m.value = mo.value;
+  filter.value = recipient.value;
+  text.value = phone;
+  search.click();
+  return true;
+}
+export function historyRows(sender, phone) {
   if (
-    Number(year.selectedOptions[0]?.text) !== Number(month.slice(0, 4)) ||
-    Number(m.selectedOptions[0]?.text) !== Number(month.slice(5, 7))
-  ) {
-    const yOpt = [...year.options].find(
-        (o) => Number(o.text) === Number(month.slice(0, 4)),
-      ),
-      mo = [...m.options].find(
-        (o) => Number(o.text) === Number(month.slice(5, 7)),
-      );
-    const search = [
-      ...document.querySelectorAll(
-        'input[type="button"],input[type="submit"],button',
-      ),
-    ].find((b) => (b.value || b.innerText).trim() === "검색");
-    if (yOpt && mo && search) {
-      year.value = yOpt.value;
-      m.value = mo.value;
-      search.click();
-    }
+    location.origin !== "https://kt.shopling.co.kr" ||
+    location.pathname !== "/cmpy/sms_list.phtml"
+  )
     return null;
-  }
   const labels = [
     "NO.",
     "발송일자",
@@ -132,7 +126,14 @@ function historyRows(month, sender, phone) {
       )
     );
   });
-  if (!header) return null;
+  if (
+    !header ||
+    trs.some(
+      (tr) =>
+        tr.cells.length === 1 && tr.innerText.trim() === "검색 버튼을 누르세요",
+    )
+  )
+    return null;
   // Old Shopling layouts can render the header and body in sibling tables.
   return trs
     .filter(
@@ -148,7 +149,7 @@ function historyRows(month, sender, phone) {
         c[3].replace(/\D/g, "") === phone,
     );
 }
-async function reconcile(job, call) {
+async function reconcile(job, call, requestSession) {
   const at = Date.parse(job.at) + 9 * 3600000;
   const months = new Set(
     [-2000, 300000].map((offset) =>
@@ -157,10 +158,17 @@ async function reconcile(job, call) {
   );
   const records = [];
   for (const month of months) {
-    const page = await ownedTab(listUrl, (session) =>
-      waitFor(() => probe(session, historyRows, month, job.sender, job.phone)),
-    );
+    const page = await ownedTab(listUrl, async (session) => {
+      if (
+        !(await waitFor(() =>
+          probe(session, searchSmsHistory, month, job.phone),
+        ))
+      )
+        return null;
+      return waitFor(() => probe(session, historyRows, job.sender, job.phone));
+    });
     if (!page) {
+      await requestSession?.(job.id);
       records.length = 0;
       break;
     }
@@ -175,69 +183,53 @@ async function reconcile(job, call) {
     bodyHash: createHash("sha256").update(job.body).digest("hex"),
   });
 }
-async function prepareG6(job, handle) {
+export async function prepareG6(job, handle, requestSession) {
   if ((await pages()).some((t) => t.url.split("?")[0] === popupUrl))
     return false;
-  return ownedTab(listUrl, async (list) => {
-    if (!(await waitFor(() => probe(list, listButton, false)))) return false;
-    const { targetInfo: parent } = await list.send("Target.getTargetInfo");
-    if (!(await probe(list, listButton, true))) return false;
-    const popup = await waitFor(async () => {
-      const { targetInfos } = await list.send("Target.getTargets");
-      const matches = targetInfos.filter(
-        (t) =>
-          t.openerId === parent.targetId && t.url.split("?")[0] === popupUrl,
-      );
-      return matches.length === 1
-        ? (await pages()).find((t) => t.id === matches[0].targetId)
-        : null;
-    });
-    if (!popup) return false;
-    try {
-      return await withCdpTarget(popup, async (session) => {
-        if (
-          !(await waitFor(() =>
-            probe(session, () =>
-              Boolean(
-                document.querySelector("#sms_smsg1") &&
-                  document.querySelector("#current_byte"),
-              ),
-            ),
-          ))
-        )
-          return false;
-        const filled = await probe(session, smsForm, job, "fill");
-        if (!filled.ok) return false;
-        const valid = await probe(session, smsForm, job, "verify");
-        if (!valid.ok) return false;
-        return handle(
-          valid.bytes,
-          async () => {
-            await session.send("Page.enable");
-            const off = session.on("Page.javascriptDialogOpening", (e) => {
-              const accept =
-                e.url?.split("?")[0] === popupUrl &&
-                (e.type === "alert" ||
-                  (e.type === "confirm" &&
-                    /발송|전송|보내/.test(e.message) &&
-                    !/충전|구매/.test(e.message)));
-              session
-                .send("Page.handleJavaScriptDialog", { accept })
-                .catch(() => {});
-            });
-            try {
-              await probe(session, smsForm, job, "submit");
-              await delay(1500);
-            } finally {
-              off();
-            }
-          },
-          valid.credits,
-        );
-      });
-    } finally {
-      await closeTab(popup.id);
+  // G6 can open without a window.opener. Create the ordinary composition page
+  // as an owned target and keep the same session through the single submission.
+  return ownedTab(popupUrl, async (session) => {
+    if (
+      !(await waitFor(() =>
+        probe(session, () =>
+          Boolean(
+            document.querySelector("#sms_smsg1") &&
+              document.querySelector("#current_byte"),
+          ),
+        ),
+      ))
+    ) {
+      await requestSession?.(job.id);
+      return false;
     }
+    const filled = await probe(session, smsForm, job, "fill");
+    if (!filled.ok) return false;
+    const valid = await probe(session, smsForm, job, "verify");
+    if (!valid.ok) return false;
+    return handle(
+      valid.bytes,
+      async () => {
+        await session.send("Page.enable");
+        const off = session.on("Page.javascriptDialogOpening", (e) => {
+          const accept =
+            e.url?.split("?")[0] === popupUrl &&
+            (e.type === "alert" ||
+              (e.type === "confirm" &&
+                /발송|전송|보내/.test(e.message) &&
+                !/충전|구매/.test(e.message)));
+          session
+            .send("Page.handleJavaScriptDialog", { accept })
+            .catch(() => {});
+        });
+        try {
+          await probe(session, smsForm, job, "submit");
+          await delay(1500);
+        } finally {
+          off();
+        }
+      },
+      valid.credits,
+    );
   });
 }
 // A claim is durable before the first possible external submission. If either
@@ -296,7 +288,7 @@ export async function dispatchRestockJob(
       await call({ action: "defer", id: job.id, note: reason });
   }
 }
-export async function pollRestockSms(config) {
+export async function pollRestockSms(config, requestSession) {
   if (config.allowBusiness !== true) return;
   const endpoint = new URL("/api/restock-alerts/worker", config.endpoint);
   const call = async (data) => {
@@ -323,6 +315,7 @@ export async function pollRestockSms(config) {
         ownedTab(p.url, (s) =>
           waitFor(() => probe(s, storefrontProbe, p), 12000),
         ),
-      prepareG6,
+      (job, handle) => prepareG6(job, handle, requestSession),
+      (job, report) => reconcile(job, report, requestSession),
     );
 }
