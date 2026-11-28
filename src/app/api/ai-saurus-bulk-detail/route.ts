@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
       return current ? { ...item, bCodes: saurusProductBCodes(current) } : item;
     }) } : batch;
     return result({ ok: true, connection: release?.sourceReview ? connection() : AI_SAURUS_CONNECTION,
-      batches, batch: displayBatch, maxCredits: release?.maxCredits ?? null });
+      batches, batch: displayBatch, maxCredits: release?.maxCredits ?? null, inlineReview: release?.inlineReview === true });
   } catch (error) {
     return handleError(error);
   }

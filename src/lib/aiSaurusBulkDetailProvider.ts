@@ -32,6 +32,7 @@ export async function readOpsSaurusRelease() {
   return {
     deployment: contract.deployment, engine: contract.engine, importer: manifest.version, maxCredits: Number(contract.credits),
     ...(contract.sourceReview === true ? { sourceReview: true as const } : {}),
+    ...(contract.inlineReview === true ? { inlineReview: true as const } : {}),
   };
 }
 
