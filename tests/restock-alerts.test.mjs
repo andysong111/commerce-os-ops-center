@@ -4,6 +4,7 @@ import {
   blankRestock,
   composeRestock,
   estimatedSmsBytes,
+  operatorTestMessage,
   ownStoreLink,
   parseRestock,
   storeProductNumber,
@@ -145,6 +146,49 @@ test("a sold-out option, canceled claim or lost claim response never clicks send
   );
   assert.deepEqual(calls, ["defer", "claim"]);
   assert.equal(clicks, 0);
+});
+test("a designated second phone gets one short operator test only in pilot, without a stock event", async () => {
+  const bytes = estimatedSmsBytes(operatorTestMessage);
+  assert.ok(bytes > 0 && bytes <= 90);
+  const job = {
+    id: "pilot",
+    kind: "operator_test",
+    mode: "pilot",
+    product: null,
+    sender: "01000000000",
+    phone: "01000001234",
+    body: operatorTestMessage,
+  };
+  const calls = [];
+  let clicks = 0;
+  let claimed = false;
+  const claim = async (a) => {
+    calls.push(a);
+    if (a.action !== "claim" || claimed) return { claimed: false };
+    claimed = true;
+    return { claimed: true };
+  };
+  const g6 = (length) => async (j, handle) => {
+    assert.equal(j.phone, "01000001234");
+    return handle(
+      length,
+      async () => {
+        clicks++;
+      },
+      1,
+    );
+  };
+  const store = () => assert.fail("operator test attempted a product lookup");
+  for (const mode of ["off", "live"])
+    await dispatchRestockJob({ ...job, mode }, claim, store, g6(bytes));
+  assert.equal(calls.length, 0);
+  await dispatchRestockJob(job, claim, store, g6(91));
+  assert.equal(calls[0].note, "LENGTH");
+  await dispatchRestockJob(job, claim, store, g6(bytes));
+  await dispatchRestockJob(job, claim, store, g6(bytes));
+  assert.equal(calls[1].purchasable, false);
+  assert.equal(calls[1].product, null);
+  assert.equal(clicks, 1);
 });
 test("G6 history requires sender, phone, content, time and a single success", () => {
   const job = {

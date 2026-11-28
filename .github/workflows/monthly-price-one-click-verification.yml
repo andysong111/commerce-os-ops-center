@@ -122,4 +122,4 @@ jobs:
         run: |
           sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/restock-ledger.sql
           echo 'commit;' >> /tmp/restock-ledger.sql
-          psql -X -v ON_ERROR_STOP=1 -f /tmp/restock-ledger.sql -f supabase/migrations/20261128010900_receipt_restock_alerts.sql -f tests/restock-alerts-database.sql
+          psql -X -v ON_ERROR_STOP=1 -f /tmp/restock-ledger.sql -f supabase/migrations/20261128010900_receipt_restock_alerts.sql -f supabase/migrations/*_operator_test_receipt_restock_alerts.sql -f tests/restock-alerts-database.sql

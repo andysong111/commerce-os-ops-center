@@ -48,4 +48,32 @@ begin
   perform refresh_receipt_restock_alerts(owner);
   if exists(select * from next_receipt_restock_alert(owner,null)) then raise exception 'future or completed request dispatched';end if;
 end $$;
+do $$
+declare
+  owner uuid:=gen_random_uuid(); req uuid:=gen_random_uuid(); req2 uuid:=gen_random_uuid();
+  sender text:='01000001111'; phone text:='01000002222'; sig text:=repeat('a',64);
+  details jsonb:='{"operatorTest":true}'; attempt uuid:=gen_random_uuid();
+begin
+  if has_function_privilege('authenticated','public.request_receipt_restock_test(uuid,uuid,text,text,text)','execute')
+     or has_function_privilege('anon','public.request_receipt_restock_test(uuid,uuid,text,text,text)','execute')
+     then raise exception 'test registration is public'; end if;
+  insert into receipt_restock_settings(owner_id,sender,mode) values(owner,sender,'off');
+  if request_receipt_restock_test(owner,req,sender,phone,sig) then raise exception 'off dispatched';end if;
+  update receipt_restock_settings set mode='pilot' where owner_id=owner;
+  if request_receipt_restock_test(owner,req,phone,phone,sig) or
+     not request_receipt_restock_test(owner,req,sender,phone,sig) or not request_receipt_restock_test(owner,req,sender,phone,sig)
+     or request_receipt_restock_test(owner,req2,sender,phone,sig) or request_receipt_restock_test(owner,req,sender,phone,repeat('b',64))
+     then raise exception 'test registration not unique or not idempotent';end if;
+  if exists(select 1 from next_receipt_restock_alert(owner,null)) or exists(select 1 from next_receipt_restock_alert(owner,phone))
+    or (select id from next_receipt_restock_alert(owner,sender)) is distinct from req then raise exception 'wrong pilot recipient selection';end if;
+  update receipt_restock_settings set mode='off' where owner_id=owner;
+  if (select r.status='CANCELED' and r.phone is null from receipt_restock_alerts r where r.id=req) is not true then raise exception 'stale test retained';end if;
+  update receipt_restock_settings set mode='pilot' where owner_id=owner;
+  if not request_receipt_restock_test(owner,req2,sender,phone,sig) or
+    claim_receipt_restock_alert(owner,req2,attempt,sender,'pilot','test',details,'{}') or
+    claim_receipt_restock_alert(owner,req2,attempt,sender,'live','test',details,details) or
+    not claim_receipt_restock_alert(owner,req2,attempt,sender,'pilot','test',details,details) or
+    claim_receipt_restock_alert(owner,req2,attempt,sender,'pilot','test',details,details) then raise exception 'operator claim failed isolation';end if;
+  if exists(select 1 from receipt_restock_draft_members(owner,'any-draft')) then raise exception 'test leaked into purchase batch';end if;
+end $$;
 rollback;
