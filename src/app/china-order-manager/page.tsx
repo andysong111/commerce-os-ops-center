@@ -4,6 +4,7 @@ import { loadForwarderInvoice } from "@/lib/internalChinaForwarderInvoice";
 import { StockSyncHF15Bridge } from "@/components/china-order-manager/StockSyncHF15Bridge";
 import { ReceiptSeoPanel } from "@/components/china-order-manager/ReceiptSeoPanel";
 import { ReceiptOnSalePanel } from "@/components/china-order-manager/ReceiptOnSalePanel";
+import { ReceiptRestockAlerts } from "@/components/china-order-manager/ReceiptRestockAlerts";
 import { MonthlyPricePanel } from "@/components/china-order-manager/MonthlyPricePanel";
 import type { ReactNode } from "react";
 import { InternalChinaFundingClosePanel } from "@/components/china-order-manager/InternalChinaFundingClosePanel";
@@ -842,6 +843,7 @@ export default async function ChinaOrderManagerPage({
             {selectedDraftId && <MonthlyPricePanel month={selectedMonth} draftId={selectedDraftId} ready={receiptDone && forwarderDone}>
               <ReceiptOnSalePanel key={selectedDraftId} draftId={selectedDraftId} />
               <ReceiptSeoPanel key={"seo-" + selectedDraftId} draftId={selectedDraftId} />
+              <ReceiptRestockAlerts key={"sms-" + selectedDraftId} draftId={selectedDraftId} />
             </MonthlyPricePanel>}
             <FlowStep
               number="7"

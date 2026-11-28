@@ -11,6 +11,14 @@ on:
       - 'src/lib/internalChinaReceipt.ts'
       - 'scripts/receipt-seo-browser-check.mjs'
       - 'tests/receipt-seo*'
+      - 'src/app/restock-alerts/**'
+      - 'src/app/api/restock-alerts/**'
+      - 'src/lib/restockAlert*'
+      - 'local-agent/mobile-work-center/restock-*.mjs'
+      - 'local-agent/mobile-work-center/start.mjs'
+      - 'scripts/restock-alerts-browser-check.mjs'
+      - 'tests/restock-alerts*'
+      - 'supabase/migrations/*receipt_restock_alerts.sql'
       - 'supabase/migrations/*receipt_seo*'
       - 'src/lib/inboundReceiptOnSaleSync.ts'
       - 'tests/receipt-on-sale.test.mjs'
@@ -45,6 +53,10 @@ jobs:
         run: node --experimental-strip-types --test tests/monthly-price*.test.mjs tests/receipt-on-sale.test.mjs tests/shoplingA21PriceOptionResend.test.mjs tests/internalChinaDirectTargetExecution.test.mjs
       - name: Type check
         run: npx tsc --noEmit
+      - name: Restock SMS subscription, channel references and lost-response regression
+        run: node --experimental-strip-types --test tests/restock-alerts.test.mjs
+      - name: Lint SMS application and dispatch
+        run: npx eslint src/app/restock-alerts src/app/api/restock-alerts src/lib/restockAlert*.ts src/components/china-order-manager/ReceiptRestockAlerts.tsx local-agent/mobile-work-center/restock-*.mjs
       - name: Lint changed application surfaces
         run: npx eslint src/lib/monthlyPrice*.ts src/lib/receiptOnSale*.ts src/lib/inboundReceiptOnSaleSync.ts src/app/api/china-order-manager/receipt-on-sale/route.ts src/components/china-order-manager/ReceiptOnSalePanel.tsx src/components/china-order-manager/MonthlyPricePanel.tsx src/app/api/china-order-manager/monthly-price/route.ts src/app/api/china-order-manager/price-review/group-aware-execute/route.ts src/lib/internalChinaMonthlyPurchaseSummary.ts
       - name: Extension syntax
@@ -69,6 +81,7 @@ jobs:
           node scripts/monthly-price-browser-check.mjs
           node scripts/receipt-on-sale-browser-check.mjs
           node scripts/receipt-seo-browser-check.mjs
+          node scripts/restock-alerts-browser-check.mjs
       - name: Checkpoint source and validation evidence
         if: always()
         run: |
@@ -105,3 +118,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/monthly-price-database.sql
       - name: Concurrent receipt SEO handoff and capacity
         run: bash tests/receipt-seo-dispatch-database.sh
+      - name: Restock SMS receipt scope and single submission
+        run: |
+          sed '/create table if not exists public.commerce_processed_events/,$d' supabase/migrations/202608020001_receipt_automation_control.sql > /tmp/restock-ledger.sql
+          echo 'commit;' >> /tmp/restock-ledger.sql
+          psql -X -v ON_ERROR_STOP=1 -f /tmp/restock-ledger.sql -f supabase/migrations/20261128003442_receipt_restock_alerts.sql -f tests/restock-alerts-database.sql

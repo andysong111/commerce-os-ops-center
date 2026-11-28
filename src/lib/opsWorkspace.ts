@@ -41,6 +41,7 @@ export const OPS_WORKSPACE_GROUPS: readonly OpsWorkspaceGroup[] = [
     description: "배대지 바코드, 입고 확인, 창고 지도·위치코드와 창고 라벨을 한 흐름으로 처리합니다.",
     moduleIds: [
       "freight-barcode-pdf",
+      "restock-alerts",
       "warehouse-capacity",
       "warehouse-location-sync",
       "warehouse-label-generator",
