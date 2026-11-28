@@ -20,7 +20,12 @@ const { chromium } = requireTools("playwright"),
 const bundle = await build({
   stdin: {
     contents:
-      'import React from "react";import {createRoot} from "react-dom/client";import {RestockAlerts} from "./src/app/restock-alerts/RestockAlerts";createRoot(document.querySelector("main")).render(<RestockAlerts draft=""/>);',
+      `import React from "react";
+       import {createRoot} from "react-dom/client";
+       import {RestockAlerts} from "./src/app/restock-alerts/RestockAlerts";
+       import Captcha from "./src/app/shopling-captcha/[token]/ShoplingCaptchaClient";
+       createRoot(document.querySelector("main")).render(location.pathname === "/captcha-fixture"
+         ? <Captcha token="fixture"/> : <RestockAlerts draft=""/>);`,
     loader: "tsx",
     resolveDir: process.cwd(),
   },
@@ -46,10 +51,18 @@ let posted,
   selectedTest = null,
   requestedTest = null,
   submits = 0;
+let phoneStatus = "ANSWER_SUBMITTED";
 try {
   await context.route("**/*", async (route) => {
     const u = new URL(route.request().url());
     if (u.hostname === "127.0.0.1") {
+      if (u.pathname === "/api/shopling-captcha/fixture") {
+        assert.equal(route.request().method(), "GET");
+        return route.fulfill({ json: { ok: true, challenge: {
+          status: phoneStatus, imageVersion: 2, expired: false, imageAvailable: false,
+          confirmationDelayed: phoneStatus === "ANSWER_SUBMITTED",
+        } } });
+      }
       if (u.pathname === "/app.js")
         return route.fulfill({
           contentType: "application/javascript",
@@ -247,6 +260,14 @@ try {
     true,
   );
   assert.equal((await ledger())?.[0]?.[6], "성공");
+  await page.goto("http://127.0.0.1/captcha-fixture");
+  await page.getByText(/1분 넘게 업무용 PC에서 로그인 결과가 오지 않았습니다/).waitFor();
+  phoneStatus = "CANCELLED";
+  await page.getByText(/이 인증 요청이 종료되었습니다/).waitFor();
+  assert.equal(await page.getByText(/로그인이 완료되었습니다/).count(), 0);
+  phoneStatus = "CONSUMED";
+  await page.reload();
+  await page.getByText(/샵플링 로그인이 완료되었습니다/).waitFor();
   console.log(
     "PASS mobile request, optional original marketplace, PS4 sold out / PS5 purchasable, isolated G6 single-recipient submit",
   );

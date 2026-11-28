@@ -1,0 +1,70 @@
+--- a/local-agent/src/local-control-center.mjs
++++ b/local-agent/src/local-control-center.mjs
+@@ -3208,13 +3208,23 @@
+       remote.answer_ciphertext,
+       challenge.privateKey,
+     );
+-    const submitted = await (dependencies.submitShoplingCaptchaLogin || submitShoplingCaptchaLogin)(
+-      config,
+-      target,
+-      credential,
+-      answer,
+-      dependencies,
+-    );
++    let submitted;
++    try {
++      submitted = await (dependencies.submitShoplingCaptchaLogin || submitShoplingCaptchaLogin)(
++        config, target, credential, answer, dependencies,
++      );
++    } catch (error) {
++      if (error?.code === "SHOPLING_LOGIN_DIALOG_UNEXPECTED") {
++        // Close only the attempted image. The provider dialog stays unapproved.
++        await (dependencies.finishShoplingCaptchaChallenge || finishShoplingCaptchaChallenge)(
++          config, challenge, "CANCELLED", { ...dependencies, rejectedAnswer: true },
++        ).catch(() => null);
++        if (error.dialogType === "alert" && /보안.?문자|자동.?입력|캡차|captcha/i.test(error.dialogMessage || "")) {
++          error.code = "SHOPLING_LOGIN_CAPTCHA_REJECTED";
++        }
++      }
++      throw error;
++    }
+     state.shoplingCaptcha.status = "ANSWER_SUBMITTED";
+     await persist();
+     return { ...submitted, challenge };
+--- a/local-agent/src/shopling-captcha-approval.mjs
++++ b/local-agent/src/shopling-captcha-approval.mjs
+@@ -338,8 +338,16 @@
+   }
+   const context = await serviceContext(config, options);
+   const now = options.now ? new Date(options.now) : new Date();
+-  const query = new URLSearchParams({ token_hash: `eq.${hashToken(local.token)}` });
+-  await requestJson(context, `${context.baseUrl}/rest/v1/${TABLE}?${query}`, {
++  const query = new URLSearchParams({ token_hash: `eq.${hashToken(local.token)}`, select: "id" });
++  if (options.rejectedAnswer) {
++    if (status !== "CANCELLED" || !Number.isInteger(local.imageVersion) || !validHash(local.imageHash)) {
++      fail("SHOPLING_CAPTCHA_FINISH_STATUS_INVALID", "확인을 마칠 보안문자 이미지가 일치하지 않습니다.");
++    }
++    query.set("status", "eq.ANSWER_SUBMITTED");
++    query.set("image_version", `eq.${local.imageVersion}`);
++    query.set("image_hash", `eq.${local.imageHash}`);
++  }
++  const rows = await requestJson(context, `${context.baseUrl}/rest/v1/${TABLE}?${query}`, {
+     method: "PATCH",
+     headers: headers(context.secretKey, "return=representation"),
+     body: JSON.stringify({
+@@ -352,6 +360,15 @@
+       updated_at: now.toISOString(),
+     }),
+   });
++  if (options.rejectedAnswer) {
++    if (!Array.isArray(rows) || rows.length !== 1 || rows[0].id !== local.id) {
++      return { finished: false, reason: "CHALLENGE_CHANGED" };
++    }
++    const current = await readLocalShoplingCaptchaChallenge(config, { time: now.getTime() });
++    if (current?.id !== local.id || current.imageVersion !== local.imageVersion) {
++      return { finished: true, status };
++    }
++  }
+   await saveLocalChallenge(config, null);
+   return { finished: true, status };
+ }

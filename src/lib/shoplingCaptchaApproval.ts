@@ -52,12 +52,16 @@ async function lookup(token: string) {
 }
 
 function publicChallenge(row: ChallengeRow) {
-  const expired = Date.parse(row.expires_at) <= Date.now();
+  const now = Date.now();
+  const finished = row.status === "CONSUMED" || row.status === "CANCELLED";
+  const expired = !finished && Date.parse(row.expires_at) <= now;
   return {
     status: expired ? "EXPIRED" : row.status,
     imageVersion: row.image_version,
     imageUpdatedAt: row.image_updated_at,
     answerSubmittedAt: row.answer_submitted_at,
+    confirmationDelayed: row.status === "ANSWER_SUBMITTED" && Boolean(row.answer_submitted_at)
+      && now - Date.parse(row.answer_submitted_at || "") >= 60_000,
     refreshRequestedAt: row.refresh_requested_at,
     expiresAt: row.expires_at,
     expired,

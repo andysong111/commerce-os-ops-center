@@ -157,6 +157,7 @@ async function reconcile(job, call, requestSession) {
     ),
   );
   const records = [];
+  let needsLogin = false;
   for (const month of months) {
     const page = await ownedTab(listUrl, async (session) => {
       if (
@@ -168,7 +169,7 @@ async function reconcile(job, call, requestSession) {
       return waitFor(() => probe(session, historyRows, job.sender, job.phone));
     });
     if (!page) {
-      await requestSession?.(job.id);
+      needsLogin = true;
       records.length = 0;
       break;
     }
@@ -182,8 +183,9 @@ async function reconcile(job, call, requestSession) {
     ...result,
     bodyHash: createHash("sha256").update(job.body).digest("hex"),
   });
+  if (needsLogin) await requestSession?.(job.id);
 }
-export async function prepareG6(job, handle, requestSession) {
+export async function prepareG6(job, handle, loginRequired) {
   if ((await pages()).some((t) => t.url.split("?")[0] === popupUrl))
     return false;
   // G6 can open without a window.opener. Create the ordinary composition page
@@ -199,7 +201,7 @@ export async function prepareG6(job, handle, requestSession) {
         ),
       ))
     ) {
-      await requestSession?.(job.id);
+      loginRequired?.();
       return false;
     }
     const filled = await probe(session, smsForm, job, "fill");
@@ -240,19 +242,28 @@ export async function dispatchRestockJob(
   storeReady,
   openG6,
   history = reconcile,
+  requestSession,
 ) {
-  if (job.kind === "history") {
-    await history(job, call);
-    return;
-  }
   const operatorTest =
     job.kind === "operator_test" &&
     job.mode === "pilot" &&
     job.product === null;
-  if (job.kind !== "prepare" && !operatorTest) return;
+  const isHistory = job.kind === "history";
+  if (!isHistory && job.kind !== "prepare" && !operatorTest) return;
+  if (requestSession) {
+    const ready = await requestSession(job.id, async () => {
+      if (!isHistory) await call({ action: "defer", id: job.id, note: "SHOPLING" });
+    });
+    if (!ready) return;
+  }
+  if (isHistory) {
+    await history(job, call, requestSession);
+    return;
+  }
   let claimed = false,
     claimStarted = false;
   let reason = "STORE";
+  let needsLogin = false;
   try {
     if (operatorTest || (await storeReady(job.product))) {
       reason = "SHOPLING";
@@ -280,12 +291,15 @@ export async function dispatchRestockJob(
         claimed = true;
         await submit();
         return true;
-      });
+      }, () => { needsLogin = true; });
       if (handled) return;
     }
   } finally {
-    if (!claimed && !claimStarted)
+    if (!claimed && !claimStarted) {
       await call({ action: "defer", id: job.id, note: reason });
+      // The closed G6 tab and its expired ticket cannot be reused after login.
+      if (needsLogin) await requestSession?.(job.id);
+    }
   }
 }
 export async function pollRestockSms(config, requestSession) {
@@ -315,7 +329,8 @@ export async function pollRestockSms(config, requestSession) {
         ownedTab(p.url, (s) =>
           waitFor(() => probe(s, storefrontProbe, p), 12000),
         ),
-      (job, handle) => prepareG6(job, handle, requestSession),
-      (job, report) => reconcile(job, report, requestSession),
+      prepareG6,
+      reconcile,
+      requestSession,
     );
 }

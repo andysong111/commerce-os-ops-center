@@ -147,7 +147,7 @@ test("a dropped live action response is held for review without replay", async (
   assert.equal(posts, 1);
 });
 
-function mobileLoginFixture(phases, { disable = false, occupied = false, advanceBy = 10_000, dropAction = false } = {}) {
+function mobileLoginFixture(phases, { disable = false, occupied = false, advanceBy = 10_000, dropAction = false, captcha = null } = {}) {
   const input = command("post-packing-invoices", {
     execute: true, confirmed: true, invoiceNumbers: ["123456789012"], inventoryShortageInvoiceNumbers: ["123456789013"],
   });
@@ -163,6 +163,7 @@ function mobileLoginFixture(phases, { disable = false, occupied = false, advance
       if (url.includes(":43122/")) return json({ ok: false }, 404);
       if (url.endsWith("/api/state")) return json({ ok: true, state: center({
         shoplingSession: { ready, matchedAccount: ready ? "fixture-account" : null }, settings: { shoplingAutoLoginEnabled: !disable }, shoplingAutoLogin: { credentialConfigured: true },
+        shoplingCaptcha: captcha,
         actions: [{ id: input.actionId, mutates: true, requiresShoplingLogin: true }],
         pendingLoginAction: ready && occupied ? { actionId: input.actionId } : null,
         recentRuns: businessRequests.length ? [{ actionId: input.actionId, runId: "original", status: "succeeded" }] : [],
@@ -194,6 +195,30 @@ test("a restock SMS with an expired Shopling session requests only existing logi
   const disabled = mobileLoginFixture([], { disable: true });
   await disabled.adapter.requestShoplingSession(disabled.input.id);
   assert.deepEqual(disabled.loginRequests, []);
+});
+
+test("restock resumes a human answer while the PC still reports the same waiting CAPTCHA", async () => {
+  const captcha = { status: "WAITING", imageVersion: 1, expiresAt: new Date(start + 4 * 60 * 60_000).toISOString() };
+  const flow = mobileLoginFixture(["captcha", "checking", "ready"], { captcha });
+  await flow.adapter.requestShoplingSession(flow.input.id);
+  assert.deepEqual(flow.loginRequests, Array(3).fill({ requestId: flow.input.id }));
+  assert.deepEqual(flow.businessRequests, []);
+  await flow.adapter.requestShoplingSession(flow.input.id);
+  assert.equal(flow.loginRequests.length, 3);
+
+  for (const stop of ["expired", "busy", "manual", "wrong-id"]) {
+    const interrupted = mobileLoginFixture(["captcha", stop, "ready"], { captcha });
+    await interrupted.adapter.requestShoplingSession(interrupted.input.id);
+    assert.equal(interrupted.loginRequests.length, 2);
+    assert.deepEqual(interrupted.businessRequests, []);
+  }
+  for (const errorCode of ["SHOPLING_LOGIN_DIALOG_UNEXPECTED", "SHOPLING_LOGIN_CAPTCHA_REJECTED"]) {
+    const stopped = mobileLoginFixture([], { captcha: { ...captcha, status: "FAILED", errorCode } });
+    let releases = 0;
+    assert.equal(await stopped.adapter.requestShoplingSession(stopped.input.id, async () => { releases++; }), false);
+    assert.equal(releases, 1);
+    assert.deepEqual(stopped.loginRequests, []);
+  }
 });
 
 test("a picking handoff reaches the existing task 4 PC endpoint once and records its original receipt", async () => {
