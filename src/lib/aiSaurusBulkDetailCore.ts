@@ -9,7 +9,7 @@ import {
 import { canonicalOpsOffer, type OpsDetailOptionHint } from "./opsDetailDispatch.ts";
 
 type Item = Record<string, unknown>;
-const SAURUS_SOURCING_CUTOFF = Date.parse("2026-11-01T00:00:00+09:00");
+const SAURUS_SOURCING_CUTOFF = Date.parse("2026-08-01T00:00:00+09:00");
 const HASH = /^[a-f0-9]{64}$/i;
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const MAX_ATTEMPTS = 2;
@@ -76,7 +76,7 @@ export function requireSaurusSourcingItems(items: Item[], ids: string[]) {
   });
   if (rejected.length) {
     const labels = rejected.map((id) => text(byId.get(id)?.modelNumber) || text(byId.get(id)?.productName) || id);
-    throw new Error("2026년 11월 1일 이후 확정 소싱한 신규상품만 제작할 수 있습니다. 대상 제외: " + labels.join(", "));
+    throw new Error("2026년 8월 1일부터 확정 소싱한 신규상품만 제작할 수 있습니다. 제작 대상에서 제외된 상품은 " + labels.join(", ") + "입니다.");
   }
 }
 

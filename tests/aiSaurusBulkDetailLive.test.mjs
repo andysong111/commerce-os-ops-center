@@ -50,39 +50,42 @@ test("prevents duplicate starts and saves only the QA-verified final URL after e
 });
 
 const sourced = {
-  ...product, id: "nov", modelNumber: "AAA508",
-  source: { system: "commerce-os-sourcing-engine", sourcingIntakeId: "reservation", materializedAt: "2026-10-31T15:00:00Z" },
+  ...product, id: "eligible", modelNumber: "AAA508",
+  source: { system: "commerce-os-sourcing-engine", sourcingIntakeId: "reservation", materializedAt: "2026-07-31T15:00:00Z" },
   orderOptions: [{ saleOption: "단품 그레이", chinaOption: "单网灰色 大包装】10个起拍" }],
 };
 
-test("requires November 1 KST confirmed sourcing evidence for the entire selection", () => {
+test("requires August 1 KST confirmed sourcing evidence for the entire selection", () => {
   const old = { ...sourced, id: "old", modelNumber: "AAA337", source: {
-    ...sourced.source, sourceConfirmedAt: "2026-10-31T14:59:59.999Z",
+    ...sourced.source, sourceConfirmedAt: "2026-07-31T14:59:59.999Z",
   } };
-  assert.doesNotThrow(() => requireSaurusSourcingItems([old, sourced], ["nov"]));
-  assert.throws(() => requireSaurusSourcingItems([old, sourced], ["nov", "old"]), /2026년 11월 1일.*AAA337/);
-  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, source: {} }], ["nov"]), /AAA508/);
-  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, archivedAt: date }], ["nov"]), /AAA508/);
+  const october = { ...sourced, id: "october", source: {
+    ...sourced.source, sourceConfirmedAt: "2026-10-14T00:00:00+09:00",
+  } };
+  assert.doesNotThrow(() => requireSaurusSourcingItems([old, sourced, october], ["eligible", "october"]));
+  assert.throws(() => requireSaurusSourcingItems([old, sourced], ["eligible", "old"]), /2026년 8월 1일.*AAA337/);
+  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, source: {} }], ["eligible"]), /AAA508/);
+  assert.throws(() => requireSaurusSourcingItems([{ ...sourced, archivedAt: date }], ["eligible"]), /AAA508/);
 });
 
 test("starts source review without names and only sends proven same-offer option hints", () => {
-  const current = newSaurusBatch("batch", ["nov"], [sourced], date);
+  const current = newSaurusBatch("batch", ["eligible"], [sourced], date);
   const hints = [{ sourceName: sourced.orderOptions[0].chinaOption, saleName: sourced.orderOptions[0].saleOption }];
   assert.deepEqual(current.products[0].reviewOptions, hints);
   const sourceLink = "https://detail.1688.com/offer/456.html";
-  const different = newSaurusBatch("batch", ["nov"], [{ ...sourced,
+  const different = newSaurusBatch("batch", ["eligible"], [{ ...sourced,
     chinaLinkUsage: { purchaseUrl: source, detailPageUrl: sourceLink },
   }], date);
   assert.equal(different.products[0].sourceUrl, sourceLink);
   assert.deepEqual(different.products[0].reviewOptions, []);
-  const mixed = newSaurusBatch("batch", ["nov"], [{ ...sourced, orderOptions: [
+  const mixed = newSaurusBatch("batch", ["eligible"], [{ ...sourced, orderOptions: [
     { ...sourced.orderOptions[0], supplierLink: sourceLink },
   ] }], date);
   assert.deepEqual(mixed.products[0].reviewOptions, []);
-  const prepared = updateSaurusPreparation(current, [{ id: "nov", options: [] }], true, date);
+  const prepared = updateSaurusPreparation(current, [{ id: "eligible", options: [] }], true, date);
   const latest = { deployment, importer: "0.4.63", engine: "engine", maxCredits: 13 };
-  assert.throws(() => startOpsSaurusProduct(prepared, "nov", "owner@example.com", date, latest), /검토 기능/);
-  const running = startOpsSaurusProduct(prepared, "nov", "owner@example.com", date, { ...latest, sourceReview: true });
+  assert.throws(() => startOpsSaurusProduct(prepared, "eligible", "owner@example.com", date, latest), /검토 기능/);
+  const running = startOpsSaurusProduct(prepared, "eligible", "owner@example.com", date, { ...latest, sourceReview: true });
   assert.deepEqual(dispatchClaims(running.product, 1).reviewOptions, hints);
   assert.notEqual(prepared.products[0].inputHash, current.products[0].inputHash);
 });
