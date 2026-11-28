@@ -79,23 +79,27 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     }, 120_000);
   }
 
-  async function requestShoplingSession(requestId) {
+  async function requestShoplingSession(requestId, release = async () => {}) {
     const center = await getCenter();
-    if (centerBusy(center) || (center.shoplingSession?.ready && center.shoplingSession.matchedAccount)) return;
-    if (!center.settings?.shoplingAutoLoginEnabled || !center.shoplingAutoLogin?.credentialConfigured) return;
-    const challenge = center.shoplingCaptcha;
-    if (["WAITING", "REFRESHING"].includes(challenge?.status) && Date.parse(challenge?.expiresAt) > now()) return;
-    await advanceShoplingLogin(requestId, await getCenterToken());
+    const busy = centerBusy(center);
+    if (!busy && center.shoplingSession?.ready && center.shoplingSession.matchedAccount) return true;
+    await release();
+    if (busy || !center.settings?.shoplingAutoLoginEnabled || !center.shoplingAutoLogin?.credentialConfigured) return false;
+    // WAITING is PC-local. Only the login endpoint can consume the operator's phone response.
+    if (center.shoplingCaptcha?.status === "FAILED" &&
+      ["SHOPLING_LOGIN_DIALOG_UNEXPECTED", "SHOPLING_LOGIN_CAPTCHA_REJECTED"].includes(center.shoplingCaptcha.errorCode)) return false;
+    await awaitShoplingLogin(requestId, await getCenterToken());
+    return false; // A fresh queue reservation rechecks stock, identity and consent after login.
   }
 
-  async function awaitShoplingLogin(command, token, onProgress) {
+  async function awaitShoplingLogin(requestId, token, onProgress = () => {}) {
     const deadline = now() + LOGIN_TIMEOUT;
     onProgress("LOGIN_CHECKING");
     while (now() < deadline) {
       // This endpoint can advance a human-assisted login, but cannot enqueue
       // or execute a business action. Never reset the PC's retry/lockout state.
-      const step = await advanceShoplingLogin(command.id, token).catch(() => null);
-      if (!step?.ok || step.body.requestId !== command.id) return result("needs_pc", "LOGIN_REQUIRED");
+      const step = await advanceShoplingLogin(requestId, token).catch(() => null);
+      if (!step?.ok || step.body.requestId !== requestId) return result("needs_pc", "LOGIN_REQUIRED");
       if (now() >= deadline || step.body.phase === "expired") break;
       if (step.body.phase === "ready") {
         const latest = await getCenter().catch(() => null);
@@ -122,7 +126,7 @@ export function createWindowsWorkAdapter({ fetchImpl = fetch, wait = delay, now 
     const token = await getCenterToken();
     let account = center.shoplingSession?.matchedAccount;
     if (needsLogin) {
-      const login = await awaitShoplingLogin(command, token, onProgress);
+      const login = await awaitShoplingLogin(command.id, token, onProgress);
       if (!login.account) return login;
       account = login.account;
     }

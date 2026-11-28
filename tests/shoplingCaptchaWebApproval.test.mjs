@@ -91,3 +91,26 @@ test("Shopling CAPTCHA storage is service-role-only and public responses are nev
   assert.match(client, /새 캡차 요청/);
   assert.match(client, /setInterval\(\(\) => void refresh\(\), 3_000\)/);
 });
+
+test("a submitted phone answer reports an overdue PC confirmation and preserves the actual terminal result", async () => {
+  const now = Date.now();
+  const row = { status: "ANSWER_SUBMITTED", image_version: 2, image_hash: "a".repeat(64),
+    expires_at: new Date(now + 120_000).toISOString(), answer_submitted_at: new Date(now).toISOString() };
+  const query = { select() { return this; }, eq() { return this; }, maybeSingle() { return { data: row }; } };
+  const server = loadModule("../src/lib/shoplingCaptchaApproval.ts", {
+    "@/lib/supabase/admin": { createSupabaseAdminClient: async () => ({ from: () => query }) },
+  });
+  const read = async () => (await server.readShoplingCaptchaChallenge("A".repeat(43))).value;
+  assert.equal((await read()).confirmationDelayed, false);
+  row.answer_submitted_at = new Date(now - 120_000).toISOString();
+  assert.equal((await read()).confirmationDelayed, true);
+  row.expires_at = new Date(now - 10_000).toISOString();
+  assert.equal((await read()).status, "EXPIRED");
+  for (const status of ["CANCELLED", "CONSUMED"]) {
+    row.status = status;
+    const result = await read();
+    assert.equal(result.status, status);
+    assert.equal(result.expired, false);
+    assert.equal(result.confirmationDelayed, false);
+  }
+});

@@ -121,6 +121,39 @@ test("a lost submit response moves exclusively to history reconciliation", async
   assert.deepEqual(log, ["claim", "history"]);
   assert.equal(submits, 1);
 });
+
+test("a logged-out G6 tab closes and releases its SMS lease before human login recovery", async () => {
+  const events = [];
+  const job = { kind: "operator_test", mode: "pilot", product: null, id: "pending-test" };
+  const call = async ({ action, note }) => { events.push([action, note]); };
+  const openG6 = async (_job, _submit, loginRequired) => {
+    loginRequired();
+    events.push("G6 closed");
+    return false;
+  };
+  const recover = async (id, release) => {
+    if (release) return true;
+    events.push(["recover", id]);
+    return false;
+  };
+  await dispatchRestockJob(job, call, () => assert.fail(), openG6, undefined, recover);
+  assert.deepEqual(events, ["G6 closed", ["defer", "SHOPLING"], ["recover", job.id]]);
+});
+
+test("an active phone challenge keeps G6 closed and preserves an existing send attempt", async () => {
+  for (const kind of ["operator_test", "history"]) {
+    const events = [];
+    const job = { kind, mode: "pilot", product: null, id: "waiting" };
+    const recover = async (id, release) => {
+      await release();
+      events.push(["login", id]);
+      return false;
+    };
+    await dispatchRestockJob(job, async (e) => events.push([e.action, e.note]),
+      () => assert.fail(), () => assert.fail(), () => assert.fail(), recover);
+    assert.deepEqual(events, kind === "history" ? [["login", job.id]] : [["defer", "SHOPLING"], ["login", job.id]]);
+  }
+});
 test("a sold-out option, canceled claim or lost claim response never clicks send", async () => {
   const calls = [],
     call = async (a) => {

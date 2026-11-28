@@ -8,6 +8,7 @@ type Challenge = {
   imageVersion: number;
   imageUpdatedAt: string;
   answerSubmittedAt: string | null;
+  confirmationDelayed: boolean;
   refreshRequestedAt: string | null;
   expiresAt: string;
   expired: boolean;
@@ -102,7 +103,11 @@ export default function ShoplingCaptchaClient({ token }: { token: string }) {
         </header>
         <div className="p-5">
           {finished ? (
-            <p className="rounded-xl bg-slate-100 p-5 text-center text-sm font-bold">{challenge.status === "CONSUMED" ? "로그인이 완료되었습니다. 이 창을 닫아도 됩니다." : "입력 시간이 끝났습니다. PC 업무센터에서 업무를 다시 시작해 주세요."}</p>
+            <p role="status" className="rounded-xl bg-slate-100 p-5 text-center text-sm font-bold">{challenge.status === "CONSUMED"
+              ? "샵플링 로그인이 완료되었습니다. 이 창을 닫아도 됩니다."
+              : challenge.status === "CANCELLED"
+                ? "이 인증 요청이 종료되었습니다. 업무용 PC에서 샵플링 로그인 화면의 안내를 확인해 주세요."
+                : "입력 시간이 끝났습니다. PC 업무센터에서 업무를 다시 시작해 주세요."}</p>
           ) : (
             <>
               <p className="text-sm text-slate-600">아래 이미지의 숫자 4자리를 입력하세요. 유효시간: <strong>{expiry}</strong></p>
@@ -113,7 +118,11 @@ export default function ShoplingCaptchaClient({ token }: { token: string }) {
               </div>
               <p className="mt-2 text-center text-xs text-slate-500">현재 이미지 #{challenge.imageVersion}</p>
               {submitted ? (
-                <p className="mt-4 rounded-xl bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-800">숫자를 PC로 안전하게 전달했습니다. 로그인 확인 중입니다.</p>
+                <p role="status" className="mt-4 rounded-xl bg-amber-50 p-4 text-center text-sm font-bold text-amber-900">
+                  {challenge.confirmationDelayed
+                    ? "숫자는 접수됐습니다. 1분 넘게 업무용 PC에서 로그인 결과가 오지 않았습니다. PC의 샵플링 로그인 화면을 확인해 주세요."
+                    : "숫자를 접수했습니다. 업무용 PC에서 샵플링 로그인 결과를 기다리고 있습니다."}
+                </p>
               ) : refreshing ? (
                 <p className="mt-4 rounded-xl bg-amber-50 p-4 text-center text-sm font-bold text-amber-900">PC에서 새 캡차를 준비 중입니다. 새 이미지가 자동으로 표시되고 카카오톡에도 다시 옵니다.</p>
               ) : (
