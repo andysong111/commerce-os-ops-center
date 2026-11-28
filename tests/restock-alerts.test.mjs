@@ -24,6 +24,10 @@ test("ordinary request needs only the exact B-code and one mobile number", () =>
   });
   assert.throws(() => parse({ phone: "010-0000-1234;01000009999" }));
   assert.throws(() => parse({ barcode: "ps5" }));
+  for (const name of ["컨트롤러 ps4", "컨트롤러 ps5", "보관함"]) {
+    const text = composeRestock(parse({}).details, name, link, noon);
+    assert.ok(text.includes("요청하신 상품이 입고되었습니다.\n" + name + "\n"));
+  }
   assert.equal(
     storeProductNumber(
       "https://andy801.cafe24.com/product/게임패드/705/category/47/display/1/",
