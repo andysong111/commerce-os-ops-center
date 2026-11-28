@@ -294,6 +294,21 @@
       </form>
     </dialog>
 
+    <dialog id="saurus-image-warning" class="dialog dialog-small" aria-labelledby="saurus-image-warning-title">
+      <form method="dialog">
+        <div class="dialog-header">
+          <h2 id="saurus-image-warning-title">기존 이미지가 있는 상품</h2>
+          <button class="icon-button" value="cancel" aria-label="닫기">×</button>
+        </div>
+        <ul id="saurus-image-warning-items"></ul>
+        <p class="dialog-description">그래도 진행하시겠습니까? 강제 진행하면 새 제작 결과를 승인할 때 기존 이미지 URL을 교체합니다.</p>
+        <div class="dialog-actions dialog-actions-end saurus-image-warning-actions">
+          <button class="button" value="skip" autofocus>해당 건만 제외하고 진행</button>
+          <button class="button button-danger" value="force">강제 진행</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="add-dialog" class="dialog">
       <form id="add-form" method="dialog">
         <div class="dialog-header"><div><p class="eyebrow">대량 추가</p><h2>엑셀 표 붙여넣기</h2></div><button class="icon-button" value="cancel" aria-label="닫기">×</button></div>

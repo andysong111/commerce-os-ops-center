@@ -55,6 +55,7 @@ export type AiSaurusBatchProduct = {
   sourceUrl: string;
   originalDetailImageUrl: string;
   originalImageMaterials?: SaurusLaunchMaterials;
+  imageOverwrite?: { token: string; launch: SaurusLaunchMaterials; seo: SaurusLaunchMaterials };
   bCodes?: string[];
   manualImageSavedAt?: string;
   catalogOptions: string[];
