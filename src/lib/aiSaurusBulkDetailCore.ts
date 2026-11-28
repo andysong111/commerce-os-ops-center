@@ -150,6 +150,36 @@ export function newSaurusBatch(id: string, ids: string[], sourceItems: Item[], n
   return { id, revision: 0, createdAt: now, updatedAt: now, selectionHash: saurusSelectionHash(selection), products };
 }
 
+export function inspectSaurusExistingImages(product: AiSaurusBatchProduct, launchItem: Item | undefined, seoItem: Item | undefined) {
+  const launch = saurusLaunchMaterials(requireSaurusProductIdentity(product, launchItem));
+  const seo = saurusLaunchMaterials(requireSaurusProductIdentity(product, seoItem));
+  const details = [launch, seo];
+  const fields = [
+    details.some(({ detailImageUrl, html }) => detailImageUrl || /<img\b/i.test(html)) && "상세페이지 이미지",
+    details.some(({ mainImageUrl }) => mainImageUrl) && "대표 이미지",
+    details.some(({ additionalImageUrls }) => additionalImageUrls.length) && "부가 이미지",
+  ].filter(Boolean);
+  const { id, model, name, bCodes } = product;
+  const token = digest([id, model, bCodes ?? [], launch, seo]);
+  return { warning: { id, model, name, bCodes, fields, token }, snapshot: { token, launch, seo } };
+}
+
+export function planSaurusImageConfirmation(batch: AiSaurusDetailBatch, launchItems: Item[], seoItems: Item[], overrides: unknown) {
+  const confirmed = object(overrides);
+  const warnings: ReturnType<typeof inspectSaurusExistingImages>["warning"][] = [];
+  const products = batch.products.map((product) => {
+    const { warning, snapshot } = inspectSaurusExistingImages(product,
+      launchItems.find(({ id }) => id === product.id), seoItems.find(({ id }) => id === product.id));
+    if (!warning.fields.length) return product;
+    if (Object.hasOwn(confirmed, product.id) && confirmed[product.id] === warning.token) {
+      return { ...product, imageOverwrite: snapshot };
+    }
+    warnings.push(warning);
+    return product;
+  });
+  return { warnings, batch: { ...batch, products } };
+}
+
 export function updateSaurusPreparation(batch: AiSaurusDetailBatch, edits: unknown, prepare: boolean, now: string) {
   if (!Array.isArray(edits)) throw new Error("선택한 상품의 옵션을 확인해 주세요.");
   const ids = parseSaurusSelection(edits.map((entry) => object(entry).id));
@@ -183,6 +213,7 @@ export function refreshSaurusPreparation(batch: AiSaurusDetailBatch, fresh: AiSa
     if (!current || batch.queuedIds?.includes(product.id) || !["draft", "waiting_connection"].includes(product.stage) ||
         (current.sourceUrl === product.sourceUrl && current.name === product.name && current.model === product.model &&
         current.originalDetailImageUrl === product.originalDetailImageUrl &&
+        current.imageOverwrite?.token === product.imageOverwrite?.token &&
         JSON.stringify(current.bCodes) === JSON.stringify(product.bCodes) &&
         Boolean(product.originalImageMaterials && sameSaurusLaunchMaterials(current.originalImageMaterials!, product.originalImageMaterials)) &&
         JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions) &&
@@ -355,7 +386,7 @@ export function planSaurusReviewDecision(
   };
 }
 
-export function planSaurusApproval(batch: AiSaurusDetailBatch, chosen: unknown, launchItems: Item[]) {
+export function planSaurusApproval(batch: AiSaurusDetailBatch, chosen: unknown, launchItems: Item[], source: "launch" | "seo" = "launch") {
   const ids = parseSaurusSelection(chosen);
   const updates = new Map<string, SaurusLaunchMaterials>();
   const providerJobs = new Set<string>();
@@ -376,7 +407,7 @@ export function planSaurusApproval(batch: AiSaurusDetailBatch, chosen: unknown, 
     const imageMaterials = saurusApprovedMaterials(receipt, product.name);
     const current = saurusLaunchMaterials(item);
     if (sameSaurusLaunchMaterials(current, imageMaterials)) continue;
-    const original = product.originalImageMaterials;
+    const original = product.imageOverwrite?.[source] ?? product.originalImageMaterials;
     if (product.stage === "approved" || (original
       ? !sameSaurusLaunchMaterials(current, original)
       : currentImage(item) !== product.originalDetailImageUrl)) {
@@ -407,9 +438,11 @@ export function reserveSaurusApproval(batch: AiSaurusDetailBatch, ids: string[],
   return { ...batch, products, revision: batch.revision + 1, updatedAt: now };
 }
 
-export function confirmSaurusApprovalReadback(batch: AiSaurusDetailBatch, chosen: unknown, savedItems: Item[], now: string) {
+export function confirmSaurusApprovalReadback(
+  batch: AiSaurusDetailBatch, chosen: unknown, savedItems: Item[], now: string, source: "launch" | "seo" = "launch",
+) {
   const ids = new Set(parseSaurusSelection(chosen));
-  const expected = planSaurusApproval(batch, chosen, savedItems);
+  const expected = planSaurusApproval(batch, chosen, savedItems, source);
   if (expected.some((item, index) => item !== savedItems[index])) {
     throw new Error("상세페이지·대표·부가 이미지 주소의 저장 결과를 다시 확인하지 못했습니다.");
   }

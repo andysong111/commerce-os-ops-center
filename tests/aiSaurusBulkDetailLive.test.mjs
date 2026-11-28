@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, planSaurusReviewDecision, refreshSaurusPreparation, requireSaurusSourcingItems, reserveSaurusApproval, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
+import { confirmSaurusApprovalReadback, newSaurusBatch, planSaurusApproval, planSaurusImageConfirmation, planSaurusReviewDecision, refreshSaurusPreparation, requireSaurusSourcingItems, reserveSaurusApproval, sameSaurusReviewOptions, saurusBatchRevisionMode, updateSaurusPreparation } from "../src/lib/aiSaurusBulkDetailCore.ts";
 import { dispatchClaims, readOpsSaurusRelease, reconcileOpsSaurusStatus, replaceProduct, startOpsSaurusProduct } from "../src/lib/aiSaurusBulkDetailProvider.ts";
 import { readSaurusReviewAssets, saurusResultImageUrl } from "../src/lib/aiSaurusReviewAssets.ts";
 import { showSaurusPopupMessage } from "../src/lib/aiSaurusBulkDetailPopup.ts";
@@ -93,6 +93,45 @@ test("B-code approval saves six QA-verified URLs and the HTML consumed by SEO re
   const resolved = confirmSaurusApprovalReadback(reserved, ["p1"], saved.state.items, date);
   assert.equal(resolved.products[0].stage, "approved");
   assert.equal(planSaurusApproval(resolved, ["p1"], saved.state.items)[0], saved.state.items[0]);
+});
+
+test("existing images require exact B-code consent across both stores before replacing URLs", () => {
+  const launch = { ...product, detailPageAsset: { detailImageUrl: "https://cdn.example.com/detail.jpg" } };
+  const seo = { ...product, detailPageAsset: { mainImageUrl: "https://cdn.example.com/main.jpg",
+    additionalImageUrls: ["https://cdn.example.com/extra.jpg"] } };
+  const other = { ...product, id: "p2" };
+  const initial = newSaurusBatch("batch", ["p1", "p2"], [launch, other], date);
+  const check = planSaurusImageConfirmation(initial, [launch, other], [seo, other], {});
+  assert.equal(check.warnings.length, 1);
+  const [warning] = check.warnings;
+  assert.equal(warning.id, "p1");
+  assert.deepEqual(warning.bCodes, ["BDG6-2"]);
+  assert.deepEqual(warning.fields, ["상세페이지 이미지", "대표 이미지", "부가 이미지"]);
+  assert.equal(planSaurusImageConfirmation(initial, [launch, other], [seo, other], { p2: warning.token }).warnings.length, 1);
+  const changedSeo = { ...seo, detailPageAsset: { mainImageUrl: "https://cdn.example.com/new.jpg" } };
+  const stale = planSaurusImageConfirmation(initial, [launch, other], [changedSeo, other], { p1: warning.token });
+  assert.deepEqual(stale.warnings[0].fields, ["상세페이지 이미지", "대표 이미지"]);
+  const forced = planSaurusImageConfirmation(initial, [launch, other], [seo, other], { p1: warning.token });
+  assert.deepEqual(forced.warnings, []);
+  const refreshed = refreshSaurusPreparation(initial, forced.batch);
+  assert.equal(refreshed.products[0].imageOverwrite.token, warning.token);
+  assert.equal(refreshed.products[1].imageOverwrite, undefined);
+  const prepared = updateSaurusPreparation(refreshed, [{ id: "p1", options: ["단품"] }], true, date);
+  const running = startOpsSaurusProduct(prepared, "p1", "owner@example.com", date, {
+    deployment, importer: "0.4.62", engine: "engine", maxCredits: 13,
+  });
+  const result = reconcileOpsSaurusStatus(running.product, {
+    state: "succeeded", providerJobId: jobId, engine: "engine", qa: "passed", assetId,
+    hostedUrl, sha256: "1".repeat(64), creditCost: 13, costReceiptId: "credit-debit", reviewAssets: firstGallery,
+  }, 0);
+  const reserved = reserveSaurusApproval(replaceProduct(running.batch, result, date), ["p1"], [seo], date);
+  const launchPlan = planSaurusApproval(reserved, ["p1"], [launch, other]);
+  const seoPlan = planSaurusApproval(reserved, ["p1"], [seo, other], "seo");
+  assert.equal(launchPlan[0].detailPageAsset.detailImageUrl, hostedUrl);
+  assert.equal(seoPlan[0].detailPageAsset.mainImageUrl, saurusResultImageUrl(firstGallery.representative_main_catalog));
+  assert.equal(seoPlan[0].detailPageAsset.additionalImageUrls.length, 4);
+  assert.equal(launchPlan[1], other);
+  assert.throws(() => planSaurusApproval(reserved, ["p1"], [changedSeo, other], "seo"), /이미지 자료가 변경/);
 });
 
 test("each finished product keeps its own gallery and incomplete results cannot be approved", () => {
