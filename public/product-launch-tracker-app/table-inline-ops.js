@@ -1,4 +1,5 @@
 import {
+  alignTableRow,
   applyInlineOptionLabels,
   DEFAULT_TABLE_COLUMN_ORDER,
   frozenColumnKeys,
@@ -229,11 +230,11 @@ function assignColumnKeys() {
   if (headRow) {
     [...headRow.children].forEach((cell, index) => {
       if (!cell.dataset.columnKey) {
-        cell.dataset.columnKey = DEFAULT_TABLE_COLUMN_ORDER[index] ?? `unknown-${index}`;
+        cell.dataset.columnKey = cell.dataset.sortKey ?? DEFAULT_TABLE_COLUMN_ORDER[index] ?? `unknown-${index}`;
       }
     });
   }
-  for (const row of tableBody.querySelectorAll("tr[data-id]")) {
+  for (const row of renderableTableRows()) {
     [...row.children].forEach((cell, index) => {
       if (!cell.dataset.columnKey) {
         cell.dataset.columnKey = DEFAULT_TABLE_COLUMN_ORDER[index] ?? `unknown-${index}`;
@@ -242,20 +243,15 @@ function assignColumnKeys() {
   }
 }
 
+function renderableTableRows() {
+  return tableBody.querySelectorAll("tr[data-id], tr.master-core-fallback-row, tr.startup-cache-row");
+}
+
 function applyColumnOrder() {
   const order = normalizeColumnOrder(layout.order);
   layout.order = order;
-  const rows = [tableHead.querySelector("tr"), ...tableBody.querySelectorAll("tr[data-id]")].filter(Boolean);
-  for (const row of rows) {
-    const byKey = new Map(
-      [...row.children].map((cell) => [cell.dataset.columnKey, cell]),
-    );
-    for (const key of order) {
-      const cell = byKey.get(key);
-      if (cell && cell !== row.lastElementChild) row.append(cell);
-      else if (cell) row.append(cell);
-    }
-  }
+  const rows = [tableHead.querySelector("tr"), ...renderableTableRows()].filter(Boolean);
+  for (const row of rows) alignTableRow(row, order);
 }
 
 function installHeaderDragHandles() {

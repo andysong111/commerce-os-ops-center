@@ -303,6 +303,7 @@ function renderRow(item) {
       <td class="product-name cell-truncate" title="${escapeAttribute(item.productName)}">${escapeHtml(item.productName)}</td>
       <td class="category-cell cell-truncate" title="${escapeAttribute(item.shoplingCategory)}">${item.shoplingCategory ? escapeHtml(item.shoplingCategory) : muted("정확한 카테고리 필요")}</td>
       <td class="options-cell cell-truncate" title="${escapeAttribute(optionLabels.join(", "))}">${optionLabels.length ? `${escapeHtml(optionLabels.join(", "))}<span class="count-chip">${optionLabels.length}</span>` : muted("연동 필요")}</td>
+      <td>${muted("재고 확인 대기")}</td>
       <td><button class="readiness-badge ${readiness.ready ? "is-ready" : "needs-work"}" type="button" data-action="preview" title="${escapeAttribute([...readiness.errors, ...readiness.warnings].join("\n"))}">${readiness.ready ? "준비완료" : `준비필요 ${readiness.errors.length}`}</button></td>
       ${STAGES.map(({ key }) => statusSelect(item, key)).join("")}
       <td class="next-stage">${escapeHtml(getNextStage(item))}<span class="progress-text">${progress.completed}/${progress.total} 완료</span></td>

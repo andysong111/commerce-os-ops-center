@@ -6,6 +6,7 @@ export const TABLE_COLUMN_DEFINITIONS = [
   { key: "productName", label: "모델명" },
   { key: "shoplingCategory", label: "샵플링 표준 카테고리" },
   { key: "options", label: "옵션" },
+  { key: "stock", label: "재고" },
   { key: "readiness", label: "등록 준비" },
   { key: "detailPage", label: "상세페이지" },
   { key: "shoplingUpload", label: "샵플링 업로드" },
@@ -29,6 +30,17 @@ export function normalizeColumnOrder(value) {
   }
   const withoutSelect = unique.filter((key) => key !== "select");
   return ["select", ...withoutSelect];
+}
+
+export function alignTableRow(row, order) {
+  const byKey = new Map([...row.children].map((cell) => [cell.dataset.columnKey, cell]));
+  let index = 0;
+  for (const key of order) {
+    const cell = byKey.get(key);
+    if (!cell) continue;
+    const current = row.children[index++];
+    if (cell !== current) row.insertBefore(cell, current ?? null);
+  }
 }
 
 export function moveColumn(orderInput, sourceKey, targetKey) {

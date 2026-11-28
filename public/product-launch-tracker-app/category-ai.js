@@ -68,7 +68,7 @@ function installCategoryControls() {
 
 function selectedItemIds() {
   return [...document.querySelectorAll("#launch-table-body tr[data-id]")]
-    .filter((row) => row.querySelector("input[type='checkbox']:checked"))
+    .filter((row) => row.querySelector("input.row-check:checked:not(:disabled)"))
     .map((row) => String(row.dataset.id ?? "").trim())
     .filter(Boolean);
 }

@@ -294,6 +294,7 @@ function renderMasterRow(product, index, workflowCache) {
       <td class="product-name"><strong>${escapeHtml(product.productName)}</strong></td>
       <td><span class="sync-status">핵심 원장</span></td>
       <td>${escapeHtml(options.join(", ") || "단품")}</td>
+      <td><span class="sync-status">재고 확인 대기</span></td>
       <td><span class="readiness-badge is-ready">원장 확인</span></td>
       ${stageCells}
       <td class="next-stage">OPS 재연결<span class="progress-text">핵심 원장은 정상</span></td>

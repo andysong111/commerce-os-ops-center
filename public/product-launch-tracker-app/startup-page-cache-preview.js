@@ -170,6 +170,7 @@ function renderRow(item) {
       <td class="product-name">${escapeHtml(item?.productName || "")}</td>
       <td class="category-cell">${escapeHtml(item?.shoplingCategory || "")}</td>
       <td class="options-cell">${escapeHtml(optionLabels.join(", "))}</td>
+      <td>${cacheBadge("서버 확인 중")}</td>
       <td>${cacheBadge(readiness)}</td>
       ${[
         "detailPage",
@@ -179,7 +180,7 @@ function renderRow(item) {
         "orderMapping",
         "inventoryReflection",
       ]
-        .map((key) => `<td>${cacheBadge(stages?.[key]?.status || "미시작")}</td>`)
+        .map((key) => `<td data-column-key="${key}">${cacheBadge(stages?.[key]?.status || "미시작")}</td>`)
         .join("")}
       <td class="next-stage">${escapeHtml(item?.nextStage || "")}<span class="progress-text">최근 정상 목록</span></td>
       <td class="row-actions">${cacheBadge("읽기 전용")}</td>
