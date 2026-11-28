@@ -10,8 +10,6 @@ const LEGACY_STAGE_LABELS = new Set([
   "주문 매핑",
   "재고 반영",
 ]);
-const ORIGINAL_TABLE_COLUMN_COUNT = 16;
-const LEGACY_ORIGINAL_CELL_INDEXES = [13, 12, 11, 9];
 const WORKFLOW_API_PATHS = new Set([
   "/api/product-launch-tracker/optimized",
   "/api/product-launch-tracker/normalized-optimized",
@@ -70,11 +68,13 @@ function pruneHeader() {
 function pruneRows() {
   const body = document.querySelector("#launch-table-body");
   if (!body) return;
-  for (const row of body.querySelectorAll("tr")) {
-    if (row.children.length < ORIGINAL_TABLE_COLUMN_COUNT) continue;
-    for (const index of LEGACY_ORIGINAL_CELL_INDEXES) {
-      row.children[index]?.remove();
-    }
+  for (const row of body.rows) pruneLegacyWorkflowRow(row);
+}
+
+export function pruneLegacyWorkflowRow(row) {
+  for (const cell of [...row.cells]) {
+    const key = cell.dataset.columnKey || cell.querySelector("[data-stage]")?.dataset.stage;
+    if (LEGACY_STAGE_KEYS.has(key)) cell.remove();
   }
 }
 

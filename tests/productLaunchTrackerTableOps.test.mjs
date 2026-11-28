@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  alignTableRow,
   applyInlineOptionLabels,
   buildFrozenColumnGeometry,
   DEFAULT_TABLE_COLUMN_ORDER,
@@ -10,6 +11,7 @@ import {
   normalizeColumnOrder,
   parseInlineOptionLabels,
 } from "../public/product-launch-tracker-app/lib/table-inline-ops.mjs";
+import { pruneLegacyWorkflowRow } from "../public/product-launch-tracker-app/workflow-stage-pruner.js";
 
 test("열 순서는 선택 열을 첫 번째로 유지하고 누락 열을 복원한다", () => {
   const order = normalizeColumnOrder([
@@ -23,6 +25,46 @@ test("열 순서는 선택 열을 첫 번째로 유지하고 누락 열을 복�
   assert.equal(order[1], "productName");
   assert.equal(order[2], "options");
   assert.deepEqual(new Set(order), new Set(DEFAULT_TABLE_COLUMN_ORDER));
+});
+
+test("재고 열이 있는 행과 헤더에서 이전 단계를 빼도 선택 열과 값이 같은 위치에 유지된다", () => {
+  const keys = ["select", "workBatch", "barcode", "modelNumber", "productName",
+    "shoplingCategory", "options", "stock", "readiness", "detailPage",
+    "priceKeyword", "shoplingUpload", "marketRegistration", "orderMapping",
+    "inventoryReflection", "nextStage", "manage"];
+  const layout = normalizeColumnOrder(["manage", "select", "workBatch", "barcode"]);
+  function makeRow(order, keyed) {
+    const row = {
+      children: [],
+      get cells() { return this.children; },
+      moves: 0,
+      insertBefore(cell, next) {
+        this.moves++;
+        this.children.splice(this.children.indexOf(cell), 1);
+        this.children.splice(next ? this.children.indexOf(next) : this.children.length, 0, cell);
+      },
+    };
+    row.children = order.map((key) => {
+      const legacy = ["priceKeyword", "marketRegistration", "orderMapping", "inventoryReflection"].includes(key);
+      const cell = {
+        dataset: keyed || !legacy ? { columnKey: key } : {},
+        querySelector: () => legacy ? { dataset: { stage: key } } : null,
+        remove: () => row.children.splice(row.children.indexOf(cell), 1),
+      };
+      return cell;
+    });
+    return row;
+  }
+  const header = makeRow(keys, true);
+  const row = makeRow(["stock", ...keys.filter((key) => key !== "stock")], false);
+  for (const element of [header, row]) {
+    pruneLegacyWorkflowRow(element);
+    alignTableRow(element, layout);
+    assert.deepEqual(element.children.map((cell) => cell.dataset.columnKey), layout);
+    const { moves } = element;
+    alignTableRow(element, layout);
+    assert.equal(element.moves, moves);
+  }
 });
 
 test("활성 상품출시 표는 상세페이지와 샵플링 업로드 두 단계만 유지한다", async () => {

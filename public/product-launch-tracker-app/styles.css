@@ -103,6 +103,16 @@ tbody tr.stock-partial-sold-out td { background: #fff7f7; }
 tbody tr.stock-partial-sold-out:hover td { background: #ffeded; }
 tbody tr.stock-unknown td { background: #fffbeb; }
 .check-column { width: 42px; text-align: center; }
+#launch-table-head .check-column,
+#launch-table-body .check-column {
+  position: sticky;
+  left: 0;
+  min-width: 42px;
+  z-index: 15;
+  background: #fff;
+  box-shadow: 1px 0 0 #dce5ef;
+}
+#launch-table-head .check-column { background: #eef4ff; }
 .model-number { color: #1d4ed8; font-weight: 800; white-space: nowrap; }
 .barcode-input { width: 92px; border: 1px solid #cfd8e5; border-radius: 7px; background: #fff; padding: 6px 7px; color: #1e40af; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .barcode-input:focus { border-color: #60a5fa; outline: none; box-shadow: 0 0 0 3px rgb(59 130 246 / 12%); }

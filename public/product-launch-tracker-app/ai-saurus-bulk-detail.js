@@ -5,7 +5,7 @@ const limit = 20;
 let pending = false;
 
 function selectedIds() {
-  return [...(table?.querySelectorAll("tr[data-id] input.row-check:checked") ?? [])]
+  return [...(table?.querySelectorAll("tr[data-id] input[data-ai-saurus-selection]:checked:not(:disabled)") ?? [])]
     .map((input) => input.closest("tr[data-id]")?.dataset.id).filter(Boolean);
 }
 

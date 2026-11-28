@@ -62,6 +62,7 @@ const state = {
   filterOptions: { batches: [], assignees: [] },
   policy: normalizePolicy(DEFAULT_POLICY),
   selectedIds: new Set(),
+  detailOnlyIds: new Set(),
   sort: { key: "", direction: "desc" },
   filters: {
     search: "",
@@ -527,7 +528,11 @@ function renderRow(item) {
   const seoExcluded = item.seoExclusion?.excluded === true;
   const stock = item.stockAvailability ?? {};
   const stockSelectable = stock.selectable === true;
-  const selected = !seoExcluded && stockSelectable && state.selectedIds.has(item.id);
+  const generalSelectable = isItemStockSelectable(item);
+  const detailOnly = isDetailOnlySelectable(item);
+  const selected = generalSelectable ? state.selectedIds.has(item.id) : detailOnly && state.detailOnlyIds.has(item.id);
+  const checkboxClass = detailOnly ? "ai-saurus-row-check" : "row-check";
+  const checkboxLabel = detailOnly ? `${item.modelNumber} AI 사우루스 제작용 선택` : `${item.modelNumber} 선택`;
   const optionLabels = Array.isArray(item.optionLabels) ? item.optionLabels : [];
   const optionLocations = Array.isArray(item.optionLocations) ? item.optionLocations : [];
   const multiOption = optionLocations.length >= 2;
@@ -551,7 +556,7 @@ function renderRow(item) {
     : item.readiness?.firstError || "";
   return `
     <tr data-id="${escapeAttribute(item.id)}" data-stock-selectable="${stockSelectable ? "true" : "false"}" class="${selected ? "is-selected" : ""} ${item.archivedAt ? "is-archived" : ""} ${receiptPending ? "is-receipt-pending" : ""} ${seoExcluded ? "is-seo-excluded" : ""} stock-${escapeAttribute(String(stock.status || "UNKNOWN").toLowerCase().replaceAll("_", "-"))}">
-      <td class="check-column" data-column-key="select"><input class="row-check" type="checkbox" ${selected ? "checked" : ""} ${seoExcluded || !stockSelectable ? "disabled" : ""} aria-label="${escapeAttribute(`${item.modelNumber} 선택`)}" /></td>
+      <td class="check-column" data-column-key="select"><input class="${checkboxClass}" type="checkbox" ${selected ? "checked" : ""} ${generalSelectable || detailOnly ? "" : "disabled"} ${item.archivedAt ? "" : "data-ai-saurus-selection"} aria-label="${escapeAttribute(checkboxLabel)}" ${detailOnly ? 'title="AI 사우루스 제작용으로만 선택됩니다."' : ""} /></td>
       <td class="cell-truncate" data-column-key="workBatch" title="${escapeAttribute(item.workBatch)}"><span class="optimized-row-number">#${number(item.trackerRowNumber ?? 0)}</span>${escapeHtml(item.workBatch)}${receiptPending ? '<span class="receipt-pending-badge">입고대기중</span>' : ""}${seoExcluded ? '<span class="receipt-pending-badge">SEO 제외</span>' : ""}</td>
       <td data-column-key="barcode">
         ${multiOption ? "" : `<input class="barcode-input optimized-inline-input" value="${escapeAttribute(item.barcode)}" placeholder="BAA1-1" autocomplete="off" data-last-committed="${escapeAttribute(item.barcode)}" aria-label="${escapeAttribute(item.modelNumber)} 기준 바코드" />`}
@@ -657,6 +662,13 @@ function handleTableChange(event) {
   const row = target.closest?.("tr[data-id]");
   if (!row) return;
   const itemId = String(row.dataset.id ?? "");
+  if (target.matches(".ai-saurus-row-check")) {
+    if (target.checked) state.detailOnlyIds.add(itemId);
+    else state.detailOnlyIds.delete(itemId);
+    row.classList.toggle("is-selected", target.checked);
+    updateSelectionUi();
+    return;
+  }
   if (target.matches(".row-check")) {
     if (target.checked) state.selectedIds.add(itemId);
     else state.selectedIds.delete(itemId);
@@ -891,7 +903,8 @@ function toggleVisibleSelection(event) {
 
 function clearSelection() {
   state.selectedIds.clear();
-  for (const checkbox of elements.tableBody?.querySelectorAll(".row-check") ?? []) {
+  state.detailOnlyIds.clear();
+  for (const checkbox of elements.tableBody?.querySelectorAll(".row-check, .ai-saurus-row-check") ?? []) {
     checkbox.checked = false;
     checkbox.closest("tr")?.classList.remove("is-selected");
   }
@@ -900,7 +913,8 @@ function clearSelection() {
 
 function updateSelectionUi() {
   if (elements.selectedCount) {
-    elements.selectedCount.textContent = `선택 ${number(state.selectedIds.size)}건`;
+    const detailOnly = state.detailOnlyIds.size;
+    elements.selectedCount.textContent = `선택 ${number(state.selectedIds.size)}건${detailOnly ? ` · 제작용 ${number(detailOnly)}건` : ""}`;
   }
   const visibleIds = state.items
     .filter(isItemStockSelectable)
@@ -933,10 +947,16 @@ function pruneSelection() {
       .map((item) => item.id),
   );
   state.selectedIds = new Set([...state.selectedIds].filter((id) => available.has(id)));
+  const detailAvailable = new Set(state.items.filter(isDetailOnlySelectable).map((item) => item.id));
+  state.detailOnlyIds = new Set([...state.detailOnlyIds].filter((id) => detailAvailable.has(id)));
 }
 
 function isItemStockSelectable(item) {
   return item.seoExclusion?.excluded !== true && item.stockAvailability?.selectable === true;
+}
+
+function isDetailOnlySelectable(item) {
+  return !item.archivedAt && !isItemStockSelectable(item);
 }
 
 async function selectFilteredSeoReadyItems() {

@@ -104,6 +104,7 @@ jobs:
           tests/productLaunchTrackerCategoryCancel.test.mjs
           tests/productLaunchTrackerSingleRowAdd.test.mjs
           tests/productLaunchTrackerTableOps.test.mjs
+          tests/productLaunchTrackerAiSaurusSelection.test.mjs
           tests/productLaunchTrackerChinaProductLinks.test.mjs
           tests/productLaunchTrackerChinaLinkHealth.test.mjs
           tests/productLaunchTrackerChinaOrderMappingActiveUi.test.mjs
