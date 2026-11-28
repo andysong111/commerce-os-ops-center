@@ -22,6 +22,7 @@ on:
       - 'src/components/shopling-category-review/**'
       - 'src/lib/detailPageManualDecision.ts'
       - 'src/lib/aiSaurusBulkDetail*.ts'
+      - 'src/lib/aiSaurusLaunchMaterials.ts'
       - 'src/lib/opsDetailDispatch.ts'
       - 'src/lib/extendedModuleRegistry.ts'
       - 'src/lib/opsWorkspace.ts'
@@ -44,6 +45,7 @@ on:
       - 'src/lib/openAiStructuredOutput.ts'
       - 'supabase/migrations/*product_launch*.sql'
       - 'supabase/migrations/*ai_saurus_detail_batches*.sql'
+      - 'supabase/migrations/*ai_saurus_review_decisions.sql'
       - 'supabase/migrations/*option_barcode*.sql'
       - 'supabase/migrations/*seo_run_shopling*.sql'
       - 'tests/productLaunchTracker*.test.mjs'
@@ -62,6 +64,8 @@ on:
       - 'tests/detailPageAssetStorageRetry.test.mjs'
       - 'tests/aiSaurusBulkDetailPreparation.test.mjs'
       - 'tests/aiSaurusBulkDetailLive.test.mjs'
+      - 'tests/aiSaurusReviewDecisions.pg.sql'
+      - 'scripts/test-ai-saurus-review-decisions-db.mjs'
       - 'tests/detailPageManualDecision.test.mjs'
       - 'tests/detailPageOpsV260807Connection.test.mjs'
       - 'tests/shoplingCategory*.test.mjs'
@@ -80,6 +84,10 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - name: Verify B-code review transitions in PostgreSQL
+        run: |
+          npm install --prefix "$RUNNER_TEMP/saurus-review-sql" --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.6.1
+          node scripts/test-ai-saurus-review-decisions-db.mjs "$RUNNER_TEMP/saurus-review-sql/node_modules/@electric-sql/pglite/dist/index.js"
       - name: Run product launch tracker tests
         run: >-
           npx tsx --test

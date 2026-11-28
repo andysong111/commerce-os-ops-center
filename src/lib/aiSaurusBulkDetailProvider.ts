@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { acceptSaurusHostedReceipt, object } from "./aiSaurusBulkDetailCore";
 import { readSaurusReviewAssets, saurusResultImageUrl } from "./aiSaurusReviewAssets";
-import type { AiSaurusBatchProduct, AiSaurusDetailBatch } from "./aiSaurusBulkDetailTypes";
+import { AI_SAURUS_MAX_ATTEMPTS, type AiSaurusBatchProduct, type AiSaurusDetailBatch } from "./aiSaurusBulkDetailTypes";
 import {
   canonicalOpsOffer, OPS_SAURUS_CONTRACT, OPS_SAURUS_PRODUCTION, OPS_SAURUS_STATUS_PATH,
   opsDetailSecret, signOpsDispatch, type OpsDetailDispatch,
@@ -72,7 +72,7 @@ export function startOpsSaurusProduct(
   release: Awaited<ReturnType<typeof readOpsSaurusRelease>>,
 ) {
   const product = batch.products.find((row) => row.id === id);
-  if (!product || product.stage !== "waiting_connection" || product.attempts >= 2 ||
+  if (!product || product.stage !== "waiting_connection" || product.attempts >= AI_SAURUS_MAX_ATTEMPTS ||
       batch.products.some((row) => row.stage === "running")) {
     throw new Error("현재 제작 중인 상품을 마치고 준비된 상품을 선택해 주세요.");
   }

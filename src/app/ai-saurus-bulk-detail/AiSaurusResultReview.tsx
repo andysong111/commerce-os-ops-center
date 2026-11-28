@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import AiSaurusReviewDecisions, { type ReviewAction } from "./AiSaurusReviewDecisions";
 import type { AiSaurusBatchProduct, AiSaurusHostedReceipt } from "@/lib/aiSaurusBulkDetailTypes";
 import {
   AI_SAURUS_REVIEW_ROLES, readSaurusReviewAssets, saurusResultImageUrl,
@@ -105,12 +106,15 @@ function ReviewContent({ receipt }: { receipt: AiSaurusHostedReceipt }) {
 }
 
 export default function AiSaurusResultReview({
-  item, receipt, index, count, onNavigate, onClose,
+  item, receipt, index, count, busy, error, onDecision, onNavigate, onClose,
 }: {
   item: AiSaurusBatchProduct;
   receipt: AiSaurusHostedReceipt;
   index: number;
   count: number;
+  busy: boolean;
+  error: string;
+  onDecision: (action: ReviewAction) => void;
   onNavigate: (offset: -1 | 1) => void;
   onClose: () => void;
 }) {
@@ -140,6 +144,11 @@ export default function AiSaurusResultReview({
           <button type="button" className={control} onClick={() => dialog.current?.close()}>닫기</button>
         </header>
         <ReviewContent key={item.id} receipt={receipt} />
+        {(item.stage === "awaiting_review" || item.stage === "approving") && (
+          <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 lg:px-5">
+            <AiSaurusReviewDecisions key={item.id} item={item} busy={busy} error={error} decide={onDecision} />
+          </footer>
+        )}
       </div>
     </dialog>
   );

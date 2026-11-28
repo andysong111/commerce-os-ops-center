@@ -1,18 +1,22 @@
 import { createHash } from "node:crypto";
 import { readChinaDetailPageLink, readChinaLinkUsage, readChinaPurchaseLink } from "../../public/product-launch-tracker-app/lib/china-product-links.mjs";
 import {
-  AI_SAURUS_BULK_LIMIT, AI_SAURUS_ORIGIN,
+  AI_SAURUS_BULK_LIMIT, AI_SAURUS_MAX_ATTEMPTS, AI_SAURUS_ORIGIN, hasSaurusRetryAvailable,
   type AiSaurusBatchProduct, type AiSaurusDetailBatch, type AiSaurusHostedReceipt,
   type AiSaurusRelease,
 } from "./aiSaurusBulkDetailTypes.ts";
 
 import { canonicalOpsOffer, type OpsDetailOptionHint } from "./opsDetailDispatch.ts";
+import {
+  sameSaurusLaunchMaterials, saurusApprovedMaterials, saurusLaunchMaterials, saurusProductBCodes,
+  type SaurusLaunchMaterials,
+} from "./aiSaurusLaunchMaterials.ts";
 
 type Item = Record<string, unknown>;
 const SAURUS_SOURCING_CUTOFF = Date.parse("2026-08-01T00:00:00+09:00");
 const HASH = /^[a-f0-9]{64}$/i;
 const SEMVER = /^\d+\.\d+\.\d+$/;
-const MAX_ATTEMPTS = 2;
+/* Attempts include the initial production request and one retry. */
 
 export function object(value: unknown): Item {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Item : {};
@@ -137,6 +141,7 @@ export function newSaurusBatch(id: string, ids: string[], sourceItems: Item[], n
     const product: AiSaurusBatchProduct = {
       id: itemId, model: text(item.modelNumber), name: text(item.productName),
       sourceUrl, originalDetailImageUrl: currentImage(item),
+      originalImageMaterials: saurusLaunchMaterials(item), bCodes: saurusProductBCodes(item),
       ...(isEligibleSourcingItem(item) ? { reviewOptions: sourcingOptionHints(item, sourceUrl) } : {}),
       catalogOptions, options: catalogOptions, stage: "draft", attempts: 0, inputHash: "",
     };
@@ -178,11 +183,18 @@ export function refreshSaurusPreparation(batch: AiSaurusDetailBatch, fresh: AiSa
     if (!current || batch.queuedIds?.includes(product.id) || !["draft", "waiting_connection"].includes(product.stage) ||
         (current.sourceUrl === product.sourceUrl && current.name === product.name && current.model === product.model &&
         current.originalDetailImageUrl === product.originalDetailImageUrl &&
+        JSON.stringify(current.bCodes) === JSON.stringify(product.bCodes) &&
+        Boolean(product.originalImageMaterials && sameSaurusLaunchMaterials(current.originalImageMaterials!, product.originalImageMaterials)) &&
         JSON.stringify(current.catalogOptions) === JSON.stringify(product.catalogOptions) &&
         sameSaurusReviewOptions(current.reviewOptions, product.reviewOptions))) return product;
     const options = JSON.stringify(product.options) === JSON.stringify(product.catalogOptions)
       ? current.options : product.options;
-    const next = { ...current, options };
+    const next = { ...current, options, attempts: product.attempts,
+      ...(product.attempts > 0 ? {
+        stage: product.stage, dispatch: product.dispatch, run: product.run, receipt: product.receipt,
+        bCodes: [...new Set([...(product.bCodes ?? []), ...(current.bCodes ?? [])])].sort(),
+      } : {}),
+    };
     return { ...next, inputHash: productInputHash(next) };
   });
   return products.every((product, index) => product === batch.products[index]) ? batch
@@ -212,7 +224,7 @@ export async function planSaurusRun(
   checks: SaurusRunChecks, limits: SaurusRunLimits,
 ) {
   if (!["waiting_connection", "waiting_1688_login"].includes(product.stage) ||
-      product.attempts >= MAX_ATTEMPTS || product.inputHash !== productInputHash(product) ||
+      product.attempts >= AI_SAURUS_MAX_ATTEMPTS || product.inputHash !== productInputHash(product) ||
       product.id !== currentItem.id || currentItem.archivedAt ||
       product.sourceUrl !== readChinaDetailPageLink(currentItem) || product.name !== text(currentItem.productName) ||
       !product.options.length || !is1688ProductUrl(product.sourceUrl)) {
@@ -252,7 +264,7 @@ export function planSaurusRetry(batch: AiSaurusDetailBatch, chosen: unknown, rec
   const ids = new Set(parseSaurusSelection(chosen));
   const selected = batch.products.filter((product) => ids.has(product.id));
   if (selected.length !== ids.size || selected.some((product) =>
-    product.stage !== "failed" || !product.run || product.attempts >= MAX_ATTEMPTS ||
+    product.stage !== "failed" || !product.run || product.attempts >= AI_SAURUS_MAX_ATTEMPTS ||
     !reconciledFailureKeys.has(product.run.attemptKey))) {
     throw new Error("실패와 비용 처리 여부가 확인된 상품만 다시 준비할 수 있습니다.");
   }
@@ -282,43 +294,124 @@ function validateSaurusHostedReceipt(product: AiSaurusBatchProduct, receipt: AiS
   return receipt;
 }
 
+export function requireSaurusProductIdentity(product: AiSaurusBatchProduct, item: Item | undefined) {
+  if (!item || item.archivedAt || item.id !== product.id || text(item.modelNumber) !== product.model) {
+    throw new Error("현재 B코드의 상품 정보와 제작 결과가 일치하지 않습니다.");
+  }
+  const bCodes = saurusProductBCodes(item);
+  if (product.bCodes?.length && product.bCodes.some((code) => !bCodes.includes(code))) {
+    throw new Error("제작 이후 상품 B코드가 변경됐습니다. 상품 정보를 확인해 주세요.");
+  }
+  return item;
+}
+
+export function requireSaurusReviewItem(product: AiSaurusBatchProduct, item: Item | undefined) {
+  const current = requireSaurusProductIdentity(product, item);
+  if (product.sourceUrl !== readChinaDetailPageLink(current) || product.name !== text(current.productName)) {
+    throw new Error("제작 이후 상품명 또는 제작용 링크가 변경됐습니다.");
+  }
+  return current;
+}
+
+function requireSaurusApprovalItem(product: AiSaurusBatchProduct, input: Item | undefined) {
+  const item = requireSaurusReviewItem(product, input);
+  const codes = saurusProductBCodes(item);
+  if (!codes.length) {
+    throw new Error("상품출시 진행관리에서 B코드를 확인한 뒤 승인해 주세요.");
+  }
+  if (product.bCodes?.length && product.bCodes.length !== codes.length) {
+    throw new Error("제작 이후 상품 B코드가 변경됐습니다. 상품 정보를 확인해 주세요.");
+  }
+  return { item, codes };
+}
+
+export function planSaurusReviewDecision(
+  batch: AiSaurusDetailBatch, ids: string[], items: Item[], decision: "retry" | "reject", now: string,
+) {
+  const chosen = new Set(ids);
+  return {
+    ...batch, revision: batch.revision + 1, updatedAt: now,
+    products: batch.products.map((product): AiSaurusBatchProduct => {
+      if (!chosen.has(product.id)) return product;
+      const current = items.find(({ id }) => id === product.id);
+      const item = decision === "reject"
+        ? requireSaurusProductIdentity(product, current)
+        : requireSaurusReviewItem(product, current);
+      if (!["awaiting_review", "failed"].includes(product.stage) ||
+          (decision === "retry" && !hasSaurusRetryAvailable(product))) {
+        throw new Error(decision === "retry"
+          ? "제작 재시도는 상품당 한 번만 가능합니다."
+          : "승인 대기 또는 제작 실패 상품을 거절할 수 있습니다.");
+      }
+      if (product.stage === "awaiting_review") {
+        if (!product.receipt) throw new Error("검수 결과를 확인하지 못했습니다.");
+        validateSaurusHostedReceipt({ ...product, stage: "running" }, product.receipt);
+      }
+      return { ...product,
+        stage: decision === "reject" ? "rejected" : "waiting_connection",
+        bCodes: saurusProductBCodes(item), error: undefined,
+      };
+    }),
+  };
+}
+
 export function planSaurusApproval(batch: AiSaurusDetailBatch, chosen: unknown, launchItems: Item[]) {
   const ids = parseSaurusSelection(chosen);
-  const updates = new Map<string, string>();
+  const updates = new Map<string, SaurusLaunchMaterials>();
   const providerJobs = new Set<string>();
   const costReceipts = new Set<string>();
   for (const id of ids) {
     const product = batch.products.find((row) => row.id === id);
-    const item = launchItems.find((row) => row.id === id);
-    if (!product?.receipt || !item || item.archivedAt ||
-        !["awaiting_review", "approved"].includes(product.stage) || product.inputHash !== productInputHash(product) ||
-        product.sourceUrl !== readChinaDetailPageLink(item) || product.name !== text(item.productName)) {
+    if (!product?.receipt || !["awaiting_review", "approving", "approved"].includes(product.stage) ||
+        product.inputHash !== productInputHash(product)) {
       throw new Error("현재 상품과 일치하는 검수 통과 결과만 승인할 수 있습니다.");
     }
-    const { hostedImageUrl, providerJobId, costReceiptId } = validateSaurusHostedReceipt({ ...product, stage: "running" }, product.receipt);
-    if (providerJobs.has(providerJobId) || costReceipts.has(costReceiptId)) {
+    const { item } = requireSaurusApprovalItem(product, launchItems.find((row) => row.id === id));
+    const receipt = validateSaurusHostedReceipt({ ...product, stage: "running" }, product.receipt);
+    if (providerJobs.has(receipt.providerJobId) || costReceipts.has(receipt.costReceiptId)) {
       throw new Error("여러 상품에 같은 제작 작업 또는 비용 영수증이 연결되어 있습니다.");
     }
-    providerJobs.add(providerJobId);
-    costReceipts.add(costReceiptId);
-    const current = currentImage(item);
-    if (current === hostedImageUrl) continue;
-    if (product.stage !== "awaiting_review" || current !== product.originalDetailImageUrl) {
-      throw new Error("기존 상세페이지 이미지 URL이 변경됐습니다. 최신 값을 먼저 확인해 주세요.");
+    providerJobs.add(receipt.providerJobId);
+    costReceipts.add(receipt.costReceiptId);
+    const imageMaterials = saurusApprovedMaterials(receipt, product.name);
+    const current = saurusLaunchMaterials(item);
+    if (sameSaurusLaunchMaterials(current, imageMaterials)) continue;
+    const original = product.originalImageMaterials;
+    if (product.stage === "approved" || (original
+      ? !sameSaurusLaunchMaterials(current, original)
+      : currentImage(item) !== product.originalDetailImageUrl)) {
+      throw new Error("제작 이후 상품에 저장된 이미지 자료가 변경됐습니다. 상품출시 진행관리에서 확인해 주세요.");
     }
-    updates.set(id, hostedImageUrl);
+    updates.set(id, imageMaterials);
   }
   return launchItems.map((item) => {
-    const url = updates.get(String(item.id));
-    return url ? { ...item, detailPageAsset: { ...object(item.detailPageAsset), detailImageUrl: url } } : item;
+    const materials = updates.get(String(item.id));
+    return materials ? { ...item, detailPageAsset: { ...object(item.detailPageAsset), ...materials } } : item;
   });
+}
+
+export function reserveSaurusApproval(batch: AiSaurusDetailBatch, ids: string[], items: Item[], now: string) {
+  const selected = new Set(ids);
+  const products = batch.products.map((product): AiSaurusBatchProduct => {
+    if (!selected.has(product.id) || product.stage !== "awaiting_review") return product;
+    const { item, codes } = requireSaurusApprovalItem(product, items.find(({ id }) => id === product.id));
+    const current = saurusLaunchMaterials(item);
+    if (!product.originalImageMaterials && currentImage(item) !== product.originalDetailImageUrl &&
+        (!product.receipt || !sameSaurusLaunchMaterials(current, saurusApprovedMaterials(product.receipt, product.name)))) {
+      throw new Error("제작 이후 상품에 저장된 이미지 자료가 변경됐습니다. 상품출시 진행관리에서 확인해 주세요.");
+    }
+    return { ...product, stage: "approving", bCodes: codes,
+      originalImageMaterials: product.originalImageMaterials ?? current };
+  });
+  if (products.every((product, index) => product === batch.products[index])) return batch;
+  return { ...batch, products, revision: batch.revision + 1, updatedAt: now };
 }
 
 export function confirmSaurusApprovalReadback(batch: AiSaurusDetailBatch, chosen: unknown, savedItems: Item[], now: string) {
   const ids = new Set(parseSaurusSelection(chosen));
   const expected = planSaurusApproval(batch, chosen, savedItems);
   if (expected.some((item, index) => item !== savedItems[index])) {
-    throw new Error("저장된 상세페이지 이미지 URL을 다시 확인하지 못했습니다.");
+    throw new Error("상세페이지·대표·부가 이미지 주소의 저장 결과를 다시 확인하지 못했습니다.");
   }
   return {
     ...batch, revision: batch.revision + 1, updatedAt: now,
